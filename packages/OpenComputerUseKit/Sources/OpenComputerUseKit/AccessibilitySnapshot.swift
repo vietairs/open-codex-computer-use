@@ -109,6 +109,10 @@ enum SnapshotBuilder {
         let systemWide = AXUIElementCreateSystemWide()
         var focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
         var focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        // AX tree is accessible for Stage Manager background apps without focus steal.
+        if focusedWindow == nil {
+            focusedWindow = firstAnyWindow(for: appElement)
+        }
         if focusedWindow == nil, recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
             focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
             focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
@@ -356,7 +360,8 @@ private struct WindowCapture {
     let image: CGImage?
 
     static func resolve(for pid: pid_t, titleHint: String?) -> WindowCapture? {
-        guard let infoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else {
+        // Query all windows (not just onscreen) so Stage Manager background apps are included.
+        guard let infoList = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
             return nil
         }
 
@@ -374,13 +379,15 @@ private struct WindowCapture {
 
             let title = info[kCGWindowName as String] as? String
             let area = Int(bounds.width * bounds.height)
+            let isOnscreen = info[kCGWindowIsOnscreen as String] as? Bool ?? false
             return WindowCaptureCandidate(
                 windowID: CGWindowID(number.uint32Value),
                 layer: layer,
                 bounds: bounds,
                 title: title,
                 area: area,
-                frontToBackIndex: offset
+                frontToBackIndex: offset,
+                isOnscreen: isOnscreen
             )
         }
 
@@ -388,7 +395,9 @@ private struct WindowCapture {
             return nil
         }
 
-        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
+        // Skip screenshot for off-screen windows (Stage Manager background strips):
+        // SCShareableContent only returns onscreen windows, so capture would return nil anyway.
+        let image = best.isOnscreen ? captureImage(windowID: best.windowID, bounds: best.bounds) : nil
 
         return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
     }
@@ -436,6 +445,7 @@ struct WindowCaptureCandidate {
     let title: String?
     let area: Int
     let frontToBackIndex: Int
+    let isOnscreen: Bool
 }
 
 func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], titleHint: String?) -> WindowCaptureCandidate? {
