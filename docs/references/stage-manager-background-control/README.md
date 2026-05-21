@@ -17,13 +17,13 @@ When using Stage Manager, a user may want the MCP to operate a background app (e
 
 **The technique exists and is proven** — see `docs/references/codex-computer-use-reverse-engineering/background-click-free-tooling.md` for the reverse-engineering that identified it. It is **not yet wired into the production Swift code**.
 
-The 5 gaps to close, in order:
+Reviewed against **v0.1.51** (2026-05-20). `dragTargeted` already exists and is background-safe — original Gap 4 was incorrect. **4 gaps remain:**
 
-1. `AccessibilitySnapshot.swift:359` — drop `optionOnScreenOnly`, skip `activate()` for off-screen windows
-2. `InputSimulation.swift:70` — add `clickBackgrounded` using `CGEventSetWindowLocation` + CGEvent fields 91/92
-3. `ComputerUseService.swift` — wire `clickBackgrounded` when `targetWindowID` is available
-4. `AccessibilitySnapshot.swift:396` — return AX-tree-only result (no screenshot) for off-screen windows
-5. `ComputerUseService.swift:583` — add activate-temporarily fallback for `type_text`
+1. `AccessibilitySnapshot.swift:359` — drop `optionOnScreenOnly`, skip `activate()` at line 192 for off-screen windows
+2. `InputSimulation.swift` — add `clickBackgrounded` using `CGEventSetWindowLocation` + CGEvent fields 91/92
+3. `ComputerUseService.swift:1668` — wire `clickBackgrounded` when `targetWindowID` is available
+4. `AccessibilitySnapshot.swift:396` — return AX-tree-only result with note when window off-screen (ScreenCaptureKit also cannot capture Stage Manager background windows)
+5. `ComputerUseService.swift:572` — add activate-temporarily fallback for `type_text` (guard at `canTypeTextUsingKeyboardFallback` line 1235 blocks background apps)
 
 ## Key private API
 
