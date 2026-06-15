@@ -31,6 +31,12 @@
   - session 级审批
   - 更清楚的敏感 app / 系统设置防护策略
 
+## Lock Guard 与 App-Screen 不变量
+
+- `MacSessionGuard` 在每个 tool call 入口检查 `CGSessionCopyCurrentDictionary` 的锁定状态；当字典缺失、为空或解析失败时一律视为已锁（fail-closed），返回 "Lock state unknown" 指示器，不允许任何 `list_apps` / `get_app_state` / action tool 执行。
+- `AppScreenSession` 维护严格的目标屏幕不变量：action call 执行前会比对 pid、target window ID、window bounds（8pt 容差）和截图像素尺寸；任一维度变更时返回 `appScreenStaleStateError`，要求 caller 先重新调用 `get_app_state`。
+- 状态菜单（`ControlStatusMenuController`）的诊断信息只暴露 toolName、app name / bundle id、pid 和连接数，不暴露 element labels、raw action args、截图数据或 AX 文本。
+
 ## Fixture Bridge 约束
 
 - `FixtureBridge` 只用于仓库内测试夹具，不是给第三方 app 的控制平面。

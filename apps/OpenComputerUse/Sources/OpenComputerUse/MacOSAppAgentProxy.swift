@@ -156,6 +156,8 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     private let socketPath: String
     private var listener: AppAgentSocketListener?
     private var turnEndedObserver: NSObjectProtocol?
+    private let connectionID = ControlConnectionID()
+    private var statusMenu: ControlStatusMenuController?
 
     private init(socketPath: String) {
         self.socketPath = socketPath
@@ -171,6 +173,26 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register app-agent mode connection
+        ControlActivityStore.shared.registerConnection(connectionID, isAppAgentMode: true)
+
+        // Install status menu — restart enabled in app-agent mode
+        let menu = ControlStatusMenuController()
+        menu.restartAction = { [weak self] in
+            self?.restartAgent()
+        }
+        menu.openPermissionWindowAction = {
+            PermissionOnboardingApp.present()
+        }
+        menu.copyDiagnosticsAction = { [weak self] in
+            self?.copyDiagnosticsToClipboard()
+        }
+        menu.quitAction = {
+            NSApp.terminate(nil)
+        }
+        menu.install()
+        statusMenu = menu
+
         turnEndedObserver = DistributedNotificationCenter.default().addObserver(
             forName: openComputerUseTurnEndedNotificationName,
             object: nil,
@@ -195,7 +217,28 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         if let turnEndedObserver {
             DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
         }
+        ControlActivityStore.shared.unregisterConnection(connectionID)
+        statusMenu?.uninstall()
         listener?.stop()
+    }
+
+    private func restartAgent() {
+        // Terminate this agent instance; the proxy will relaunch a fresh one on next connection
+        listener?.stop()
+        NSApp.terminate(nil)
+    }
+
+    private func copyDiagnosticsToClipboard() {
+        let permissions = PermissionDiagnostics.current()
+        let lines: [String] = [
+            "Open Computer Use diagnostics",
+            "Mode: app-agent",
+            "",
+            permissions.summary,
+        ]
+        let text = lines.joined(separator: "\n")
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
