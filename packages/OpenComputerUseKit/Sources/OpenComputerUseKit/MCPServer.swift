@@ -70,6 +70,9 @@ public final class StdioMCPServer {
                 VisualCursorSupport.performOnMain {
                     SoftwareCursorOverlay.reset()
                 }
+                Task { @MainActor in
+                    ControlActivityStore.shared.markTurnEnded(connectionID: nil)
+                }
                 return nil
             case "ping":
                 return try encodeJSONRPCResult(id: id, result: [:])
