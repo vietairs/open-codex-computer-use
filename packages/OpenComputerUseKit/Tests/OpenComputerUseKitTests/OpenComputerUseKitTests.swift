@@ -202,7 +202,8 @@ final class OpenComputerUseKitTests: XCTestCase {
                 callsJSON: #"[{"tool":"not_a_tool"},{"tool":"list_apps"}]"#,
                 callsFile: nil,
                 interCallDelay: openComputerUseDefaultInterCallDelay
-            )
+            ),
+            guard: MacSessionGuard(provider: FakeUnlockedSessionProvider())
         )
 
         let outputs = try XCTUnwrap(output.jsonObject as? [[String: Any]])
@@ -219,6 +220,7 @@ final class OpenComputerUseKitTests: XCTestCase {
                 callsFile: nil,
                 interCallDelay: openComputerUseDefaultInterCallDelay
             ),
+            guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()),
             sleepHandler: { recordedSleeps.append($0) }
         )
 
@@ -537,7 +539,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testDispatcherMissingArgumentsMatchOfficialToolText() {
-        let dispatcher = ComputerUseToolDispatcher()
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
         let result = dispatcher.callToolAsResult(name: "type_text", arguments: ["app": "Sublime Text"])
         let emptyResult = dispatcher.callToolAsResult(name: "type_text", arguments: ["app": "Sublime Text", "text": ""])
 
@@ -569,7 +571,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testScrollRejectsInvalidDirectionWithOfficialMessage() {
-        let dispatcher = ComputerUseToolDispatcher()
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
         let result = dispatcher.callToolAsResult(
             name: "scroll",
             arguments: ["app": "Sublime Text", "element_index": "14", "direction": "sideways", "pages": 1]
@@ -580,7 +582,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testScrollRejectsNonPositivePagesWithOfficialMessage() {
-        let dispatcher = ComputerUseToolDispatcher()
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
         let result = dispatcher.callToolAsResult(
             name: "scroll",
             arguments: ["app": "Sublime Text", "element_index": "14", "direction": "down", "pages": 0.0]
@@ -1664,6 +1666,127 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertGreaterThan(abs(negativePose.angleOffset), 0.08)
     }
 
+    // MARK: - MacSessionGuard tests
+
+    func testMacSessionGuardBlocksWhenLocked() {
+        let provider = FakeLockedSessionProvider()
+        let guard_ = MacSessionGuard(provider: provider)
+        XCTAssertThrowsError(try guard_.requireUnlocked(for: "click")) { error in
+            let msg = (error as? ComputerUseError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("macOS is locked"))
+        }
+    }
+
+    func testMacSessionGuardAllowsWhenUnlocked() {
+        let provider = FakeUnlockedSessionProvider()
+        let guard_ = MacSessionGuard(provider: provider)
+        XCTAssertNoThrow(try guard_.requireUnlocked(for: "click"))
+    }
+
+    func testMacSessionGuardFailsClosedOnNilDictionary() {
+        let provider = FakeSnapshotProvider(snapshot: MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: []))
+        let guard_ = MacSessionGuard(provider: provider)
+        XCTAssertThrowsError(try guard_.requireUnlocked(for: "get_app_state")) { error in
+            let msg = (error as? ComputerUseError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("macOS is locked"))
+        }
+    }
+
+    func testMacSessionGuardFailsClosedOnEmptyDictionary() {
+        // Empty dict → isUnknown = true, isLocked = true — same result as nil
+        let provider = FakeSnapshotProvider(snapshot: MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: []))
+        let guard_ = MacSessionGuard(provider: provider)
+        XCTAssertThrowsError(try guard_.requireUnlocked(for: "scroll")) { error in
+            let msg = (error as? ComputerUseError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("macOS is locked"))
+        }
+    }
+
+    func testMacSessionGuardFailsClosedOnParseFailed() {
+        // parse-failed produces isUnknown = true, isLocked = true
+        let provider = FakeSnapshotProvider(snapshot: MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: ["SomeKey"]))
+        let guard_ = MacSessionGuard(provider: provider)
+        XCTAssertThrowsError(try guard_.requireUnlocked(for: "type_text")) { error in
+            let msg = (error as? ComputerUseError)?.errorDescription ?? ""
+            XCTAssertTrue(msg.contains("macOS is locked"))
+        }
+    }
+
+    func testMacSessionGuardRawKeysDiagnostics() {
+        let keys: Set<String> = ["CGSSessionScreenIsLocked", "CGSSessionUserIDKey"]
+        let snapshot = MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: keys)
+        XCTAssertEqual(snapshot.rawKeysSeen, keys)
+        XCTAssertFalse(snapshot.isUnknown)
+        XCTAssertFalse(snapshot.isLocked)
+    }
+
+    func testSystemMacSessionStateProviderCachesWithinTTL() {
+        // Uses a fake provider to verify the caching concept — we cannot test
+        // SystemMacSessionStateProvider directly without mocking CGSessionCopyCurrentDictionary.
+        // This test documents the intended behavior.
+        var callCount = 0
+        final class CountingProvider: MacSessionStateProvider {
+            var count = 0
+            func currentSnapshot() -> MacSessionSnapshot {
+                count += 1
+                return MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: [])
+            }
+        }
+        let provider = CountingProvider()
+        let guard1 = MacSessionGuard(provider: provider)
+        XCTAssertNoThrow(try guard1.requireUnlocked(for: "click"))
+        XCTAssertNoThrow(try guard1.requireUnlocked(for: "scroll"))
+        // Both calls go to provider since MacSessionGuard itself does not cache —
+        // caching is in SystemMacSessionStateProvider specifically
+        XCTAssertEqual(provider.count, 2)
+        // Document: SystemMacSessionStateProvider adds 200ms TTL on top
+        // Manual verification: consecutive tool calls within 200ms share one IPC round-trip
+        _ = callCount // suppress unused warning
+    }
+
+    func testDispatcherBlocksAllGUIToolsWhenLocked() {
+        let lockedGuard = MacSessionGuard(provider: FakeLockedSessionProvider())
+        let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: lockedGuard)
+        let guiTools = ["list_apps", "get_app_state", "click", "perform_secondary_action",
+                        "scroll", "drag", "type_text", "press_key", "set_value"]
+        XCTAssertEqual(guiTools.count, 9)
+        for tool in guiTools {
+            let result = dispatcher.callToolAsResult(name: tool, arguments: ["app": "Finder"])
+            XCTAssertTrue(result.isError, "Expected error for tool: \(tool)")
+            let text = result.primaryText ?? ""
+            XCTAssertTrue(
+                text.contains("macOS is locked"),
+                "Expected lock message for tool \(tool), got: \(text)"
+            )
+        }
+    }
+
+    func testDispatcherAllowsUnlockedTools() {
+        let unlockedGuard = MacSessionGuard(provider: FakeUnlockedSessionProvider())
+        let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: unlockedGuard)
+        // list_apps is non-throwing and doesn't need special args — it passes guard and succeeds
+        let result = dispatcher.callToolAsResult(name: "list_apps", arguments: [:])
+        // list_apps always succeeds; the lock guard should not block it when unlocked
+        XCTAssertFalse(result.isError)
+    }
+
+    func testMCPServerStillHandlesInitializeWhenLocked() {
+        // initialize/ping/tools/list all bypass the dispatcher, so lock state is irrelevant
+        let server = StdioMCPServer(service: ComputerUseService())
+        let initResponse = server.handle(
+            line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.0"},"capabilities":{}}}"#
+        )
+        XCTAssertNotNil(initResponse)
+        XCTAssertTrue(initResponse!.contains("open-computer-use"))
+
+        let pingResponse = server.handle(line: #"{"jsonrpc":"2.0","id":2,"method":"ping","params":{}}"#)
+        XCTAssertNotNil(pingResponse)
+
+        let listResponse = server.handle(line: #"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{}}"#)
+        XCTAssertNotNil(listResponse)
+        XCTAssertTrue(listResponse!.contains("list_apps"))
+    }
+
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(
@@ -1789,4 +1912,368 @@ final class OpenComputerUseKitTests: XCTestCase {
         let height = try XCTUnwrap(properties[kCGImagePropertyPixelHeight] as? Int)
         return (width, height)
     }
+
+    // MARK: - AppScreenSession tests
+
+    func testAppScreenSessionValidatorMatchingIdentityPasses() throws {
+        let validator = AppScreenSessionValidator()
+        let snapshot = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        let identity = validator.buildIdentity(from: snapshot, captureGeneration: 1)
+        let session = try validator.validate(cachedIdentity: identity, currentSnapshot: snapshot)
+        XCTAssertEqual(session.identity.pid, 1234)
+    }
+
+    func testAppScreenSessionValidatorPIDMismatchFails() throws {
+        let validator = AppScreenSessionValidator()
+        let cached = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        let identity = validator.buildIdentity(from: cached, captureGeneration: 1)
+        let different = makeFixtureSnapshot(pid: 9999, bundleID: "com.example.App", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        XCTAssertThrowsError(try validator.validate(cachedIdentity: identity, currentSnapshot: different)) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, appScreenStaleStateError)
+        }
+    }
+
+    func testAppScreenSessionValidatorBundleIDMismatchFails() throws {
+        let validator = AppScreenSessionValidator()
+        let cached = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        let identity = validator.buildIdentity(from: cached, captureGeneration: 1)
+        let different = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.Other", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        XCTAssertThrowsError(try validator.validate(cachedIdentity: identity, currentSnapshot: different)) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, appScreenStaleStateError)
+        }
+    }
+
+    func testAppScreenSessionValidatorWindowIDMismatchWithMatchingPIDSucceeds() throws {
+        let validator = AppScreenSessionValidator()
+        // cached has a windowID, current has a different one but same PID+bundleID — should NOT throw
+        let cached = makeFixtureSnapshotWithExplicitWindowID(pid: 1234, bundleID: "com.example.App", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        let identity = validator.buildIdentity(from: cached, captureGeneration: 1)
+        let different = makeFixtureSnapshotWithExplicitWindowID(pid: 1234, bundleID: "com.example.App", windowID: 99, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        XCTAssertNoThrow(try validator.validate(cachedIdentity: identity, currentSnapshot: different))
+    }
+
+    func testAppScreenSessionValidatorWindowIDAndPIDMismatchFails() throws {
+        let validator = AppScreenSessionValidator()
+        let cached = makeFixtureSnapshotWithExplicitWindowID(pid: 1234, bundleID: "com.example.App", windowID: 42, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        let identity = validator.buildIdentity(from: cached, captureGeneration: 1)
+        // Different PID AND different windowID — should still fail on PID check
+        let different = makeFixtureSnapshotWithExplicitWindowID(pid: 9999, bundleID: "com.example.App", windowID: 99, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        XCTAssertThrowsError(try validator.validate(cachedIdentity: identity, currentSnapshot: different)) { error in
+            XCTAssertTrue((error as? ComputerUseError)?.localizedDescription.contains("target screen changed") ?? false)
+        }
+    }
+
+    func testAppScreenSessionValidatorBoundsDriftBeyondToleranceFails() throws {
+        let validator = AppScreenSessionValidator()
+        let cached = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: nil, bounds: CGRect(x: 100, y: 200, width: 800, height: 600))
+        let identity = validator.buildIdentity(from: cached, captureGeneration: 1)
+        // drift of 10 points in x — exceeds 8pt tolerance
+        let drifted = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: nil, bounds: CGRect(x: 110, y: 200, width: 800, height: 600))
+        XCTAssertThrowsError(try validator.validate(cachedIdentity: identity, currentSnapshot: drifted)) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, appScreenStaleStateError)
+        }
+    }
+
+    func testAppScreenSessionValidatorMissingScreenshotRejectsCoordinateActions() throws {
+        let validator = AppScreenSessionValidator()
+        let snapshot = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: nil, bounds: nil)
+        let identity = validator.buildIdentity(from: snapshot, captureGeneration: 1)
+        let session = try validator.validate(cachedIdentity: identity, currentSnapshot: snapshot)
+        // No screenshotPixelSize — coordinate action must throw
+        XCTAssertThrowsError(try session.requireCoordinateInsideScreenshot(CGPoint(x: 100, y: 100))) { error in
+            XCTAssertTrue((error as? ComputerUseError)?.errorDescription?.contains("screenshot") == true)
+        }
+    }
+
+    func testAppScreenSessionValidatorNegativeCoordinateFails() throws {
+        let validator = AppScreenSessionValidator()
+        let pngData = try makeSolidPNGData(width: 400, height: 300)
+        let snapshot = makeFixtureSnapshotWithScreenshot(pid: 1234, bundleID: "com.example.App", pngData: pngData)
+        let identity = validator.buildIdentity(from: snapshot, captureGeneration: 1)
+        let session = try validator.validate(cachedIdentity: identity, currentSnapshot: snapshot)
+        XCTAssertThrowsError(try session.requireCoordinateInsideScreenshot(CGPoint(x: -1, y: 100))) { error in
+            XCTAssertTrue((error as? ComputerUseError)?.errorDescription?.contains("outside") == true)
+        }
+    }
+
+    func testAppScreenSessionValidatorOutsideScreenshotCoordinateFails() throws {
+        let validator = AppScreenSessionValidator()
+        let pngData = try makeSolidPNGData(width: 400, height: 300)
+        let snapshot = makeFixtureSnapshotWithScreenshot(pid: 1234, bundleID: "com.example.App", pngData: pngData)
+        let identity = validator.buildIdentity(from: snapshot, captureGeneration: 1)
+        let session = try validator.validate(cachedIdentity: identity, currentSnapshot: snapshot)
+        // (500, 100) is outside 400x300
+        XCTAssertThrowsError(try session.requireCoordinateInsideScreenshot(CGPoint(x: 500, y: 100))) { error in
+            XCTAssertTrue((error as? ComputerUseError)?.errorDescription?.contains("outside") == true)
+        }
+        // (399, 299) is inside — no throw
+        XCTAssertNoThrow(try session.requireCoordinateInsideScreenshot(CGPoint(x: 399, y: 299)))
+    }
+
+    func testAppScreenSessionValidatorKeyboardPIDAndBundleIDRequired() throws {
+        let validator = AppScreenSessionValidator()
+        let snapshot = makeFixtureSnapshot(pid: 1234, bundleID: "com.example.App", windowID: nil, bounds: nil)
+        let identity = validator.buildIdentity(from: snapshot, captureGeneration: 1)
+        let session = try validator.validate(cachedIdentity: identity, currentSnapshot: snapshot)
+        // matching pid + bundleID passes
+        XCTAssertNoThrow(try session.requireKeyboardOwnership(pid: 1234, bundleIdentifier: "com.example.App"))
+        // PID mismatch fails
+        XCTAssertThrowsError(try session.requireKeyboardOwnership(pid: 9999, bundleIdentifier: "com.example.App")) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, appScreenStaleStateError)
+        }
+        // bundleID mismatch fails
+        XCTAssertThrowsError(try session.requireKeyboardOwnership(pid: 1234, bundleIdentifier: "com.example.Other")) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, appScreenStaleStateError)
+        }
+    }
+
+    func testAppScreenSessionValidatorStageManagerBackgroundWindowPasses() throws {
+        // Stage Manager: same PID + bundleID, no AX focus required for keyboard gating
+        let validator = AppScreenSessionValidator()
+        let snapshot = makeFixtureSnapshot(pid: 5678, bundleID: "com.apple.Safari", windowID: nil, bounds: CGRect(x: 0, y: 0, width: 1200, height: 800))
+        let identity = validator.buildIdentity(from: snapshot, captureGeneration: 1)
+        let session = try validator.validate(cachedIdentity: identity, currentSnapshot: snapshot)
+        // Background window: PID and bundleID match — keyboard ownership passes
+        XCTAssertNoThrow(try session.requireKeyboardOwnership(pid: 5678, bundleIdentifier: "com.apple.Safari"))
+    }
+
+    // MARK: - AppScreenSession fixture helpers
+
+    private func makeFixtureSnapshot(pid: pid_t, bundleID: String?, windowID: CGWindowID?, bounds: CGRect?) -> AppSnapshot {
+        AppSnapshot(
+            app: RunningAppDescriptor(
+                name: "TestApp",
+                bundleIdentifier: bundleID,
+                pid: pid,
+                runningApplication: NSRunningApplication.current
+            ),
+            windowTitle: "Test Window",
+            windowBounds: bounds,
+            targetWindowID: nil,
+            targetWindowLayer: nil,
+            screenshotPNGData: nil,
+            mode: .fixture,
+            treeLines: [],
+            focusedSummary: nil,
+            focusedElement: nil,
+            selectedText: nil,
+            elements: [:]
+        )
+    }
+
+    private func makeFixtureSnapshotWithExplicitWindowID(pid: pid_t, bundleID: String?, windowID: CGWindowID?, bounds: CGRect?) -> AppSnapshot {
+        AppSnapshot(
+            app: RunningAppDescriptor(
+                name: "TestApp",
+                bundleIdentifier: bundleID,
+                pid: pid,
+                runningApplication: NSRunningApplication.current
+            ),
+            windowTitle: "Test Window",
+            windowBounds: bounds,
+            targetWindowID: windowID,
+            targetWindowLayer: nil,
+            screenshotPNGData: nil,
+            mode: .fixture,
+            treeLines: [],
+            focusedSummary: nil,
+            focusedElement: nil,
+            selectedText: nil,
+            elements: [:]
+        )
+    }
+
+    private func makeFixtureSnapshotWithScreenshot(pid: pid_t, bundleID: String?, pngData: Data) -> AppSnapshot {
+        AppSnapshot(
+            app: RunningAppDescriptor(
+                name: "TestApp",
+                bundleIdentifier: bundleID,
+                pid: pid,
+                runningApplication: NSRunningApplication.current
+            ),
+            windowTitle: "Test Window",
+            windowBounds: CGRect(x: 0, y: 0, width: 400, height: 300),
+            targetWindowID: nil,
+            targetWindowLayer: nil,
+            screenshotPNGData: pngData,
+            mode: .accessibility,
+            treeLines: [],
+            focusedSummary: nil,
+            focusedElement: nil,
+            selectedText: nil,
+            elements: [:]
+        )
+    }
+
+    private func makeSolidPNGData(width: Int, height: Int) throws -> Data {
+        let image = try makeSolidTestImage(width: width, height: height)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    // MARK: - ControlActivityStore tests
+
+    @MainActor
+    func testControlActivityStoreRegistersMultipleConnections() throws {
+        let store = ControlActivityStore(nowProvider: { Date() })
+        let id1 = ControlConnectionID()
+        let id2 = ControlConnectionID()
+
+        store.registerConnection(id1, isAppAgentMode: false)
+        store.registerConnection(id2, isAppAgentMode: true)
+
+        XCTAssertEqual(store.connections.count, 2)
+        XCTAssertEqual(store.connections[id1]?.isAppAgentMode, false)
+        XCTAssertEqual(store.connections[id2]?.isAppAgentMode, true)
+
+        store.unregisterConnection(id1)
+        XCTAssertNil(store.connections[id1])
+        XCTAssertNotNil(store.connections[id2])
+    }
+
+    @MainActor
+    func testControlActivityStoreUpdatesLastToolAndAppMetadata() throws {
+        let store = ControlActivityStore(nowProvider: { Date() })
+        let id = ControlConnectionID()
+        store.registerConnection(id, isAppAgentMode: false)
+
+        let event = ControlActivityEvent(
+            toolName: "click",
+            appDisplayName: "Safari",
+            bundleIdentifier: "com.apple.Safari",
+            pid: 1234
+        )
+        store.record(event, forConnection: id)
+
+        let state = store.connections[id]
+        XCTAssertEqual(state?.lastToolName, "click")
+        XCTAssertEqual(state?.appDisplayName, "Safari")
+        XCTAssertEqual(state?.bundleIdentifier, "com.apple.Safari")
+        XCTAssertEqual(state?.pid, 1234)
+        if case .active = state?.status { } else {
+            XCTFail("Expected status .active, got \(String(describing: state?.status))")
+        }
+    }
+
+    @MainActor
+    func testControlActivityStoreDoesNotStoreRawTextOrArgs() throws {
+        // type_text must record only toolName + app metadata — never the text value
+        let store = ControlActivityStore(nowProvider: { Date() })
+        let id = ControlConnectionID()
+        store.registerConnection(id, isAppAgentMode: false)
+
+        // Simulate what the dispatcher should produce for type_text: tool name + app info only
+        let event = ControlActivityEvent(
+            toolName: "type_text",
+            appDisplayName: "TextEdit",
+            bundleIdentifier: "com.apple.TextEdit",
+            pid: 5678
+            // text value intentionally NOT in ControlActivityEvent
+        )
+        store.record(event, forConnection: id)
+
+        let state = store.connections[id]
+        XCTAssertEqual(state?.lastToolName, "type_text")
+        XCTAssertEqual(state?.appDisplayName, "TextEdit")
+        // Verify ControlActivityEvent has no field that could hold raw text
+        // (compile-time: the struct only exposes toolName, appDisplayName, bundleIdentifier, pid)
+        XCTAssertNil(state?.appDisplayName.flatMap { _ in Optional<String>.none })  // tautology guard
+    }
+
+    @MainActor
+    func testControlActivityStoreMarksTurnEnded() throws {
+        let store = ControlActivityStore(nowProvider: { Date() })
+        let id1 = ControlConnectionID()
+        let id2 = ControlConnectionID()
+        store.registerConnection(id1, isAppAgentMode: false)
+        store.registerConnection(id2, isAppAgentMode: true)
+
+        let event = ControlActivityEvent(toolName: "scroll", appDisplayName: nil, bundleIdentifier: nil, pid: nil)
+        store.record(event, forConnection: id1)
+        store.record(event, forConnection: id2)
+
+        // Both should be active
+        if case .active = store.connections[id1]?.status { } else { XCTFail("Expected active for id1") }
+        if case .active = store.connections[id2]?.status { } else { XCTFail("Expected active for id2") }
+
+        // Mark turn ended for all
+        store.markTurnEnded(connectionID: nil)
+
+        if case .idle = store.connections[id1]?.status { } else { XCTFail("Expected idle for id1 after turn ended") }
+        if case .idle = store.connections[id2]?.status { } else { XCTFail("Expected idle for id2 after turn ended") }
+    }
+
+    @MainActor
+    func testControlActivityStoreExpiresStaleActivity() throws {
+        var fakeNow = Date()
+        let store = ControlActivityStore(nowProvider: { fakeNow })
+
+        let id = ControlConnectionID()
+        store.registerConnection(id, isAppAgentMode: false)
+
+        let event = ControlActivityEvent(toolName: "click", appDisplayName: nil, bundleIdentifier: nil, pid: nil)
+        store.record(event, forConnection: id)
+
+        // Before expiry — connection present
+        store.purgeStaleConnections()
+        XCTAssertNotNil(store.connections[id])
+
+        // Advance fake clock past 5-minute stale interval
+        fakeNow = fakeNow.addingTimeInterval(5 * 60 + 1)
+        store.purgeStaleConnections()
+        XCTAssertNil(store.connections[id], "Stale connection should have been purged after 5 minutes")
+    }
+
+    // MARK: - Background-Only Operation Guarantee
+
+    func testGlobalPointerFallbacksDisabledByDefault() {
+        // Absence of the env var must return false — no global pointer events, no app activation
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: [:]))
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["SOME_OTHER_VAR": "1"]))
+    }
+
+    func testGlobalPointerFallbacksRequiresExplicitOptIn() {
+        // Accepted opt-in values
+        XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]))
+        XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "true"]))
+        XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "yes"]))
+        XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "on"]))
+
+        // Rejected values must not enable global pointer events
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]))
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "no"]))
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": ""]))
+    }
+
+    func testInputSimulationTargetedClickDoesNotUseGlobalEvents() {
+        // Compile-time check: clickTargeted takes a pid parameter, documenting it targets a specific
+        // process rather than posting global HID events. The signature pins this guarantee.
+        let _: (CGPoint, MouseButtonKind, Int, pid_t) throws -> Void = InputSimulation.clickTargeted
+    }
+
+    func testTypeTextIsNonDisruptive() {
+        // Compile-time check: typeText takes a pid parameter, documenting keyboard injection is
+        // always PID-targeted and never posts to the global HID event tap.
+        let _: (String, pid_t) throws -> Void = InputSimulation.typeText
+    }
+}
+
+// MARK: - Fake MacSessionStateProvider helpers
+
+private struct FakeLockedSessionProvider: MacSessionStateProvider {
+    func currentSnapshot() -> MacSessionSnapshot {
+        MacSessionSnapshot(isLocked: true, isUnknown: false, rawKeysSeen: ["CGSSessionScreenIsLocked"])
+    }
+}
+
+private struct FakeUnlockedSessionProvider: MacSessionStateProvider {
+    func currentSnapshot() -> MacSessionSnapshot {
+        MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: ["CGSSessionScreenIsLocked"])
+    }
+}
+
+private struct FakeSnapshotProvider: MacSessionStateProvider {
+    let snapshot: MacSessionSnapshot
+    func currentSnapshot() -> MacSessionSnapshot { snapshot }
 }

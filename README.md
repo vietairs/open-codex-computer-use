@@ -37,6 +37,10 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 
 <sub><em>`open-computer-use` running on Linux.</em></sub>
 
+## Limitations
+
+**Lock Screen:** True macOS Lock Screen is not supported. `CGSessionCopyCurrentDictionary` is unavailable to unprivileged processes when the session is locked; any lock-state evidence that is absent, nil, or unparseable is treated as locked (fail-closed). For unattended GUI automation, use a dedicated logged-in desktop session — do not rely on this tool to operate through Lock Screen.
+
 ## Quick Start
 
 ```bash

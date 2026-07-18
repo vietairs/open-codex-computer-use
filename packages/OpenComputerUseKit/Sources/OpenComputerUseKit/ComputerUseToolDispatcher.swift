@@ -2,12 +2,16 @@ import Foundation
 
 public final class ComputerUseToolDispatcher {
     private let service: ComputerUseService
+    private let macSessionGuard: MacSessionGuard
 
-    public init(service: ComputerUseService = ComputerUseService()) {
+    public init(service: ComputerUseService = ComputerUseService(), guard macSessionGuard: MacSessionGuard = MacSessionGuard()) {
         self.service = service
+        self.macSessionGuard = macSessionGuard
     }
 
     public func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
+        // Activity recording MUST NOT occur before this line — record only at the MCP layer (MCPServer/runtime) after the guard passes.
+        try macSessionGuard.requireUnlocked(for: name)
         switch name {
         case "list_apps":
             return service.listApps()
@@ -151,9 +155,10 @@ public typealias OpenComputerUseSleepHandler = (TimeInterval) -> Void
 public func runOpenComputerUseCall(
     _ invocation: OpenComputerUseCallInvocation,
     service: ComputerUseService = ComputerUseService(),
+    guard macSessionGuard: MacSessionGuard = MacSessionGuard(),
     sleepHandler: OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) }
 ) throws -> OpenComputerUseCallOutput {
-    let dispatcher = ComputerUseToolDispatcher(service: service)
+    let dispatcher = ComputerUseToolDispatcher(service: service, guard: macSessionGuard)
 
     switch invocation {
     case let .single(toolName, argumentsJSON, argumentsFile):

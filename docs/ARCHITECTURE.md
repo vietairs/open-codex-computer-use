@@ -85,7 +85,34 @@
   - `drag` 仍是 coordinate-only API，但默认不再使用全局 `.cghidEventTap` mouse event；默认改为 `CGEvent.postToPid` 定向发送 mouse move / down / dragged / up 事件，避免移动用户真实硬件光标；这些 coordinate tool 的 `x/y` 先按 screenshot pixel 坐标解释，再依据截图像素尺寸与目标 window bounds 的比例映射回 window point / Quartz global 坐标，避免 Retina 窗口上把 2x 像素误当成 1x point 导致点击落到错误位置
   - `click` / `scroll` / `drag` 默认不会走全局 `.cghidEventTap`，因此不会移动或抢占用户真实鼠标；`OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 只作为本地诊断开关保留，不作为正常 OCU/OBU 验证路径。默认路径不再为了 fallback 调用 `NSRunningApplication.activate`
 
-### 4. Fixture Bridge
+**Input simulation is PID-targeted by default.** All keyboard and mouse events are dispatched to the target app's PID via `CGEvent.postToPid` or AX `performAction`, so the target app does not need to be frontmost and the user's hardware cursor is never moved. Global pointer fallbacks (`clickGlobally` / `scrollGlobally` / `dragGlobally`) exist in the codebase but are gated behind `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` and are never active in production use. This design enables full background operation — MCP tools can drive any app without stealing focus or disrupting the user's active workflow.
+
+### 4. Lock Screen Guard & App-Screen Session
+
+新增三个模块，统一由 `ComputerUseToolDispatcher` 在 tool call 入口处协调：
+
+**`MacSessionGuard`** (`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MacSessionGuard.swift`)
+- 每次 tool call 入口调用 `CGSessionCopyCurrentDictionary` 检查 `CGSSessionScreenIsLocked` 键。
+- 字典缺失、为空或解析失败 → `isUnknown = true`，视为已锁（fail-closed），返回错误并记录 "Lock state unknown" 指示器。
+- `tools/list` 调用不受 lock guard 拦截。
+- 协议：`MacSessionStateProvider`（可注入用于单元测试）；真实实现：`SystemMacSessionStateProvider`。
+
+**`AppScreenSession`** (`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AppScreenSession.swift`)
+- 维护 `SnapshotIdentity`（pid、target window ID、window bounds、截图像素尺寸、captureGeneration）。
+- action call 执行前与保存的 identity 比对；bounds 超 8pt 容差、windowID 变更、pid/截图尺寸变化 → 返回 `appScreenStaleStateError`，要求重新 `get_app_state`。
+- `get_app_state` 成功后更新 identity；turn-ended 不清除（连续 turn 间可复用）。
+
+**`ControlActivityStore`** (`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ControlActivityStore.swift`)
+- 汇总所有连接的状态（idle / active / locked / permissionMissing / recentError）。
+- `ControlActivityEvent` 只携带 toolName、app name/bundle id、pid，不携带 args/文本/截图。
+- 供 `ControlStatusMenuController` 订阅，驱动状态菜单 UI。
+
+**`ControlStatusMenuController`** (`apps/OpenComputerUse/Sources/OpenComputerUse/ControlStatusMenuController.swift`)
+- 在 App Mode (app-agent) 运行时呈现 macOS 菜单栏状态项，显示连接数和最近活动。
+- Restart 菜单项：app-agent 模式启用；direct AppKit MCP 模式禁用（宿主需自行重启进程）。
+- 诊断文本 Copy 只包含元数据，不含 AX 树内容或 action 参数。
+
+### 5. Fixture Bridge
 
 - `OpenComputerUseFixture` 会把自己的窗口与元素状态写到临时 JSON 文件。
 - 对 fixture 的 `get_app_state` 和少量测试专用动作，会通过 `FixtureBridge` 走显式 command 通道。

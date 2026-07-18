@@ -26,6 +26,32 @@
 4. 如果只想验证仓库基线，直接跑 fixture + smoke，不要先在复杂第三方 app 上排查。
 5. 排查 Linux runtime 时，先确认目标命令是否由桌面用户运行，再用 `open-computer-use call list_apps` 和 `open-computer-use snapshot <app>` 区分 session/env 问题与 AT-SPI tree/action 问题。如果是 Codex MCP，重新执行 `open-computer-use install-codex-mcp` 后重启 Codex，确认配置仍是 `open-computer-use mcp`。
 
+## Lock Screen / Stale-Target / 状态菜单排查
+
+**锁定 session：**
+- 症状：所有 tool（除 `tools/list`）返回 "Session is locked" 或 "Lock state unknown"。
+- 排查：`CGSessionCopyCurrentDictionary` 在用户 session 锁定或不可用时返回 nil；fail-closed 行为是预期设计，不是 bug。
+- 解决：解锁当前 macOS 用户 session 后重试。真正的 Lock Screen 场景不受支持，请使用已登录桌面 session 做无人值守自动化。
+
+**Stale target（目标窗口发生变化）：**
+- 症状：action tool 返回 "Computer Use target screen changed. Call get_app_state for this app before acting again."
+- 原因：目标 app 的 pid、window ID、bounds 或截图尺寸在上一次 `get_app_state` 之后发生了变化（超过 8pt 容差）。
+- 解决：重新调用 `get_app_state` 取最新快照，再执行 action。
+
+**状态菜单 Restart 不可用：**
+- 症状：状态菜单的 "Restart" 菜单项在 direct AppKit MCP 模式下显示为禁用。
+- 原因：`ControlStatusMenuController` 只在 app-agent 模式下启用 Restart；direct 模式需要由宿主重新 launch，无法从 MCP 进程内部触发。
+- 解决：如需在 direct 模式重启，在宿主侧手动重启 `open-computer-use mcp` 进程。Restart 仅对通过 CLI 启动的 app-agent 会话有效。
+
+## Background-Only Operation Guarantee
+
+By default, all MCP tool operations target apps by PID using accessibility APIs and targeted CGEvents — no app activation (`NSRunningApplication.activate`) is ever called on the normal path.
+
+- `globalPointerFallbacksEnabled()` returns `false` unless `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` is set; the global pointer paths (`clickGlobally` / `scrollGlobally` / `dragGlobally`) are never invoked without this explicit opt-in.
+- Keyboard events use `CGEvent.postToPid` with the target PID; the target app need not be frontmost.
+- Mouse events use `AXUIElement` `performAction` or `CGEvent.postToPid` targeted to the app's PID; no front-most requirement exists.
+- This guarantees MCP tools do not steal focus, move the user's hardware cursor, or interrupt the user's active workflow.
+
 ## 后续补强方向
 
 - 增加结构化日志和失败原因分类。
