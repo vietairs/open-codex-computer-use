@@ -47,10 +47,17 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 npm i -g open-computer-use
 ```
 
+The npm package also exposes `ocu` as the short CLI alias.
+
+> [!IMPORTANT]
+> The macOS runtime requires macOS 14.0 or later.
+
 **On macOS, run it once and grant `Accessibility` and `Screen Recording`. Windows and Linux do not need this step.**
 
 ```bash
 open-computer-use
+# or
+ocu
 ```
 
 Before using it, install it into your agent:
@@ -105,6 +112,7 @@ Besides the MCP JSON config above, you can also use the built-in commands:
 ```bash
 # Install into Codex by writing to ~/.codex/config.toml
 open-computer-use install-codex-mcp
+ocu install-codex-mcp
 
 # Install as a Codex plugin, mainly for Codex App
 open-computer-use install-codex-plugin
@@ -123,6 +131,7 @@ open-computer-use install-opencode-mcp
 
 # Call a single Computer Use tool and print the MCP-style JSON result
 open-computer-use call list_apps
+ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 
 # Run a sequence in one process so element_index state can be reused
@@ -133,8 +142,22 @@ open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
 
+# Run local validation from a source checkout
+make smoke
+OPEN_COMPUTER_USE_STRESS_LOOPS=20 make stress
+make agent-smoke
+make agent-smoke SCENARIO=fixture-full
+node ./scripts/run-agent-smoke-tests.mjs --agents=claude,codex --command=open-computer-use
+node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture --agents=claude,codex --command=open-computer-use
+node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=claude,codex --command=open-computer-use
+OPEN_COMPUTER_USE_HERMES_PROVIDER=anthropic OPEN_COMPUTER_USE_HERMES_MODEL=claude-opus-4-20250514 make agent-smoke AGENTS=hermes SCENARIO=fixture-full
+node ./scripts/run-agent-smoke-tests.mjs --agents=hermes --hermes-provider=anthropic --hermes-model=claude-opus-4-20250514
+node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture --agents=hermes --hermes-provider=anthropic --hermes-model=claude-opus-4-20250514
+node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=hermes --hermes-provider=anthropic --hermes-model=claude-opus-4-20250514 --hermes-max-turns=12
+
 # Show help
 open-computer-use -h
+ocu -h
 ```
 
 ## Cursor Motion
