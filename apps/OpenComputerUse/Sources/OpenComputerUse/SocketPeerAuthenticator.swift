@@ -10,6 +10,15 @@ enum SocketPeerAuthenticator {
     // The agent's own Team Identifier, resolved once. nil for unsigned/ad-hoc dev builds.
     static let agentTeamIdentifier: String? = resolveSelfTeamIdentifier()
 
+    // Human-readable enforcement state for diagnostics — makes the silent same-uid fallback
+    // (unsigned/ad-hoc agent) observable instead of only a one-time stderr line.
+    static var statusDescription: String {
+        if let team = agentTeamIdentifier, !team.isEmpty {
+            return "active (same-uid + code-signature pin, team \(team))"
+        }
+        return "same-uid only — agent unsigned/ad-hoc, code-signature pin INACTIVE"
+    }
+
     static func authenticate(fileDescriptor fd: Int32) -> AppAgentPeerAuthDecision {
         var peerUID = uid_t()
         var peerGID = gid_t()

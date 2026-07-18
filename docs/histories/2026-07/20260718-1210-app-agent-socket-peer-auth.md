@@ -18,7 +18,7 @@
 - **[验证]**: +5 策略单测（uid 不符、签名同队放行、签名 agent 拒绝不符对端、未签名回退、未签名仍拒绝异 uid）；共 177 测试全绿；full workspace build 通过。
 
 ### 🧠 Design Intent (Why)
-锁屏放行（`OPEN_COMPUTER_USE_ALLOW_LOCKED`）让 agent 可在锁屏时驱动 app，但 app-agent 常驻进程持有 TCC 授权、socket 仅靠 0600 同 uid 权限，任意同 uid 进程都可复用其授权（confused deputy）。对端签名认证要求连接方与 agent 同开发者签名，才关闭该风险，使锁屏放行在已签名发布版本中可辩护。未签名 dev 无法做签名校验，显式退化为同 uid 并提示，保证本地开发可用。
+锁屏放行（`OPEN_COMPUTER_USE_ALLOW_LOCKED`）让 agent 可在锁屏时驱动 app，但 app-agent 常驻进程持有 TCC 授权、socket 仅靠 0600 同 uid 权限，任意同 uid 进程都可复用其授权（confused deputy）。对端签名认证要求连接方与 agent 同开发者签名，**抬高门槛**——挡掉外部/未签名/异开发者二进制直接连接。但需如实说明其边界（经 codex + Fable-max 交叉复审确认）：签名校验不能区分合法运维方与同 uid 攻击者，后者可 `exec` 那份合法签名 CLI 中转命令，故**未真正关闭**同 uid confused-deputy；不可信主机仍应使用独立登录 session。未签名 dev 退化为同 uid 并提示，且已在 `copyDiagnostics` 暴露该状态。
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AppAgentPeerAuthPolicy.swift`

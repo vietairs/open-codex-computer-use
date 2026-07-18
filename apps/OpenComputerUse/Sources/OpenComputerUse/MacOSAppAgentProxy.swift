@@ -242,6 +242,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         let lines: [String] = [
             "Open Computer Use diagnostics",
             "Mode: app-agent",
+            "Socket peer-auth: \(SocketPeerAuthenticator.statusDescription)",
             "",
             permissions.summary,
         ]
