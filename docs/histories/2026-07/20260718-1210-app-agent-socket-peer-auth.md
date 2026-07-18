@@ -29,3 +29,7 @@
 - `docs/ARCHITECTURE.md`
 - `docs/SECURITY.md`
 - `docs/histories/2026-07/20260718-1210-app-agent-socket-peer-auth.md`
+
+### 🔁 Follow-up
+- 交叉复审跟进项 #2 已落地：release 构建现在 fail-closed —— 签名会回退到 ad-hoc/无签名时，`build-open-computer-use-app.sh` 直接报错拒绝构建，避免发布版本静默退化为仅同 uid trust。
+- override env：`OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1`（设置后脚本打印醒目 WARNING，peer-auth 仍不生效）。
