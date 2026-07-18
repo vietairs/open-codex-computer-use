@@ -39,7 +39,9 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 
 ## Limitations
 
-**Lock Screen:** True macOS Lock Screen is not supported. `CGSessionCopyCurrentDictionary` is unavailable to unprivileged processes when the session is locked; any lock-state evidence that is absent, nil, or unparseable is treated as locked (fail-closed). For unattended GUI automation, use a dedicated logged-in desktop session — do not rely on this tool to operate through Lock Screen.
+**Lock Screen:** By default, Computer Use is blocked while macOS is locked (fail-closed). `CGSessionCopyCurrentDictionary` is unavailable to unprivileged processes when the session is locked; any lock-state evidence that is absent, nil, or unparseable is treated as locked. For fully attended, screenshot-driven automation, unlock the Mac or use a dedicated logged-in desktop session.
+
+For unattended agents (Claude Code, Codex) that must keep working while the screen is locked, set `OPEN_COMPUTER_USE_ALLOW_LOCKED=1` to opt into **best-effort** control while locked. This works because every action tool delivers input process-targeted — accessibility actions (`AXUIElementPerformAction` / `AXUIElementSetAttributeValue`) or `CGEvent.postToPid`, never the global HID event tap — which keeps functioning while the login window owns the screen. Under this opt-in an agent can still read the accessibility tree via `get_app_state` and drive an accessibility-controllable app with element-targeted `click` / `type_text` / `scroll` / `set_value`. **Known limitations while locked:** window screenshots return blank (macOS blocks capture for security, so `get_app_state` yields the AX tree without an image) and coordinate-only paths that need a visible cursor are unreliable — prefer element-targeted (`element_index`) actions. The default remains fail-closed; this flag is off unless you set it explicitly.
 
 ## Quick Start
 

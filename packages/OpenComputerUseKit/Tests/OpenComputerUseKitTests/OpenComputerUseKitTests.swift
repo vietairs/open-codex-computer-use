@@ -1500,7 +1500,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 100, y: 100, width: 800, height: 600),
             title: "Nomi",
             area: 480_000,
-            frontToBackIndex: 1
+            frontToBackIndex: 1,
+            isOnscreen: true
         )
         let openPanel = WindowCaptureCandidate(
             windowID: 2,
@@ -1508,7 +1509,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 120, y: 180, width: 880, height: 448),
             title: "Open",
             area: 394_240,
-            frontToBackIndex: 0
+            frontToBackIndex: 0,
+            isOnscreen: true
         )
 
         let selected = preferredWindowCaptureCandidate([openPanel, main], titleHint: "Nomi")
@@ -1523,7 +1525,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 100, y: 100, width: 800, height: 600),
             title: "Nomi",
             area: 480_000,
-            frontToBackIndex: 1
+            frontToBackIndex: 1,
+            isOnscreen: true
         )
         let other = WindowCaptureCandidate(
             windowID: 2,
@@ -1531,7 +1534,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             bounds: CGRect(x: 1_200, y: 100, width: 400, height: 300),
             title: "Utility",
             area: 120_000,
-            frontToBackIndex: 0
+            frontToBackIndex: 0,
+            isOnscreen: true
         )
 
         let selected = preferredWindowCaptureCandidate([other, main], titleHint: "Nomi")
@@ -1993,6 +1997,67 @@ final class OpenComputerUseKitTests: XCTestCase {
                 "Expected lock message for tool \(tool), got: \(text)"
             )
         }
+    }
+
+    func testLockPolicyDefaultsToBlockWhenEnvironmentUnset() {
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment([:]), .blockWhileLocked)
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": "0"]), .blockWhileLocked)
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": "false"]), .blockWhileLocked)
+        XCTAssertEqual(MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": "nonsense"]), .blockWhileLocked)
+    }
+
+    func testLockPolicyParsesAllowValuesFromEnvironment() {
+        for value in ["1", "true", "TRUE", "  yes  ", "on", "allow"] {
+            XCTAssertEqual(
+                MacSessionLockPolicy.fromEnvironment(["OPEN_COMPUTER_USE_ALLOW_LOCKED": value]),
+                .allowWhileLocked,
+                "Expected allow policy for env value: \(value)"
+            )
+        }
+    }
+
+    func testGuardBlocksWhenLockedUnderDefaultPolicy() {
+        // Explicit policy makes the default fail-closed contract independent of the test env.
+        let guard_ = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .blockWhileLocked)
+        XCTAssertThrowsError(try guard_.requireUnlocked(for: "click"))
+    }
+
+    func testGuardAllowsAllToolsWhenLockedUnderOptInPolicy() {
+        let guard_ = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .allowWhileLocked)
+        let tools = ["list_apps", "get_app_state", "click", "perform_secondary_action",
+                     "scroll", "drag", "type_text", "press_key", "set_value"]
+        for tool in tools {
+            XCTAssertNoThrow(try guard_.requireUnlocked(for: tool), "Opt-in policy should permit \(tool) while locked")
+        }
+    }
+
+    func testGuardAllowsToolsWhenLockStateUnknownUnderOptInPolicy() {
+        // Unknown lock state (dict absent/unparseable) still fails closed by default, but the
+        // opt-in accepts the same best-effort risk the operator asked for.
+        let unknownLocked = FakeSnapshotProvider(
+            snapshot: MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: [])
+        )
+        let blockGuard = MacSessionGuard(provider: unknownLocked, policy: .blockWhileLocked)
+        XCTAssertThrowsError(try blockGuard.requireUnlocked(for: "click"))
+        let allowGuard = MacSessionGuard(provider: unknownLocked, policy: .allowWhileLocked)
+        XCTAssertNoThrow(try allowGuard.requireUnlocked(for: "click"))
+    }
+
+    func testGuardStillAllowsEverythingWhenUnlockedRegardlessOfPolicy() {
+        for policy in [MacSessionLockPolicy.blockWhileLocked, .allowWhileLocked] {
+            let guard_ = MacSessionGuard(provider: FakeUnlockedSessionProvider(), policy: policy)
+            XCTAssertNoThrow(try guard_.requireUnlocked(for: "click"))
+        }
+    }
+
+    func testDispatcherAllowsAXToolsWhenLockedWithOptIn() {
+        // With opt-in, the guard no longer short-circuits: list_apps passes the guard and runs
+        // (it needs no live UI, so it succeeds), proving locked no longer blocks unconditionally.
+        let optInGuard = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .allowWhileLocked)
+        let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: optInGuard)
+        let result = dispatcher.callToolAsResult(name: "list_apps", arguments: [:])
+        XCTAssertFalse(result.isError)
+        XCTAssertFalse((result.primaryText ?? "").contains("macOS is locked"))
     }
 
     func testDispatcherAllowsUnlockedTools() {

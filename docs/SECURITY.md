@@ -33,7 +33,9 @@
 
 ## Lock Guard 与 App-Screen 不变量
 
-- `MacSessionGuard` 在每个 tool call 入口检查 `CGSessionCopyCurrentDictionary` 的锁定状态；当字典缺失、为空或解析失败时一律视为已锁（fail-closed），返回 "Lock state unknown" 指示器，不允许任何 `list_apps` / `get_app_state` / action tool 执行。
+- `MacSessionGuard` 在每个 tool call 入口检查 `CGSessionCopyCurrentDictionary` 的锁定状态；当字典缺失、为空或解析失败时一律视为已锁（fail-closed），返回 "Lock state unknown" 指示器。
+- 默认策略 `.blockWhileLocked`：锁定时不允许任何 `list_apps` / `get_app_state` / action tool 执行，安全保证与原先一致。
+- 显式 opt-in `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`（`.allowWhileLocked`）：放行锁屏 best-effort 控制。这是运维方主动承担的风险选择——只有设置该环境变量才会改变行为；未设置时保持 fail-closed。放行仅改变 guard 是否拦截，不绕过 Accessibility 权限（仍需系统授权）、不落盘截图、也不启用全局 HID event tap（`globalPointerFallbacksEnabled()` 默认仍为 false）。锁定时窗口截图受系统安全限制返回空图。
 - `AppScreenSession` 维护严格的目标屏幕不变量：action call 执行前会比对 pid、target window ID、window bounds（8pt 容差）和截图像素尺寸；任一维度变更时返回 `appScreenStaleStateError`，要求 caller 先重新调用 `get_app_state`。
 - 状态菜单（`ControlStatusMenuController`）的诊断信息只暴露 toolName、app name / bundle id、pid 和连接数，不暴露 element labels、raw action args、截图数据或 AX 文本。
 

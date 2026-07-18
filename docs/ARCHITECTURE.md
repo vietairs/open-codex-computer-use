@@ -94,6 +94,9 @@
 **`MacSessionGuard`** (`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MacSessionGuard.swift`)
 - 每次 tool call 入口调用 `CGSessionCopyCurrentDictionary` 检查 `CGSSessionScreenIsLocked` 键。
 - 字典缺失、为空或解析失败 → `isUnknown = true`，视为已锁（fail-closed），返回错误并记录 "Lock state unknown" 指示器。
+- **锁屏策略 `MacSessionLockPolicy`**（`.fromEnvironment()` 读取 `OPEN_COMPUTER_USE_ALLOW_LOCKED`）：
+  - `.blockWhileLocked`（默认）：锁定时拒绝所有 action tool，行为与原先一致。
+  - `.allowWhileLocked`（`OPEN_COMPUTER_USE_ALLOW_LOCKED=1` 显式开启）：锁定时放行所有 tool，做 best-effort 控制。可行的原因是所有 action 都走 process-targeted 投递（AX `performAction`/`setAttributeValue` 或 `CGEvent.postToPid`，默认不经过全局 HID event tap），登录窗口占据屏幕时仍能送达目标进程。首次放行时向 stderr 打印一次降级提示。**锁定时的限制**：窗口截图返回空图（系统安全限制，`get_app_state` 只回传 AX tree 不含 image），依赖可见光标的 coordinate-only 路径不可靠 —— 应优先用 `element_index` 定位的 action。
 - `tools/list` 调用不受 lock guard 拦截。
 - 协议：`MacSessionStateProvider`（可注入用于单元测试）；真实实现：`SystemMacSessionStateProvider`。
 
