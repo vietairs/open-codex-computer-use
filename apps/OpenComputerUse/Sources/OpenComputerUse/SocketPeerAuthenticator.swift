@@ -10,6 +10,10 @@ enum SocketPeerAuthenticator {
     // The agent's own Team Identifier, resolved once. nil for unsigned/ad-hoc dev builds.
     static let agentTeamIdentifier: String? = resolveSelfTeamIdentifier()
 
+    // The agent's own bundle identifier (nil when not running from a bundle). Used to pin the
+    // peer requirement to this specific app — the legit CLI client runs from the same app bundle.
+    static let agentBundleIdentifier: String? = Bundle.main.bundleIdentifier
+
     // Human-readable enforcement state for diagnostics — makes the silent same-uid fallback
     // (unsigned/ad-hoc agent) observable instead of only a one-time stderr line.
     static var statusDescription: String {
@@ -74,9 +78,17 @@ enum SocketPeerAuthenticator {
         }
 
         // Requirement: Apple-issued anchor AND the leaf certificate's Team Identifier (subject.OU)
-        // equals the agent's. This is the standard cross-binary "same developer" pin used for XPC
-        // peer hardening — a self-signed or differently-signed binary cannot satisfy it.
-        let requirementString = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        // equals the agent's — the standard cross-binary "same developer" pin (a self-signed or
+        // differently-signed binary cannot satisfy it). When the agent runs from a bundle we also
+        // pin the bundle identifier, narrowing "any binary from this team" to this specific app.
+        //
+        // NOTE (documented in docs/SECURITY.md): this authenticates the connecting PROCESS, not who
+        // invoked it. A same-uid actor can still exec the legitimate signed CLI as a relay, so this
+        // is defense-in-depth, not a same-uid confused-deputy fix.
+        var requirementString = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        if let bundleID = Self.agentBundleIdentifier, !bundleID.isEmpty {
+            requirementString = "anchor apple generic and identifier \"\(bundleID)\" and certificate leaf[subject.OU] = \"\(team)\""
+        }
         var requirement: SecRequirement?
         let satisfies: Bool
         if SecRequirementCreateWithString(requirementString as CFString, [], &requirement) == errSecSuccess {
