@@ -31,14 +31,32 @@ this session own the console." FUS-away hands the console to another session, so
 session's value is definitionally `false` → `parseSnapshot` returns `isLocked=true` (fail-closed).
 The off-console branch is also already unit-tested.
 
-## Human recipe to close the box (unchanged, ~1 min)
-From an SSH/tmux session that will survive the switch:
-1. `OPEN_COMPUTER_USE_LIVE_PROBE=1 swift test --filter testLiveSystemProbePrintsRealLockState`
-   once while on-console (sanity: prints `isLocked=false`).
-2. At the physical Mac, fast-user-switch away (or open a second account's login window), leaving the
-   SSH session running.
-3. Re-run the same command from the still-open SSH session. Expect `isLocked=true`.
+## Human recipe (attempted with user, ~12:00–13:11)
+1. Baseline confirmed on-console: `OPEN_COMPUTER_USE_LIVE_PROBE=1 swift test --filter
+   testLiveSystemProbePrintsRealLockState` printed `isLocked=false isUnknown=false` while the user
+   was active (matches automation sample above).
+2. Blocked on step 2 (fast-user-switch away): this Mac has **no inbound SSH** and **Fast User
+   Switching is disabled** — the Apple menu shows only About/Settings/App Store/Recent
+   Items/Force Quit/Sleep/Restart/Shut Down/Lock Screen/Log Out, no "Login Window..." or user list.
+   Enabling FUS requires a System Settings change (Control Center toggle); the only other way to
+   get off-console is Log Out, which ends the session entirely rather than switching it to the
+   background — not equivalent to the intended test and destructive to the working session.
+
+## Decision — accepted risk, closed without live off-console verification
+User chose to accept this as residual risk rather than force a system-setting change or logout
+just to run the test. Closed out in PR #5 body (checklist item now `[x]` marked
+"closed out as accepted risk" with explanation) and via PR comment
+(https://github.com/vietairs/open-codex-computer-use/pull/5#issuecomment-5018428722).
+
+Confidence basis for accepting: (1) automated `SACSwitchToLoginWindow` call from a background
+process returns `EINVAL` — the switch is gated to real interactive GUI action, so this box is
+non-automatable in principle, not just inconvenient here; (2) `kCGSSessionOnConsoleKey` is defined
+as "session owns console" — FUS-away flips it to `false` by definition for the departed session;
+(3) the off-console branch (`false` → `isLocked=true`, fail-closed) is already covered by
+`parseSnapshot` unit tests, so the logic path itself has test coverage even without a live OS
+round-trip.
 
 ## Merge status
 Nothing else blocks merge: suite green (192/1 skipped), all independent reviews PASS/clean, ship-gate
-PASS. This one box is the sole remaining item and is human-only by OS constraint.
+PASS. The FUS-via-SSH box is now closed as an accepted, documented residual risk — no live
+off-console verification was obtained on this machine, and that limitation is recorded in the PR.
