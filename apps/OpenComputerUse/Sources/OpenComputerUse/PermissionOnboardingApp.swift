@@ -140,10 +140,18 @@ extension PermissionWindowController: PermissionContentControllerDelegate {
             return
         }
 
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = true
-        configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration) { _, _ in }
+        // Screen-recording authorization is cached per-process by WindowServer at
+        // launch time. If the replacement instance starts while this process is
+        // still alive/connected, it inherits the stale "not granted" state and the
+        // onboarding screen loops forever (Allow -> Restart -> Allow...) even
+        // though the toggle is ON in System Settings. Spawn the new instance from
+        // a detached helper *after* this process has fully quit, instead of
+        // racing NSWorkspace.openApplication against NSApp.terminate.
+        let relaunchTask = Process()
+        relaunchTask.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relaunchTask.arguments = ["-c", "sleep 0.6; /usr/bin/open -n \"\(appURL.path)\""]
+        try? relaunchTask.run()
+
         NSApp.terminate(nil)
     }
 }
