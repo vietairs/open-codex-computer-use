@@ -13,5 +13,7 @@
 - [x] 10. code-review ∥ security-scan — done 11:22/11:18 — reports/code-review-260720-mac-session-guard-diff-report.md (DONE_WITH_CONCERNS, process-only), reports/security-scan-260720-mac-session-guard-diff-report.md (DONE, clean)
 - [x] 11. codex adversarial-review <diff> (hop3 Claude opus fallback, folds in stage 6) — done 11:26 — reports/codex-adversarial-diff-review-260720-report.md — Verdict: PASS
 - [x] 12. ship-gate --hard — done 11:30 — reports/ship-gate-260720-mac-session-guard-verdict.md — Verdict: PASS, merge-ready pending human-only FUS-via-SSH check (PR checklist)
-- [ ] 13. ship: commit → push → draft PR → pre-merge review & fix → merge-ready — pending
-- [ ] 14. deferred: post-merge base sync + worktree teardown (later resume) — pending
+- [x] 13. ship: commit(6c40919,84d7e83) → push → draft PR #5 (https://github.com/vietairs/open-codex-computer-use/pull/5) — done 11:34 — pre-merge review consolidated (auto-decisions #10, no CI configured, no new commits since diff review) → merge-ready comment posted; STOPPED here, no merge
+- [x] 14. FUS-via-SSH gate — automation-verified as far as possible: same-user branch confirmed (416 live samples, all inferred-unlocked); off-console branch NOT automatable (SACSwitchToLoginWindow returns EINVAL from background — empirically confirms box is human-only) → finding + human recipe posted to PR #5 (comment 5018069338); reports/fus-via-ssh-gate-verification-260720-*.md. Box stays human-only by OS constraint.
+- [ ] 15. deferred: post-merge base sync + worktree teardown — pending, resumes once user confirms the PR is merged
+
