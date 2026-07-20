@@ -62,3 +62,9 @@
 - Why: --auto.
 - Risk: one human-only gate remains open (FUS-via-SSH, P1/R1) — carried into the PR body as an unchecked checklist item, not silently dropped.
 - Reversibility: full — pipeline stops at merge-ready PR, nothing merged.
+
+## 10. Pre-merge review consolidated into pre-open diff review (11:34)
+- What: PR #5 opened with no new commits since the code-review/security-scan/adversarial-diff-review trio completed minutes earlier on the identical diff; repo has no CI checks configured (`gh pr checks 5` reports none). Rather than re-spinning 3 duplicate top-tier lenses against an unchanged diff, posted a single consolidating comment on the PR referencing the ship-gate verdict and outstanding FUS-via-SSH gate, and stopped there.
+- Why: the diff reviewed pre-open is byte-identical to the diff in PR #5 (no intervening commits) — a second full 3-lens review would re-verify facts already verified moments ago, pure token cost with no new information (review-audit-self-decision.md: don't reverse/re-litigate a decision already verified by evidence absent new evidence).
+- Risk: none — if the PR later gains new commits, a genuine pre-merge review should run against those.
+- Reversibility: n/a (process decision).
