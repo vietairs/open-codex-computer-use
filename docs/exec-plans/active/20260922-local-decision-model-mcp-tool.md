@@ -49,8 +49,8 @@
 ## 进度记录
 
 - [x] P0：实现精简可操作候选表模式（`get_app_state` 的 `compact` 参数，仅 macOS runtime）。经 code review 修正后 `swift test` 233 条通过。
-- [ ] P0：在真实 app 上测量 token 与延迟收益（实现已就绪，数值尚未采集）。
-- [ ] P0 Gate：判断是否需要继续做分类器。
+- [x] P0：在真实 app 上测量收益。Chrome 42% / Finder 30% / Mail 12%（纯文本，未含截图）；延迟无差异。详见 `plans/reports/e2e-measurement-260922-0835-compact-actionable-snapshot.md`。
+- [ ] P0 Gate：判断是否继续做分类器。当前读数：仅裁剪树文本只拿到 12–42%，未达提案预期量级；真正的大头是省掉截图，而该项尚未在 e2e 中验证（所有 full 响应都没有截图块）。
 - [ ] P1：建立 200 条本地评测集并度量 top-1 与 margin AUROC。
 - [ ] P2：完成 `llama-server` 读出原型与延迟测量。
 - [ ] P3：落地 `decide_next_action` 与 host-side cascade 提示词。
