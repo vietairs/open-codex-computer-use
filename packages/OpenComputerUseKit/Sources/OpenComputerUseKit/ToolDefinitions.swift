@@ -45,13 +45,17 @@ public enum ToolDefinitions {
                         description: "Mouse button to click. Defaults to left.",
                         enumValues: ["left", "right", "middle"]
                     ),
+                    "click_method": stringProperty(
+                        description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1.",
+                        enumValues: ClickMethod.allCases.map(\.rawValue)
+                    ),
                 ],
                 required: ["app"]
             )
         ),
         ToolDefinition(
             name: "drag",
-            description: "Drag from one point to another using pixel coordinates. This tool is part of plugin `Computer Use`.",
+            description: "Drag from one point to another using pixel coordinates. By default mouse events are posted directly to the target app and the system pointer does not move; that path cannot drive window-server drag sessions such as window moves, text selection, or Finder drag-and-drop. Those require OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 in the server process environment, which may move the real pointer. The result reports which path was used. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [

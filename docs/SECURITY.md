@@ -2,7 +2,7 @@
 
 ## 当前实现边界
 
-- 对 MCP host 暴露的接口仍是本地 `stdio`；macOS CLI 与 `.app` app agent 之间会使用用户临时目录下的 Unix domain socket，socket 创建后会收紧为当前用户读写，且不对外监听 TCP/HTTP 端口。
+- 对 MCP host 暴露的接口仍是本地 `stdio`；macOS CLI 与 `.app` app agent 之间会使用用户临时目录下的 Unix domain socket，socket 创建后会收紧为当前用户读写，且不对外监听 TCP/HTTP 端口。未设置 `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE` 时继续使用历史 Socket；设置后仅以 namespace 摘要派生私有文件名，不把宿主目录或原始 namespace 写入 Socket 路径。
 - 所有动作都必须显式带 `app` 参数；当前不会在后台自动扫描并控制任意 app。
 - macOS 真实 app 路径依赖 `Open Computer Use.app` 已获得 `Accessibility` 与 `Screen Recording` 权限；终端里的 CLI / Node launcher 会把 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 转发给由 LaunchServices 启动的本地 app agent，避免把权限要求落到 iTerm / Terminal 身上。
 - 实验性 Linux runtime 依赖已登录桌面用户的 AT-SPI2 / D-Bus session；coordinate mouse、drag、keyboard synthesis 只是 best-effort fallback，不应被视为跨 Wayland compositor 的通用后台输入授权。
@@ -27,6 +27,10 @@
   - `Open Computer Use.app` 的系统权限
   - 本地使用场景
   共同提供。
+- `click_method=global` 是显式的系统级指针路径，可能移动真实鼠标、改变前台焦点或命中坐标处的其他窗口。调用参数本身不视为足够授权；macOS 和支持该模式的 Linux runtime 还要求进程环境中设置 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`。未设置时必须在任何可见 cursor 移动或真实输入事件之前拒绝请求。
+- `click_method=app_post`、`sky_click` 与 `accessibility` 不允许静默切换到 `global`。这保证调用方选择的非侵入边界在失败时仍然成立。
+- `click_method=sky_click` 是显式 macOS 私有 SPI 能力，不进入 `auto`。它不移动系统指针、不改变 WindowServer frontmost app，也不 raise 或切换目标窗口；内部只让目标应用短暂进入 synthetic-active 状态，绝不向真实前台应用发送 defocus record，renderer settle 后也只撤销目标的合成状态。点击后的 action-result snapshot 禁止 activate / `AXRaise` 恢复。它仍会向指定 PID/window 注入真实输入语义，因此只允许使用当前 snapshot 的 on-screen、同 PID 窗口，并在窗口身份不匹配、target-focus record 失败或私有符号缺失时 fail closed。第一版仅支持同一 Space 内的左键单击/双击。
+- SkyLight ABI、raw event field 和 Chromium 接收行为都不受 Apple 公共兼容性承诺保护。系统升级后的失败不得触发静默 global fallback；应先重新验证符号和受控目标，再决定是否更新实现。
 - 下一阶段应优先补：
   - session 级审批
   - 更清楚的敏感 app / 系统设置防护策略
@@ -36,7 +40,8 @@
 - `MacSessionGuard` 在每个 tool call 入口检查 `CGSessionCopyCurrentDictionary` 的锁定状态；当字典缺失、为空或解析失败时一律视为已锁（fail-closed），返回 "Lock state unknown" 指示器。
 - 默认策略 `.blockWhileLocked`：锁定时不允许任何 `list_apps` / `get_app_state` / action tool 执行，安全保证与原先一致。
 - 显式 opt-in `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`（`.allowWhileLocked`）：放行锁屏 best-effort 控制。未设置时保持 fail-closed。放行仅改变 guard 是否拦截，不绕过 Accessibility 权限（仍需系统授权）、不落盘截图、也不启用全局 HID event tap（`globalPointerFallbacksEnabled()` 默认仍为 false）。锁定时窗口截图受系统安全限制返回空图。
-- **App-agent 信任边界**：`.app` 模式下有一个持有 TCC 授权的常驻 agent，监听 `$TMPDIR/open-computer-use-agent.sock`（chmod 0600，仅限同一 uid，但**无对端认证**）。锁屏 opt-in 属于安全敏感设置，因此**只通过可信的启动环境**（`NSWorkspace.OpenConfiguration.environment`，由运维方运行的 proxy 从其真实 shell env 传入）在 agent 启动时固定，**不经过 per-call socket 通道**；agent 侧还会主动剥离 client 传入的该键（defense in depth），因此同 uid 的第三方进程**无法**对已运行的 agent 伪造该标志。策略在 agent 生命周期内固定，需从菜单栏退出 agent 后重启才能变更。
+- **App-agent 信任边界**：`.app` 模式下有一个持有 TCC 授权的常驻 agent，监听 `$TMPDIR/open-computer-use-agent.sock`（chmod 0600，仅限同一 uid；对端认证见下一条，但它**不能**区分同 uid 攻击者）。锁屏 opt-in 属于安全敏感设置，因此**只通过可信的启动环境**（`NSWorkspace.OpenConfiguration.environment`，由运维方运行的 proxy 从其真实 shell env 传入）在 agent 启动时固定，**不经过 per-call socket 通道**；因此同 uid 的第三方进程**无法**对已运行的 agent 伪造该标志。策略在 agent 生命周期内固定，需从菜单栏退出 agent 后重启才能变更。
+- **per-call environment 的过滤点在 agent 侧**：client 传入的 `environment` 属于不可信输入，因此过滤的**执行点是 agent**，发送侧的 `proxiedEnvironment()` 只是顺带的礼貌性过滤。两侧共用同一个定义 `MacSessionLockPolicy.sanitizePeerEnvironment`，避免两份规则各自漂移——`mcp` 与 `cli` 两个 request kind 曾经因为这种漂移而出现只有 `cli` 剥离锁屏键的情况。规则有两条：只有 `OPEN_COMPUTER_USE_` 前缀的键能过 socket（否则任意键会被 agent 派生的子进程继承），且锁屏 opt-in 永远不能过。**新增 request kind 时必须让它同样走这个函数。**
 - **App-agent socket 对端认证（peer authentication）**：`AppAgentSocketListener.acceptLoop` 在每个连接被处理前调用 `SocketPeerAuthenticator.authenticate(fd:)`：
   - `getpeereid` 校验对端 euid == agent euid（同 uid），否则拒绝。
   - 经 `LOCAL_PEERTOKEN` 取对端 audit token（含 pid + pidversion，能精确锁定连接进程实例，规避 PID 复用/连后 exec 的 TOCTOU）→ `SecCodeCopyGuestWithAttributes` 还原对端 `SecCode`，用需求 `anchor apple generic and identifier "<agent bundle id>" and certificate leaf[subject.OU] = "<agent TeamID>"` 校验：对端必须由与 agent **相同开发者（Team Identifier）签名**，且签名 identifier 与 agent 的 bundle identifier 一致（即本 app 自己的可执行文件；同 team 但 identifier 不同的二进制会被拒绝）。agent 非 bundle 运行时退化为仅 team pin。任一校验不满足则拒绝。

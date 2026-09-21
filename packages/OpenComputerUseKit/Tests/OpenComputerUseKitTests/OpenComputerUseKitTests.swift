@@ -4,6 +4,22 @@ import XCTest
 @testable import OpenComputerUseKit
 
 final class OpenComputerUseKitTests: XCTestCase {
+    func testAppAgentSocketFileNamePreservesLegacyDefault() {
+        XCTAssertEqual(openComputerUseAppAgentSocketFileName(namespace: nil), "open-computer-use-agent.sock")
+        XCTAssertEqual(openComputerUseAppAgentSocketFileName(namespace: "   "), "open-computer-use-agent.sock")
+    }
+
+    func testAppAgentSocketFileNameIsDeterministicAndNamespaced() {
+        let first = openComputerUseAppAgentSocketFileName(namespace: "boss-resume:profile-a")
+        let second = openComputerUseAppAgentSocketFileName(namespace: "boss-resume:profile-b")
+
+        XCTAssertEqual(first, openComputerUseAppAgentSocketFileName(namespace: "boss-resume:profile-a"))
+        XCTAssertNotEqual(first, second)
+        XCTAssertTrue(first.hasPrefix("open-computer-use-agent-"))
+        XCTAssertTrue(first.hasSuffix(".sock"))
+        XCTAssertLessThan(first.count, 80)
+    }
+
     func testCLIRecognizesGlobalHelpAndVersionFlags() throws {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["-h"]), .help(command: nil))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["--help"]), .help(command: nil))
@@ -347,6 +363,26 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
+    func testAppNameResolutionPrefersRegularAppsAndDisplayNames() {
+        let ranked = [
+            AppDiscovery.ResolutionCandidate(name: "Safari", executableName: nil, isRegularApp: true),
+            AppDiscovery.ResolutionCandidate(name: "Browser", executableName: "Safari", isRegularApp: true),
+            AppDiscovery.ResolutionCandidate(name: "Safari", executableName: nil, isRegularApp: false),
+            AppDiscovery.ResolutionCandidate(name: "Browser Helper", executableName: "Safari", isRegularApp: false),
+        ]
+        for preferred in ranked.indices {
+            for fallback in ranked.indices where fallback > preferred {
+                XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [ranked[fallback], ranked[preferred]], matching: "sAfArI"), 1)
+                XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [ranked[preferred], ranked[fallback]], matching: "sAfArI"), 0)
+            }
+        }
+        for candidate in ranked {
+            XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [candidate, candidate], matching: "Safari"), 0)
+        }
+        XCTAssertNil(AppDiscovery.bestResolutionIndex(of: ranked, matching: "missing"))
+        XCTAssertNil(AppDiscovery.bestResolutionIndex(of: [], matching: "Safari"))
+    }
+
     func testMacOSAppAgentProxyDecisionKeepsNonAutomationCommandsLocal() {
         for command in [
             OpenComputerUseCLICommand.turnEnded(payload: nil),
@@ -570,7 +606,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testInitializeResponseContainsToolsCapability() throws {
         let server = StdioMCPServer(service: ComputerUseService())
-        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.2.1"},"capabilities":{}}}"#)
+        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.3.5"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
         XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
         XCTAssertTrue(response!.contains(#""tools":{"listChanged":false}"#))
@@ -579,7 +615,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testInitializeResponseContainsComputerUseInstructions() throws {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = try XCTUnwrap(
-            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.2.1"},"capabilities":{}}}"#)
+            server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.3.5"},"capabilities":{}}}"#)
         )
         let data = try XCTUnwrap(response.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -630,6 +666,14 @@ final class OpenComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["mouse_button"]?["enum"] as? [String]) ?? [],
             ["left", "right", "middle"]
         )
+        XCTAssertEqual(
+            ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["click_method"]?["enum"] as? [String]) ?? [],
+            ["auto", "accessibility", "app_post", "sky_click", "global"]
+        )
+        let dragDescription = tools["drag"]?.description ?? ""
+        XCTAssertTrue(dragDescription.contains("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1"))
+        XCTAssertTrue(dragDescription.contains("window moves, text selection, or Finder drag-and-drop"))
+        XCTAssertTrue(dragDescription.hasSuffix("This tool is part of plugin `Computer Use`."))
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
         XCTAssertNil(getAppStateProperties?["show_full_text"])
@@ -969,7 +1013,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             traits: [],
             actions: [],
             childCount: 0,
-            preservesAnonymousActionTarget: true
+            preservesCompactGenericActionTarget: true
         ))
         XCTAssertFalse(shouldElideNode(
             role: kAXGroupRole as String,
@@ -1077,86 +1121,159 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(hasPrimaryClickAction(["AXShowMenu", "AXScrollToVisible", "AXRaise"]))
     }
 
-    func testAccessibilityRendererMarksAnonymousGenericClickTargetsAsButtons() {
-        XCTAssertTrue(shouldRenderAnonymousActionTarget(
+    func testAccessibilityRendererTreatsGenericPrimaryActionsAsSummaryBoundaries() {
+        XCTAssertTrue(isGenericPrimaryActionSummaryBoundary(
             role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
+            actions: [kAXPressAction as String]
+        ))
+        XCTAssertTrue(isGenericPrimaryActionSummaryBoundary(
+            role: kAXUnknownRole as String,
+            actions: ["AXOpen"]
+        ))
+        XCTAssertFalse(isGenericPrimaryActionSummaryBoundary(
+            role: kAXGroupRole as String,
+            actions: ["AXShowMenu", "AXScrollToVisible"]
+        ))
+        XCTAssertFalse(isGenericPrimaryActionSummaryBoundary(
+            role: kAXButtonRole as String,
+            actions: [kAXPressAction as String]
+        ))
+        XCTAssertFalse(isGenericPrimaryActionSummaryBoundary(
+            role: "AXLink",
+            actions: [kAXPressAction as String]
+        ))
+    }
+
+    func testAccessibilityRendererUsesSafariCustomActionDescriptionName() {
+        XCTAssertEqual(
+            meaningfulActions(
+                ["Name:close tab Target:SafariTab Selector:_close Button Clicked:"],
+                role: kAXButtonRole as String
+            ),
+            ["close tab"]
+        )
+        XCTAssertNil(accessibilityActionDescriptionName("Namespace:close tab Target:SafariTab"))
+    }
+
+    func testSecondaryActionMatchingKeepsFilteredRawActionsAligned() {
+        let service = ComputerUseService()
+        let closeTab = "Name:close tab Target:SafariTab Selector:_close Button Clicked:"
+        let record = ElementRecord(
+            index: 48,
+            identifier: nil,
+            element: nil,
+            localFrame: nil,
+            role: kAXButtonRole as String,
+            rawActions: [kAXPressAction as String, closeTab],
+            prettyActions: ["close tab"]
+        )
+
+        XCTAssertEqual(service.matchingAction(requested: "close-tab", record: record), closeTab)
+        XCTAssertEqual(service.matchingAction(requested: kAXPressAction as String, record: record), kAXPressAction as String)
+        XCTAssertNil(service.matchingAction(requested: "Press", record: record))
+    }
+
+    func testSecondaryActionSelectorsDoNotShadowRawActionNames() {
+        let service = ComputerUseService()
+        // Include both a filtered action and a visible action, and exercise the
+        // case-insensitive exact lookup used by the executor.
+        for nativeAction in ["AXPress", "AXRaise"] {
+            for customName in [nativeAction, nativeAction.lowercased()] {
+                let customAction = "Name:\(customName) Target:CustomTarget Selector:_custom:"
+                for rawActions in [[nativeAction, customAction], [customAction, nativeAction]] {
+                    let emitted = meaningfulActions(rawActions, role: kAXButtonRole as String)
+                    let visible = meaningfulRawActions(rawActions, role: kAXButtonRole as String)
+                    let record = ElementRecord(
+                        index: 50,
+                        identifier: nil,
+                        element: nil,
+                        localFrame: nil,
+                        role: kAXButtonRole as String,
+                        rawActions: rawActions,
+                        prettyActions: emitted
+                    )
+
+                    XCTAssertTrue(emitted.contains(customAction))
+                    XCTAssertEqual(emitted.count, visible.count)
+                    for (selector, expected) in zip(emitted, visible) {
+                        XCTAssertEqual(service.matchingAction(requested: selector, record: record), expected)
+                    }
+                    XCTAssertEqual(service.matchingAction(requested: nativeAction, record: record), nativeAction)
+                }
+            }
+        }
+    }
+
+    func testSecondaryActionMatchingRejectsAmbiguousDisplayNames() {
+        let service = ComputerUseService()
+        let record = ElementRecord(
+            index: 49,
+            identifier: nil,
+            element: nil,
+            localFrame: nil,
+            role: kAXButtonRole as String,
+            rawActions: [
+                "Name:close tab Target:FirstTab Selector:_close:",
+                "Name:close tab Target:SecondTab Selector:_close:",
+            ],
+            prettyActions: ["close tab", "close tab"]
+        )
+
+        XCTAssertNil(service.matchingAction(requested: "close tab", record: record))
+        XCTAssertEqual(service.matchingAction(requested: record.rawActions[1], record: record), record.rawActions[1])
+        let emitted = meaningfulActions(record.rawActions, role: kAXButtonRole as String)
+        XCTAssertEqual(emitted, record.rawActions)
+        for (selector, rawAction) in zip(emitted, record.rawActions) {
+            XCTAssertEqual(service.matchingAction(requested: selector, record: record), rawAction)
+        }
+    }
+
+    func testAccessibilityRendererMarksCompactGenericClickTargetsAsButtons() {
+        XCTAssertTrue(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 1455, y: 218, width: 15, height: 20)
         ))
-        XCTAssertTrue(shouldRenderAnonymousActionTarget(
+        XCTAssertTrue(shouldRenderCompactGenericActionTarget(
             role: kAXUnknownRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 1455, y: 245, width: 15, height: 20)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertTrue(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 240, height: 120)
+        ))
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 117, height: 35),
+            hasActionableLinkDescendant: true
+        ))
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXButtonRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
-            title: "Forward",
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
-            hasPrimaryClickAction: true,
-            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
-        ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
-            role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: "Candidate details",
-            hasPrimaryClickAction: true,
-            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
-        ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
-            role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: false,
             localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 0, y: 0, width: 1920, height: 929)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 0, y: 0, width: 15, height: 0)
+        ))
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
+            hasPrimaryClickAction: true,
+            localFrame: nil
         ))
     }
 
@@ -1358,6 +1475,300 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "yes"]))
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]))
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
+    }
+
+    func testDragStepCountScalesWithDistanceAndClampsToBounds() {
+        XCTAssertEqual(InputSimulation.dragStepCount(from: .zero, to: .zero), 10)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 8, y: 0)), 10)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 200, y: 0)), 50)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 5000, y: 0)), 60)
+    }
+
+    func testNeedsDragEventNumberGatesOnRecentMacOS() {
+        // Older macOS ignores the gesture event number; 26+ needs it (codex#43047).
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 14))
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 15))
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 25))
+        XCTAssertTrue(InputSimulation.needsDragEventNumber(majorVersion: 26))
+        XCTAssertTrue(InputSimulation.needsDragEventNumber(majorVersion: 27))
+    }
+
+    func testDragDeliveryPathFollowsGlobalPointerGate() {
+        XCTAssertEqual(dragDeliveryPath(environment: [:]), .appPost)
+        XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]), .appPost)
+        XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]), .global)
+        XCTAssertEqual(dragDeliveryPath(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": " True "]), .global)
+    }
+
+    func testDragDeliveryNoteExplainsWhyDefaultPathCannotDriveWindowServerDrags() {
+        let appPostNote = dragDeliveryNote(for: .appPost)
+        XCTAssertTrue(appPostNote.hasPrefix("Drag delivered via app_post"))
+        XCTAssertTrue(appPostNote.contains("system pointer did not move"))
+        XCTAssertTrue(appPostNote.contains("window moves"))
+        XCTAssertTrue(appPostNote.contains("text selection"))
+        XCTAssertTrue(appPostNote.contains("Finder drag-and-drop"))
+        XCTAssertTrue(appPostNote.contains("OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1"))
+
+        let globalNote = dragDeliveryNote(for: .global)
+        XCTAssertTrue(globalNote.hasPrefix("Drag delivered via global pointer path"))
+        XCTAssertTrue(globalNote.contains("real pointer may have moved"))
+    }
+
+    func testDragDeliveryNoteIsInsertedAfterSnapshotTextAndBeforeScreenshot() {
+        let snapshotText = "App=com.example.app (pid 42)\nWindow: \"Example\", App: Example."
+        let result = ToolCallResult(content: [.text(snapshotText), .pngImage(Data([0x89, 0x50, 0x4E, 0x47]))])
+
+        let annotated = appendingDragDeliveryNote(to: result, path: .appPost)
+
+        XCTAssertEqual(annotated.primaryText, snapshotText)
+        XCTAssertEqual(annotated.content.count, 3)
+        XCTAssertEqual(annotated.content[1].dictionary["type"] as? String, "text")
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, dragDeliveryNote(for: .appPost))
+        XCTAssertEqual(annotated.content[2].dictionary["type"] as? String, "image")
+        XCTAssertFalse(annotated.isError)
+    }
+
+    func testDragDeliveryNoteIsAppendedWhenResultHasNoScreenshot() {
+        let annotated = appendingDragDeliveryNote(to: .text("App=com.example.app (pid 42)"), path: .global)
+
+        XCTAssertEqual(annotated.primaryText, "App=com.example.app (pid 42)")
+        XCTAssertEqual(annotated.content.count, 2)
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, dragDeliveryNote(for: .global))
+    }
+
+    func testClickMethodDefaultsToAutoAndNormalizesExplicitValues() throws {
+        XCTAssertEqual(try parseClickMethod(nil), .auto)
+        XCTAssertEqual(try parseClickMethod(" AUTO "), .auto)
+        XCTAssertEqual(try parseClickMethod("Accessibility"), .accessibility)
+        XCTAssertEqual(try parseClickMethod(" APP_POST "), .appPost)
+        XCTAssertEqual(try parseClickMethod(" SKY_CLICK "), .skyClick)
+        XCTAssertEqual(try parseClickMethod("GLOBAL"), .global)
+    }
+
+    func testOnlySkyClickUsesReadOnlyActionSnapshotRefresh() {
+        XCTAssertEqual(clickActionSnapshotRecoveryPolicy(for: .skyClick), .readOnly)
+
+        for method in ClickMethod.allCases where method != .skyClick {
+            XCTAssertEqual(
+                clickActionSnapshotRecoveryPolicy(for: method),
+                .allowActivation
+            )
+        }
+    }
+
+    func testFixtureStateFocusProbeFieldsRemainBackwardCompatible() throws {
+        let legacyPayload = #"""
+        {
+          "windowTitle": "Legacy Fixture",
+          "windowBounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+          "focusedIdentifier": null,
+          "elements": []
+        }
+        """#
+
+        let state = try JSONDecoder().decode(
+            FixtureAppState.self,
+            from: Data(legacyPayload.utf8)
+        )
+        XCTAssertNil(state.processIdentifier)
+        XCTAssertNil(state.isActive)
+        XCTAssertNil(state.isKeyWindow)
+        XCTAssertNil(state.activationLossCount)
+        XCTAssertNil(state.keyWindowLossCount)
+    }
+
+    func testClickMethodRejectsUnknownValues() {
+        for value in ["physical", "targeted"] {
+            XCTAssertThrowsError(try parseClickMethod(value)) { error in
+                XCTAssertEqual(
+                    (error as? ComputerUseError)?.errorDescription,
+                    "Invalid click_method '\(value)'. Expected one of: auto, accessibility, app_post, sky_click, global"
+                )
+            }
+        }
+    }
+
+    func testAccessibilityClickMethodRequiresElementIndex() {
+        XCTAssertThrowsError(
+            try validateClickMethod(.accessibility, hasElementIndex: false, environment: [:])
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'accessibility' requires element_index"
+            )
+        }
+
+        XCTAssertNoThrow(
+            try validateClickMethod(.accessibility, hasElementIndex: true, environment: [:])
+        )
+    }
+
+    func testGlobalClickMethodRequiresExplicitPointerAuthorization() {
+        XCTAssertThrowsError(
+            try validateClickMethod(.global, hasElementIndex: false, environment: [:])
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'global' requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 because it may move the system pointer and change foreground focus"
+            )
+        }
+
+        XCTAssertNoThrow(
+            try validateClickMethod(
+                .global,
+                hasElementIndex: false,
+                environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]
+            )
+        )
+    }
+
+    func testSkyClickArgumentsRequireLeftButtonAndSingleOrDoubleClick() throws {
+        XCTAssertNoThrow(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: " LEFT ", clickCount: 1)
+        )
+        XCTAssertNoThrow(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: "left", clickCount: 2)
+        )
+        XCTAssertNoThrow(
+            try validateSkyClickArguments(method: .appPost, mouseButton: "right", clickCount: 5)
+        )
+
+        XCTAssertThrowsError(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: "right", clickCount: 1)
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'sky_click' only supports mouse_button 'left'"
+            )
+        }
+        XCTAssertThrowsError(
+            try validateSkyClickArguments(method: .skyClick, mouseButton: "left", clickCount: 3)
+        ) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click_method 'sky_click' supports click_count 1 or 2"
+            )
+        }
+    }
+
+    func testSkyClickRecipeIncludesMovePrimerAndTargetPairs() throws {
+        let single = try skyClickEventRecipe(clickCount: 1)
+        XCTAssertEqual(single.count, 5)
+        XCTAssertEqual(single.map(\.kind), [.moved, .down, .up, .down, .up])
+        XCTAssertEqual(single.map(\.pointKind), [.target, .primer, .primer, .target, .target])
+        XCTAssertEqual(single.map(\.phase), [2, 1, 2, 3, 3])
+        XCTAssertEqual(single.map(\.clickState), [0, 1, 1, 1, 1])
+
+        let double = try skyClickEventRecipe(clickCount: 2)
+        XCTAssertEqual(double.count, 7)
+        XCTAssertEqual(double.suffix(4).map(\.clickState), [1, 1, 2, 2])
+        XCTAssertEqual(double[4].delayAfter, 0.080, accuracy: 0.000_001)
+        XCTAssertEqual(double.last?.delayAfter, 0)
+    }
+
+    func testSkyClickRecipeRejectsUnsupportedClickCounts() {
+        for count in [0, 3] {
+            XCTAssertThrowsError(try skyClickEventRecipe(clickCount: count)) { error in
+                XCTAssertEqual(
+                    (error as? ComputerUseError)?.errorDescription,
+                    "click_method 'sky_click' supports click_count 1 or 2"
+                )
+            }
+        }
+    }
+
+    func testSkyClickWindowValidationRequiresMatchingOnScreenOwner() {
+        let matching: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: UInt32(321)),
+            kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
+            kCGWindowIsOnscreen as String: NSNumber(value: true),
+        ]
+        XCTAssertTrue(
+            skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1234)
+        )
+        XCTAssertFalse(
+            skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 322, pid: 1234)
+        )
+        XCTAssertFalse(
+            skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1235)
+        )
+
+        var offScreen = matching
+        offScreen[kCGWindowIsOnscreen as String] = NSNumber(value: false)
+        XCTAssertFalse(
+            skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234)
+        )
+    }
+
+    func testSkyLightCapabilityReportsMissingSymbols() {
+        XCTAssertEqual(
+            SkyLightSPICapability(missingSymbols: []).unavailableReason,
+            "available"
+        )
+        XCTAssertEqual(
+            SkyLightSPICapability(missingSymbols: ["SLEventPostToPid"]).unavailableReason,
+            "missing private click symbols: SLEventPostToPid"
+        )
+    }
+
+    func testSkyLightActivationRecordEncodesWindowAndFocusState() {
+        let focused = skyLightActivationRecord(windowID: 0x1234_5678, focused: true)
+        XCTAssertEqual(focused.count, 0xF8)
+        XCTAssertEqual(focused[0x04], 0xF8)
+        XCTAssertEqual(focused[0x08], 0x0D)
+        XCTAssertEqual(Array(focused[0x3C...0x3F]), [0x78, 0x56, 0x34, 0x12])
+        XCTAssertEqual(focused[0x8A], 0x01)
+
+        let defocused = skyLightActivationRecord(windowID: 42, focused: false)
+        XCTAssertEqual(defocused[0x8A], 0x02)
+    }
+
+    func testSkyLightSyntheticFocusPlanOnlyAddressesTarget() {
+        let targetPSN = [UInt8](repeating: 7, count: 8)
+        let plan = skyLightSyntheticTargetFocusPlan(
+            targetPSN: targetPSN,
+            targetWindowID: 321
+        )
+
+        XCTAssertEqual(
+            plan,
+            SkyLightSyntheticFocusPlan(
+                activateTarget: SkyLightActivationCommand(
+                    psn: targetPSN,
+                    windowID: 321,
+                    focused: true
+                ),
+                deactivateTarget: SkyLightActivationCommand(
+                    psn: targetPSN,
+                    windowID: 321,
+                    focused: false
+                )
+            )
+        )
+    }
+
+    func testSkyLightRuntimeSPIProbeCanStampEventWithoutPosting() throws {
+        let spi = SkyLightSPI.shared
+        guard spi.capability.isAvailable else {
+            throw XCTSkip("SkyLight SPI unavailable: \(spi.capability.unavailableReason)")
+        }
+        guard
+            let source = CGEventSource(stateID: .hidSystemState),
+            let event = CGEvent(
+                mouseEventSource: source,
+                mouseType: .mouseMoved,
+                mouseCursorPosition: CGPoint(x: 10, y: 20),
+                mouseButton: .left
+            )
+        else {
+            return XCTFail("Failed to create a probe CGEvent")
+        }
+
+        try spi.setIntegerField(event, field: 1, value: 2)
+        XCTAssertEqual(event.getIntegerValueField(.mouseEventClickState), 2)
+        XCTAssertNoThrow(
+            try spi.setWindowLocation(event, point: CGPoint(x: 3, y: 4))
+        )
     }
 
     func testSetValueAttributeGateMatchesOfficialSettableBoundary() throws {
@@ -2122,6 +2533,35 @@ final class OpenComputerUseKitTests: XCTestCase {
                 "Expected allow policy for env value: \(value)"
             )
         }
+    }
+
+    func testSanitizePeerEnvironmentDropsForgedLockScreenOptIn() {
+        // The app agent holds the Accessibility and Screen Recording grants, so a peer that could
+        // set this key over the control socket would get work-while-locked with no operator
+        // opt-in. The opt-in is fixed at agent launch and must never cross the per-call channel.
+        for value in ["1", "true", "allow", "0"] {
+            let sanitized = MacSessionLockPolicy.sanitizePeerEnvironment([
+                MacSessionLockPolicy.environmentKey: value,
+                "OPEN_COMPUTER_USE_DEBUG": "1",
+            ])
+            XCTAssertNil(
+                sanitized[MacSessionLockPolicy.environmentKey],
+                "Lock-screen opt-in must never survive sanitization, even for value: \(value)"
+            )
+            XCTAssertEqual(sanitized["OPEN_COMPUTER_USE_DEBUG"], "1")
+        }
+    }
+
+    func testSanitizePeerEnvironmentDropsKeysOutsideOwnPrefix() {
+        // Whatever the agent applies is inherited by the subprocesses it spawns, so a peer must
+        // not be able to reach them through arbitrary environment keys.
+        let sanitized = MacSessionLockPolicy.sanitizePeerEnvironment([
+            "OPEN_COMPUTER_USE_DEBUG": "1",
+            "DYLD_INSERT_LIBRARIES": "/tmp/evil.dylib",
+            "PATH": "/tmp/evil",
+            "HOME": "/tmp",
+        ])
+        XCTAssertEqual(sanitized, ["OPEN_COMPUTER_USE_DEBUG": "1"])
     }
 
     func testGuardBlocksWhenLockedUnderDefaultPolicy() {

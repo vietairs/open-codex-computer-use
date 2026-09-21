@@ -1,9 +1,30 @@
 # 功能发布记录
 
+## 2026-09
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-09-21 | fork 同步上游 v0.3.5 | fork 用户在保留锁屏守卫、app-screen 校验、菜单栏状态和 socket 对端认证的同时，获得上游 `sky_click` 后台点击、App Agent socket 命名空间隔离和真实窗口服务器拖拽。 | 发布 `0.3.6-vietairs.1`：合并上游 `v0.3.5`；`InputSimulation` 同时保留 fork 的 `clickBackgrounded`（非 AX 回退）与上游的 `clickWithSkyLight`（显式 `sky_click`）；`AccessibilitySnapshot` 的 `firstAnyWindow` 回退不受 `recoveryPolicy` 限制，激活式恢复仍然只在 `.allowActivation` 下执行。 |
+| 2026-09-10 | macOS 拖拽修复 | 显式开启全局指针路径后，窗口移动、文本拖选与 Finder 拖放可收到启动真实拖拽所需的事件；默认路径的限制也会明确呈现。 | 发布 `0.3.5`：补齐拖拽位移、手势事件编号与 HID 投递时序，增加投递路径说明；同步升级 Go MCP SDK 到 `v1.4.1`。 |
+| 2026-09-08 | drag 投递路径可见性 | 在默认安全配置下调用 `drag` 做窗口移动、文本拖选或 Finder 拖放时，结果会明确说明事件只投递给目标进程、为何没有效果，以及需要设置哪个环境变量，不再表现为“成功但无效果”。 | `drag` 结果新增一条 `Drag delivered via app_post` / `Drag delivered via global pointer path` 文本项；tool description 补充默认路径限制与 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 说明；skill 文档新增 Drag Delivery 章节；默认行为与安全门本身不变。 |
+| 2026-09-08 | macOS 应用定位与 secondary action | 按名称定位应用时减少误选后台 helper，执行 secondary action 时避免动作错配。 | 发布 `0.3.4`：优先匹配普通应用；支持 Safari custom action 短名称，并修复过滤后的动作映射和名称冲突。 |
+| 2026-09-06 | macOS secondary action | Agent 可以通过 Safari 暴露的 `close tab` secondary action 可靠关闭标签页，不会因内部动作被过滤而误执行另一项动作。 | macOS renderer 将 `Name:close tab ...` 形式的 AppKit custom action descriptor 显示为短名称，executor 从同一组过滤后的 raw actions 做等价名称匹配，并拒绝歧义匹配；短名称与其他原始 action 冲突时保留完整 descriptor，避免误执行同名原始动作。 |
+| 2026-09-06 | macOS 应用名称解析 | 按名称定位 Safari 等应用时优先匹配真实应用，避免同名后台 helper 抢占匹配结果。 | 按普通应用名称、普通应用 executable、后台应用名称、后台 executable 分级匹配；同级保持原顺序，bundle identifier 和安全过滤规则不变。 |
+| 2026-09-01 | 内嵌 App Agent Socket 隔离 | 使用内嵌 OCU 的宿主不会再与用户全局 OCU 争用同一个 App Agent Socket，避免一个实例意外终止或替换另一个实例。 | 发布 `0.3.3`，为显式配置 namespace 的宿主生成确定性、短且不泄露原值的 Socket 文件名；未配置时继续兼容旧路径。 |
+
+## 2026-08
+
+| 日期 | 功能域 | 用户价值 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-08-29 | 跨平台文本与 Web 链接动作 | Linux 用户在 Ubuntu 24.04 等环境中可稳定使用文本操作；Chrome / BOSS 中的导航链接也能保持独立定位与点击。 | 发布 `0.3.2`，通过标准 AT-SPI 接口检测文本能力，并保留带 URL 的 Web 链接动作节点，避免父级通用动作吞掉链接语义。 |
+| 2026-08-08 | Linux AT-SPI 文本能力检测 | Ubuntu 24.04 等 PyGObject 环境中的 `get_app_state`、`type_text` 和 `set_value` 不再因缺少非标准 `Accessible.is_text` / `is_editable_text` 属性而崩溃。 | Linux bridge 改为通过标准 `Accessible.get_interfaces()` 检测 `Text` / `EditableText`，并新增不依赖真实桌面的 Python 回归测试。 |
+
 ## 2026-07
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-07-30 | Web 可点击选项边界 | Chrome 等 Web 页面中的多个文本选项即使位于同一个摘要容器内，也能分别保留可操作的 `element_index`；BOSS 直聘转发弹窗中的“站内同事”“转发至其他”和“邮件转发”可以被独立定位。 | 发布 `0.3.1`，让带 `AXPress`、`AXConfirm` 或 `AXOpen` 的紧凑通用节点成为文本摘要边界并渲染为 `button`；普通纯文本压缩以及零尺寸、大面积通用节点过滤保持不变。 |
+| 2026-07-27 | 可配置与后台点击 | 调用方可以显式选择点击实现，并在 macOS 上对被遮挡的同 Space 窗口执行后台点击，同时保持真实鼠标、前台应用、窗口焦点和层级不变。 | 发布 `0.3.0`，为 `click` 新增 `click_method`，提供 `auto`、`accessibility`、`app_post`、`global` 和 macOS-only `sky_click`；默认 `auto` 行为保持不变，显式模式失败时不静默切换实现，`global` 继续要求环境授权。 |
 | 2026-07-20 | 匿名 Web 图标控件 | Chrome 等 Web 页面里的纯图标按钮即使没有可读名称，也能在 snapshot 中保留可点击的 `element_index`，Agent 可以更稳定地操作 icon-only 控件。 | 发布 `0.2.1`，保留具有 `AXPress` / `AXConfirm` / `AXOpen` 主动作且 frame 紧凑有效的匿名 `AXGroup` / `AXUnknown`，渲染为 `button`；同时继续过滤零尺寸节点和大面积通用点击容器。 |
 | 2026-07-08 | 快照预算与长文本控制 | 长网页、长列表和复杂表格可以显式提高 accessibility tree 预算，读取长消息或文档时也能按需选择更大的文本上限或全文模式。 | 发布 `0.2.0`，三端默认 tree budget 统一为 1200/64，并为 `get_app_state` / `snapshot` 增加 `max_tree_nodes`、`max_tree_depth` 与 `text_limit` / `--text-limit`；`show_full_text` / `--show-full-text` 已由 `text_limit: "max"` / `--text-limit max` 替代。 |
 

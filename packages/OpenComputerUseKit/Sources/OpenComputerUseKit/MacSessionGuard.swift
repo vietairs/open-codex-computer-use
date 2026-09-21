@@ -50,6 +50,23 @@ public enum MacSessionLockPolicy: String, Sendable {
 
     public static let environmentKey = "OPEN_COMPUTER_USE_ALLOW_LOCKED"
 
+    /// The only environment a peer may hand the app agent over the control socket.
+    ///
+    /// The agent holds the Accessibility and Screen Recording grants, so an environment value a
+    /// caller supplies per request is untrusted input no matter what the sending side claims to
+    /// have filtered. Both the proxy that sends the environment and the agent that applies it
+    /// call this, so the two can never drift apart — a previous drift between them was exactly
+    /// how a forged lock-screen opt-in became reachable.
+    ///
+    /// Two rules: only `OPEN_COMPUTER_USE_` keys cross the socket, and the lock-screen opt-in
+    /// never does. That opt-in is fixed at agent launch, because honoring a forged one would let
+    /// any same-uid process drive apps while the Mac is locked.
+    public static func sanitizePeerEnvironment(_ environment: [String: String]) -> [String: String] {
+        environment.filter { key, _ in
+            key.hasPrefix("OPEN_COMPUTER_USE_") && key != environmentKey
+        }
+    }
+
     public static func fromEnvironment(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> MacSessionLockPolicy {
         let raw = environment[environmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch raw {
