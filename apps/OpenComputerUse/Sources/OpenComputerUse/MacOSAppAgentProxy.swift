@@ -151,11 +151,10 @@ enum MacOSAppAgentProxy {
     }
 
     private static func proxiedEnvironment() -> [String: String] {
-        ProcessInfo.processInfo.environment.filter { key, _ in
-            // The lock-screen opt-in is deliberately excluded from the per-call channel — it is
-            // fixed at agent launch (see connectOrLaunchAgent) so a per-call client cannot forge it.
-            key.hasPrefix("OPEN_COMPUTER_USE_") && key != MacSessionLockPolicy.environmentKey
-        }
+        // The lock-screen opt-in is deliberately excluded from the per-call channel — it is fixed
+        // at agent launch (see connectOrLaunchAgent) so a per-call client cannot forge it. The
+        // agent applies the same filter on receipt; this side is a courtesy, not the enforcement.
+        MacSessionLockPolicy.sanitizePeerEnvironment(ProcessInfo.processInfo.environment)
     }
 }
 
@@ -405,7 +404,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["ok": true]
             case "mcp":
                 let line = request["line"] as? String ?? ""
-                let environment = request["environment"] as? [String: String] ?? [:]
+                let environment = sanitizedPeerEnvironment(request["environment"] as? [String: String] ?? [:])
                 let response = AppAgentEnvironment.withOverrides(environment) {
                     server.handle(line: line)
                 }
@@ -415,10 +414,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["response": NSNull()]
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
-                var environment = request["environment"] as? [String: String] ?? [:]
-                // Defense in depth: never honor a per-call client's attempt to set the lock-screen
-                // policy. It is fixed at agent launch; a forged value here is silently dropped.
-                environment.removeValue(forKey: MacSessionLockPolicy.environmentKey)
+                let environment = sanitizedPeerEnvironment(request["environment"] as? [String: String] ?? [:])
                 let response = AppAgentEnvironment.withOverrides(environment) {
                     runCLI(arguments: arguments)
                 }
@@ -434,6 +430,12 @@ private final class AppAgentConnection: @unchecked Sendable {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             return ["error": message]
         }
+    }
+
+    /// A peer's environment is untrusted input, so the agent re-applies the filter rather than
+    /// trusting that the sender applied it. See `MacSessionLockPolicy.sanitizePeerEnvironment`.
+    private func sanitizedPeerEnvironment(_ environment: [String: String]) -> [String: String] {
+        MacSessionLockPolicy.sanitizePeerEnvironment(environment)
     }
 
     private func runCLI(arguments: [String]) -> CLIProxyResponse {

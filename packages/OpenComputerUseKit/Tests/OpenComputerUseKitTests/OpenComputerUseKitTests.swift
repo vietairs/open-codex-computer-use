@@ -2535,6 +2535,35 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
+    func testSanitizePeerEnvironmentDropsForgedLockScreenOptIn() {
+        // The app agent holds the Accessibility and Screen Recording grants, so a peer that could
+        // set this key over the control socket would get work-while-locked with no operator
+        // opt-in. The opt-in is fixed at agent launch and must never cross the per-call channel.
+        for value in ["1", "true", "allow", "0"] {
+            let sanitized = MacSessionLockPolicy.sanitizePeerEnvironment([
+                MacSessionLockPolicy.environmentKey: value,
+                "OPEN_COMPUTER_USE_DEBUG": "1",
+            ])
+            XCTAssertNil(
+                sanitized[MacSessionLockPolicy.environmentKey],
+                "Lock-screen opt-in must never survive sanitization, even for value: \(value)"
+            )
+            XCTAssertEqual(sanitized["OPEN_COMPUTER_USE_DEBUG"], "1")
+        }
+    }
+
+    func testSanitizePeerEnvironmentDropsKeysOutsideOwnPrefix() {
+        // Whatever the agent applies is inherited by the subprocesses it spawns, so a peer must
+        // not be able to reach them through arbitrary environment keys.
+        let sanitized = MacSessionLockPolicy.sanitizePeerEnvironment([
+            "OPEN_COMPUTER_USE_DEBUG": "1",
+            "DYLD_INSERT_LIBRARIES": "/tmp/evil.dylib",
+            "PATH": "/tmp/evil",
+            "HOME": "/tmp",
+        ])
+        XCTAssertEqual(sanitized, ["OPEN_COMPUTER_USE_DEBUG": "1"])
+    }
+
     func testGuardBlocksWhenLockedUnderDefaultPolicy() {
         // Explicit policy makes the default fail-closed contract independent of the test env.
         let guard_ = MacSessionGuard(provider: FakeLockedSessionProvider(), policy: .blockWhileLocked)
