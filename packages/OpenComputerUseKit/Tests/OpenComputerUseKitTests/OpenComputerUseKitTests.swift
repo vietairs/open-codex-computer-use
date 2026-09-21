@@ -1033,9 +1033,14 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         XCTAssertTrue(lines.contains { $0.hasPrefix("Compact actionable view: 2 of 4 elements") })
         XCTAssertTrue(rendered.contains("element_index values match the full tree"))
-        // Every element row is flush left; tab depth is what the full tree is for.
-        for line in lines where line.first?.isNumber == true {
+        // Every body row is flush left; tab depth is what the full tree is for. Checked across all
+        // rows after the header, not only those already starting with a digit — that filter can
+        // never see an indented line, so it would pass with the stripping removed entirely.
+        let body = lines.drop { !$0.hasPrefix("Compact actionable view:") }.dropFirst()
+        XCTAssertFalse(body.isEmpty)
+        for line in body {
             XCTAssertFalse(line.hasPrefix("\t"), "compact row kept its indentation: \(line)")
+            XCTAssertFalse(line.hasPrefix(" "), "compact row kept its indentation: \(line)")
         }
     }
 
@@ -1072,15 +1077,17 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(rendered.contains("1 button Send"))
     }
 
-    func testCompactViewTreatsIdentifiedFixtureElementsAsActionable() {
-        // Fixture click/set_value dispatch by identifier, and rawActions there holds only the
-        // fixture's secondary actions, so an empty list does not mean "not actionable".
+    func testCompactViewKeepsEveryFixtureElementBecauseAllAreAddressable() {
+        // Fixture click/set_value dispatch by identifier, which every fixture element carries, so
+        // compact has nothing to filter there and keeps even a static text row. Asserted rather
+        // than assumed: it is the reason fixture runs cannot detect a filter regression.
         let snapshot = makeSnapshot(
-            treeLines: ["\t0 button Send"],
+            treeLines: ["\t0 button Send", "\t1 static text Draft saved"],
             focusedSummary: nil,
-            treeLineOffsets: [0: 0],
+            treeLineOffsets: [0: 0, 1: 1],
             elements: [
                 0: makeElementRecord(index: 0, role: "AXButton", rawActions: [], identifier: "send"),
+                1: makeElementRecord(index: 1, role: "AXStaticText", rawActions: [], identifier: "draft"),
             ],
             mode: .fixture
         )
@@ -1088,7 +1095,75 @@ final class OpenComputerUseKitTests: XCTestCase {
         let rendered = snapshot.renderedText(style: .compactActionable)
 
         XCTAssertTrue(rendered.contains("0 button Send"))
-        XCTAssertFalse(rendered.contains("no actionable elements found"))
+        XCTAssertTrue(rendered.contains("1 static text Draft saved"))
+        XCTAssertTrue(rendered.contains("Compact actionable view: 2 of 2 elements"))
+    }
+
+    func testCompactViewDropsElementsWhoseOnlyActionCannotActuate() {
+        // WebKit/Electron advertise AXScrollToVisible on nearly every node. Treating "has any
+        // action" as actionable would keep the whole tree on exactly the apps compact exists for.
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 group Card", "\t1 button Send"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 1],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXGroup", rawActions: ["AXScrollToVisible"]),
+                1: makeElementRecord(index: 1, role: "AXButton", rawActions: ["AXScrollToVisible", "AXPress"]),
+            ]
+        )
+
+        let rendered = snapshot.renderedText(style: .compactActionable)
+
+        XCTAssertFalse(rendered.contains("0 group Card"))
+        XCTAssertTrue(rendered.contains("1 button Send"))
+    }
+
+    func testCompactViewKeepsTextViewAndSecureFieldRoles() {
+        // A password field reporting role AXSecureTextField rather than the subrole would
+        // otherwise vanish, leaving an agent to conclude a login sheet has no password input.
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 text view Body", "\t1 secure text field Password"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 1],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXTextView", rawActions: []),
+                1: makeElementRecord(index: 1, role: "AXSecureTextField", rawActions: []),
+            ]
+        )
+
+        let rendered = snapshot.renderedText(style: .compactActionable)
+
+        XCTAssertTrue(rendered.contains("0 text view Body"))
+        XCTAssertTrue(rendered.contains("1 secure text field Password"))
+    }
+
+    func testCompactViewCarriesIdentifyingTextFromIndexlessChildRows() {
+        // A clickable group's label is rendered as a child row with no index of its own. Printing
+        // only the group's own row leaves identical-looking entries the agent cannot choose between.
+        let snapshot = makeSnapshot(
+            treeLines: [
+                "\t0 group Frame: (0, 0, 100, 20)",
+                "\t\tAcme Corp",
+                "\t\tInvoice #42",
+                "\t1 group Frame: (0, 20, 100, 20)",
+                "\t\tGlobex",
+            ],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 3],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXGroup", rawActions: ["AXPress"]),
+                1: makeElementRecord(index: 1, role: "AXGroup", rawActions: ["AXPress"]),
+            ]
+        )
+
+        let lines = snapshot.renderedText(style: .compactActionable)
+            .components(separatedBy: "\n")
+        let body = Array(lines.drop { !$0.hasPrefix("Compact actionable view:") }.dropFirst())
+
+        XCTAssertEqual(body, [
+            "0 group Frame: (0, 0, 100, 20) — Acme Corp | Invoice #42",
+            "1 group Frame: (0, 20, 100, 20) — Globex",
+        ])
     }
 
     func testCompactViewHoistsFocusedElementAndIgnoresItsSyntheticTwin() {

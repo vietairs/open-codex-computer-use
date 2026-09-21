@@ -175,21 +175,39 @@ public struct AppSnapshot {
             ordered = actionable.sorted()
         }
 
+        let addressable = elements.values.filter { !$0.isSyntheticText }.count
         var lines = [
-            "Compact actionable view: \(ordered.count) of \(elements.count) elements, screenshot omitted."
+            "Compact actionable view: \(ordered.count) of \(addressable) elements, screenshot omitted."
                 + " element_index values match the full tree; re-run without compact for full context."
         ]
+        // Rows that carry no index of their own belong to the element above them, so they are the
+        // element's span rather than separate entries.
+        let rowStarts = treeLineOffsets.values.sorted()
         for index in ordered {
             guard let offset = treeLineOffsets[index], treeLines.indices.contains(offset) else {
                 continue
             }
-            var line = Substring(treeLines[offset])
-            while line.first == "\t" || line.first == " " {
-                line = line.dropFirst()
+            let end = rowStarts.first { $0 > offset } ?? treeLines.count
+            let span = treeLines[offset..<min(end, treeLines.count)]
+                .map(Self.stripLeadingIndent)
+                .filter { !$0.isEmpty }
+            guard var line = span.first else { continue }
+            // Trailing rows are an element's own label/columns; joining them keeps the row
+            // distinguishable from its siblings, which is the whole point of printing it.
+            if span.count > 1 {
+                line += " — " + span.dropFirst().joined(separator: " | ")
             }
-            lines.append(index == focusedIndex ? "\(line) (focused)" : String(line))
+            lines.append(index == focusedIndex ? "\(line) (focused)" : line)
         }
         return lines
+    }
+
+    private static func stripLeadingIndent(_ text: String) -> String {
+        var line = Substring(text)
+        while line.first == "\t" || line.first == " " {
+            line = line.dropFirst()
+        }
+        return String(line)
     }
 
     /// Whether an element is worth keeping in the compact view.
@@ -202,13 +220,19 @@ public struct AppSnapshot {
     /// per node to every snapshot. Text-entry roles stand in for it, which over-includes a
     /// read-only text field but never hides a writable one.
     ///
-    /// In fixture mode `rawActions` holds the fixture's *secondary* actions, while `click` and
-    /// `set_value` dispatch purely by identifier, so any identified element is actionable there.
+    /// In fixture mode every element is addressable: `click` and `set_value` dispatch by
+    /// identifier, which `FixtureElementState` always carries, and `rawActions` holds only the
+    /// fixture's *secondary* actions. So compact genuinely has nothing to filter there — it keeps
+    /// the whole tree and only drops the screenshot. Stated outright rather than written as a
+    /// condition, because a guard that can never be false reads like a real one.
     private func isActionableForCompactView(_ record: ElementRecord) -> Bool {
-        if mode == .fixture {
-            return record.identifier != nil
+        if record.isSyntheticText {
+            return false
         }
-        if !record.rawActions.isEmpty {
+        if mode == .fixture {
+            return true
+        }
+        if record.rawActions.contains(where: { !Self.nonActuatingActions.contains($0) }) {
             return true
         }
         guard let role = record.role else {
@@ -217,10 +241,24 @@ public struct AppSnapshot {
         return Self.textEntryRoles.contains(role)
     }
 
+    /// Actions that do not actuate anything. WebKit and Electron advertise `AXScrollToVisible` on
+    /// nearly every node, so treating "has any action" as actionable would keep the whole tree and
+    /// make the compact view pointless on exactly the apps it exists for.
+    private static let nonActuatingActions: Set<String> = [
+        "AXScrollToVisible",
+        "AXShowDefaultUI",
+        "AXShowAlternateUI",
+    ]
+
     /// Roles whose value is typically settable through `set_value` even with no advertised action.
+    /// Mirrors `canUseKeyboardTextFallback`'s role list rather than inventing a second one, plus
+    /// the secure and combo-box forms: a password field that reports role `AXSecureTextField`
+    /// rather than the subrole would otherwise vanish from a login sheet.
     private static let textEntryRoles: Set<String> = [
         kAXTextFieldRole as String,
         kAXTextAreaRole as String,
+        "AXTextView",
+        "AXSecureTextField",
         kAXComboBoxRole as String,
     ]
 
