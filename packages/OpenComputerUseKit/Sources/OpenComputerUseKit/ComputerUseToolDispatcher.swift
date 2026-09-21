@@ -59,7 +59,7 @@ public final class ComputerUseToolDispatcher {
                     maxNodeCount: try optionalPositiveInt("max_tree_nodes", in: arguments),
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
                 ),
-                compact: optionalBool("compact", in: arguments) ?? false
+                compact: try optionalBool("compact", in: arguments) ?? false
             )
         case "click":
             return try service.click(
@@ -192,9 +192,12 @@ public final class ComputerUseToolDispatcher {
     }
 
     /// Reads an optional boolean flag. Accepts a real boolean, the strings "true"/"false", and
-    /// 1/0, because MCP clients differ in how they encode booleans. Anything else reads as absent
-    /// rather than throwing: these flags only ever widen or narrow a read-only view.
-    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
+    /// 1/0, because MCP clients differ in how they encode booleans.
+    ///
+    /// Anything else throws rather than falling back to the default. A silently ignored `compact`
+    /// returns the full tree plus a screenshot — the most expensive possible answer to a request
+    /// that asked for the cheapest — and the caller has no way to tell it was dropped.
+    private func optionalBool(_ key: String, in arguments: [String: Any]) throws -> Bool? {
         guard let value = arguments[key] else {
             return nil
         }
@@ -207,7 +210,7 @@ public final class ComputerUseToolDispatcher {
             switch text.lowercased() {
             case "true": return true
             case "false": return false
-            default: return nil
+            default: break
             }
         }
 
@@ -215,7 +218,7 @@ public final class ComputerUseToolDispatcher {
             return number != 0
         }
 
-        return nil
+        throw ComputerUseError.invalidArguments("\(key) must be a boolean")
     }
 
     private func optionalPositiveInt(_ key: String, in arguments: [String: Any]) throws -> Int? {

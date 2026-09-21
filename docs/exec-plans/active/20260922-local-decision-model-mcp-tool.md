@@ -48,7 +48,7 @@
 
 ## 进度记录
 
-- [x] P0：实现精简可操作候选表模式（`get_app_state` 的 `compact` 参数，仅 macOS runtime）。`swift test` 228 条通过。
+- [x] P0：实现精简可操作候选表模式（`get_app_state` 的 `compact` 参数，仅 macOS runtime）。经 code review 修正后 `swift test` 233 条通过。
 - [ ] P0：在真实 app 上测量 token 与延迟收益（实现已就绪，数值尚未采集）。
 - [ ] P0 Gate：判断是否需要继续做分类器。
 - [ ] P1：建立 200 条本地评测集并度量 top-1 与 margin AUROC。

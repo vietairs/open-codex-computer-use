@@ -23,6 +23,15 @@
 
 刻意**不做**同名行去重：列表里两个「删除」按钮是不同的目标，丢掉正确目标比多打印一行近似重复严重得多。
 
+### 🔁 Code review 后的修正
+
+opus 级 code review 发现四处问题，均已修复并补测（测试总数 228 → 233）：
+
+- **focused 元素查找不确定**：一个 `AXUIElement` 可能同时对应真实行与为它生成的 synthetic text 行，而 `Dictionary.values` 无序，因此同一个 UI 在不同运行下可能匹配到没有 action、不会进入 compact 视图的 synthetic 行，导致 focused 元素既不置顶也不带标记。改为跳过 synthetic 记录并取最小匹配 index。
+- **可操作判定过窄**：`set_value` 只要求 `AXValue` 可写，不需要任何 action，因此只按 `rawActions` 过滤会把 agent 真正要输入的文本框删掉；fixture 模式下 `rawActions` 存的是 secondary actions，而派发按 identifier 进行，同样误判。改为按角色（文本输入类）与 fixture identifier 放宽。
+- **排序谓词不满足严格弱序**：两个都等于 focusedIndex 时返回 `true`。当前不可达，但改为分区构造以免日后触发标准库陷阱。
+- **`optionalBool` 静默吞掉非法值**：`compact: "yes"` 会静默返回完整树加截图，即对「最省」请求给出最贵的回答。改为与同文件其它解析器一致抛出 `invalidArguments`。
+
 ### ⚠️ 已知缺口
 `compact` 目前只在 macOS Swift runtime 实现。Linux / Windows 的 Go runtime 各自维护 tool schema，尚未支持该参数。在 P0 的收益被测量出来之前，不先铺开到三个 runtime。
 

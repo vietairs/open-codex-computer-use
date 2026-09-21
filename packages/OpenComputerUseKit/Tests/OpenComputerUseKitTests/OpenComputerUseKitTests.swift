@@ -749,6 +749,32 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(result.primaryText, "pages must be > 0")
     }
 
+    func testGetAppStateRejectsUnparseableCompactFlag() {
+        // Silently ignoring it would return the full tree plus a screenshot — the most expensive
+        // possible answer to a request that explicitly asked for the cheapest.
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+        let result = dispatcher.callToolAsResult(
+            name: "get_app_state",
+            arguments: ["app": "Sublime Text", "compact": "yes"]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, #"invalidArguments("compact must be a boolean")"#)
+    }
+
+    func testGetAppStateAcceptsCommonBooleanEncodingsForCompact() {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+
+        for encoding in ["true", true, 1] as [Any] {
+            let result = dispatcher.callToolAsResult(
+                name: "get_app_state",
+                arguments: ["app": "Sublime Text", "compact": encoding]
+            )
+            // The app does not exist here, so the call still fails — but never on the flag itself.
+            XCTAssertNotEqual(result.primaryText, #"invalidArguments("compact must be a boolean")"#)
+        }
+    }
+
     func testSecondaryActionInvalidMessageMatchesOfficialShape() {
         XCTAssertEqual(
             invalidSecondaryActionErrorMessage(action: "NoSuchAction", elementIndex: 14),
@@ -1027,6 +1053,79 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(rendered.contains("Compact actionable view:"))
     }
 
+    func testCompactViewKeepsTextFieldsThatAdvertiseNoActions() {
+        // macOS text fields routinely expose no AX action, yet set_value targets them by index.
+        // Filtering on actions alone would delete exactly what an agent means to type into.
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 text field Message", "\t1 button Send"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 1],
+            elements: [
+                0: makeElementRecord(index: 0, role: kAXTextFieldRole as String, rawActions: []),
+                1: makeElementRecord(index: 1, role: "AXButton", rawActions: ["AXPress"]),
+            ]
+        )
+
+        let rendered = snapshot.renderedText(style: .compactActionable)
+
+        XCTAssertTrue(rendered.contains("0 text field Message"))
+        XCTAssertTrue(rendered.contains("1 button Send"))
+    }
+
+    func testCompactViewTreatsIdentifiedFixtureElementsAsActionable() {
+        // Fixture click/set_value dispatch by identifier, and rawActions there holds only the
+        // fixture's secondary actions, so an empty list does not mean "not actionable".
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 button Send"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXButton", rawActions: [], identifier: "send"),
+            ],
+            mode: .fixture
+        )
+
+        let rendered = snapshot.renderedText(style: .compactActionable)
+
+        XCTAssertTrue(rendered.contains("0 button Send"))
+        XCTAssertFalse(rendered.contains("no actionable elements found"))
+    }
+
+    func testCompactViewHoistsFocusedElementAndIgnoresItsSyntheticTwin() {
+        // The focused element and its synthetic text row share one AXUIElement. Matching the
+        // synthetic one would drop the marker, and dictionary order decides which is seen first.
+        let focused = AXUIElementCreateApplication(4_242)
+        let other = AXUIElementCreateApplication(4_243)
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 button Cancel", "\t1 text field Message", "\t2 static text Message"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 1, 2: 2],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXButton", rawActions: ["AXPress"], element: other),
+                1: makeElementRecord(
+                    index: 1,
+                    role: kAXTextFieldRole as String,
+                    rawActions: [],
+                    element: focused
+                ),
+                2: makeElementRecord(
+                    index: 2,
+                    role: "AXStaticText",
+                    rawActions: [],
+                    element: focused,
+                    isSyntheticText: true
+                ),
+            ],
+            focusedElement: focused
+        )
+
+        let lines = snapshot.renderedText(style: .compactActionable)
+            .components(separatedBy: "\n")
+        let body = lines.drop { !$0.hasPrefix("Compact actionable view:") }.dropFirst()
+
+        XCTAssertEqual(Array(body), ["1 text field Message (focused)", "0 button Cancel"])
+    }
+
     func testFullStateViewIsUnchangedByCompactSupport() {
         let rendered = makeCompactFixtureSnapshot().renderedText(style: .fullState)
 
@@ -1041,7 +1140,8 @@ final class OpenComputerUseKitTests: XCTestCase {
         let compact = try XCTUnwrap(schema["compact"] as? [String: Any])
 
         XCTAssertEqual(compact["type"] as? String, "boolean")
-        XCTAssertFalse(definition.inputSchema["required"] as? [String] == ["app", "compact"])
+        // compact must stay optional: existing callers send only "app" and expect the full tree.
+        XCTAssertEqual(definition.inputSchema["required"] as? [String], ["app"])
     }
 
     func testAccessibilityTreeBudgetAllowsDeepElectronWebViews() {
@@ -2787,7 +2887,9 @@ final class OpenComputerUseKitTests: XCTestCase {
         focusedSummary: String?,
         selectedText: String? = nil,
         treeLineOffsets: [Int: Int] = [:],
-        elements: [Int: ElementRecord] = [:]
+        elements: [Int: ElementRecord] = [:],
+        mode: SnapshotMode = .accessibility,
+        focusedElement: AXUIElement? = nil
     ) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(
@@ -2801,25 +2903,33 @@ final class OpenComputerUseKitTests: XCTestCase {
             targetWindowID: nil,
             targetWindowLayer: nil,
             screenshotPNGData: nil,
-            mode: .accessibility,
+            mode: mode,
             treeLines: treeLines,
             treeLineOffsets: treeLineOffsets,
             focusedSummary: focusedSummary,
-            focusedElement: nil,
+            focusedElement: focusedElement,
             selectedText: selectedText,
             elements: elements
         )
     }
 
-    private func makeElementRecord(index: Int, role: String, rawActions: [String]) -> ElementRecord {
+    private func makeElementRecord(
+        index: Int,
+        role: String,
+        rawActions: [String],
+        identifier: String? = nil,
+        element: AXUIElement? = nil,
+        isSyntheticText: Bool = false
+    ) -> ElementRecord {
         ElementRecord(
             index: index,
-            identifier: nil,
-            element: nil,
+            identifier: identifier,
+            element: element,
             localFrame: nil,
             role: role,
             rawActions: rawActions,
-            prettyActions: []
+            prettyActions: [],
+            isSyntheticText: isSyntheticText
         )
     }
 

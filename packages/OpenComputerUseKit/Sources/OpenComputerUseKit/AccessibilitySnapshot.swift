@@ -157,18 +157,22 @@ public struct AppSnapshot {
     /// near-duplicate.
     func compactActionableLines() -> [String] {
         let actionable = elements.values
-            .filter { !$0.rawActions.isEmpty && treeLineOffsets[$0.index] != nil }
+            .filter { isActionableForCompactView($0) && treeLineOffsets[$0.index] != nil }
             .map(\.index)
 
         guard !actionable.isEmpty else {
             return ["(no actionable elements found; re-run without compact for the full tree)"]
         }
 
+        // Focused element first, then ascending index. Built by partitioning rather than with a
+        // custom comparator: a predicate answering `true` for two equal focused indices is not a
+        // strict weak ordering, and the standard library is entitled to trap on one.
         let focusedIndex = focusedElementIndex()
-        let ordered = actionable.sorted { lhs, rhs in
-            if lhs == focusedIndex { return true }
-            if rhs == focusedIndex { return false }
-            return lhs < rhs
+        let ordered: [Int]
+        if let focusedIndex, actionable.contains(focusedIndex) {
+            ordered = [focusedIndex] + actionable.filter { $0 != focusedIndex }.sorted()
+        } else {
+            ordered = actionable.sorted()
         }
 
         var lines = [
@@ -188,14 +192,56 @@ public struct AppSnapshot {
         return lines
     }
 
+    /// Whether an element is worth keeping in the compact view.
+    ///
+    /// Exposing an accessibility action is the common case, but not the only one. `set_value` only
+    /// requires `AXValue` to be settable, and macOS text fields routinely advertise no actions at
+    /// all — filtering on actions alone would delete exactly the elements an agent means to type
+    /// into, and the compact header would claim nothing was there. Settability itself cannot be
+    /// used as the test: it is a live AX query, and running one per element would add a round trip
+    /// per node to every snapshot. Text-entry roles stand in for it, which over-includes a
+    /// read-only text field but never hides a writable one.
+    ///
+    /// In fixture mode `rawActions` holds the fixture's *secondary* actions, while `click` and
+    /// `set_value` dispatch purely by identifier, so any identified element is actionable there.
+    private func isActionableForCompactView(_ record: ElementRecord) -> Bool {
+        if mode == .fixture {
+            return record.identifier != nil
+        }
+        if !record.rawActions.isEmpty {
+            return true
+        }
+        guard let role = record.role else {
+            return false
+        }
+        return Self.textEntryRoles.contains(role)
+    }
+
+    /// Roles whose value is typically settable through `set_value` even with no advertised action.
+    private static let textEntryRoles: Set<String> = [
+        kAXTextFieldRole as String,
+        kAXTextAreaRole as String,
+        kAXComboBoxRole as String,
+    ]
+
+    /// Index of the focused element, or nil when nothing is focused.
+    ///
+    /// Two records can carry the same `AXUIElement`: the element's own row, and the synthetic text
+    /// row rendered for it. The synthetic row exposes no actions and so never reaches the compact
+    /// view, meaning a match against it would silently drop the focused marker. Synthetic records
+    /// are therefore skipped, and the lowest matching index wins: `Dictionary.values` has no
+    /// defined order, so an arbitrary pick would order the same UI differently between runs.
     private func focusedElementIndex() -> Int? {
         guard let focusedElement else {
             return nil
         }
-        return elements.values.first { record in
-            guard let element = record.element else { return false }
-            return CFEqual(element, focusedElement)
-        }?.index
+        return elements.values
+            .filter { record in
+                guard !record.isSyntheticText, let element = record.element else { return false }
+                return CFEqual(element, focusedElement)
+            }
+            .map(\.index)
+            .min()
     }
 }
 
