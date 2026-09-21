@@ -1118,6 +1118,64 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(rendered.contains("1 button Send"))
     }
 
+    func testCompactViewDropsUbiquitousActionStaticTextButKeepsItsClickableAncestor() {
+        // A page of prose arrives as hundreds of apparently actionable labels because web content
+        // stamps the ubiquitous actions onto static text inside a clickable region as well as onto
+        // the region. The label is not the target; the region is, and a clickable div is often the
+        // only target a web app offers, so the generic container has to survive the same cut.
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 container", "\t1 text Read the announcement", "\t2 button Send"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 1, 2: 2],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXGroup", rawActions: ["AXPress"]),
+                1: makeElementRecord(index: 1, role: "AXStaticText", rawActions: ["AXPress", "AXShowMenu"]),
+                2: makeElementRecord(index: 2, role: "AXButton", rawActions: ["AXPress"]),
+            ]
+        )
+
+        let rendered = snapshot.renderedText(style: .compactActionable)
+
+        XCTAssertFalse(rendered.contains("1 text Read the announcement"))
+        XCTAssertTrue(rendered.contains("0 container"))
+        XCTAssertTrue(rendered.contains("2 button Send"))
+    }
+
+    func testCompactViewKeepsStaticTextThatAdvertisesANonUbiquitousAction() {
+        // A real control mislabelled as static text advertises an action that not every node has.
+        // That is the only signal separating it from a paragraph, so it has to be honoured.
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 text Rename"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXStaticText", rawActions: ["AXPress", "AXIncrement"]),
+            ]
+        )
+
+        XCTAssertTrue(snapshot.renderedText(style: .compactActionable).contains("0 text Rename"))
+    }
+
+    func testCompactViewKeepsScrollAreasThatCarryScrollActions() {
+        // `scroll` resolves by element_index and prefers the element's own AXScroll*ByPage action,
+        // so a scroll area is a target, not scaffolding. Dropping it would leave that tool with
+        // nothing to aim at.
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 scroll area Actions: Scroll Up, Scroll Down"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0],
+            elements: [
+                0: makeElementRecord(
+                    index: 0,
+                    role: "AXScrollArea",
+                    rawActions: ["AXScrollUpByPage", "AXScrollDownByPage"]
+                ),
+            ]
+        )
+
+        XCTAssertTrue(snapshot.renderedText(style: .compactActionable).contains("0 scroll area"))
+    }
+
     func testCompactViewKeepsTextViewAndSecureFieldRoles() {
         // A password field reporting role AXSecureTextField rather than the subrole would
         // otherwise vanish, leaving an agent to conclude a login sheet has no password input.

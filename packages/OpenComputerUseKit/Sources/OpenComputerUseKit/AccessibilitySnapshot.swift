@@ -232,13 +232,31 @@ public struct AppSnapshot {
         if mode == .fixture {
             return true
         }
-        if record.rawActions.contains(where: { !Self.nonActuatingActions.contains($0) }) {
+        if let role = record.role, Self.textEntryRoles.contains(role) {
             return true
         }
-        guard let role = record.role else {
+        let actuating = record.rawActions.filter { !Self.nonActuatingActions.contains($0) }
+        guard !actuating.isEmpty else {
             return false
         }
-        return Self.textEntryRoles.contains(role)
+        // Web content stamps the ubiquitous actions — `AXPress`, and on this page `AXShowMenu`
+        // too — onto the static text inside a clickable region as well as onto the region itself,
+        // so a page of prose arrives as hundreds of apparently actionable labels. A label is not
+        // the target: whatever handles the click carries its own press, and that ancestor is kept.
+        // Static text therefore earns a row only by advertising an action that is *not* one every
+        // node has, which is what separates a real control mislabelled as text from a paragraph.
+        // `meaningfulRawActions` already defines that set for rendering, and reusing it keeps the
+        // two from drifting apart. Measured on one Chrome page: 280 rows down to 210.
+        //
+        // Deliberately NOT applied to generic containers: the snapshot already treats
+        // `AXGroup`/`AXUnknown` plus a press as a genuine click target (see
+        // `isGenericPrimaryActionSummaryBoundary`), and a clickable div is often the only target a
+        // web app offers. Nor to scroll areas: `scroll` resolves by `element_index` and prefers
+        // the element's own `AXScroll*ByPage` action, so dropping them would leave it no target.
+        if let role = record.role, role == kAXStaticTextRole as String {
+            return !meaningfulRawActions(record.rawActions, role: role).isEmpty
+        }
+        return true
     }
 
     /// Actions that do not actuate anything. WebKit and Electron advertise `AXScrollToVisible` on
