@@ -970,6 +970,80 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(rendered.contains("Pay special attention to the content selected by the user"))
     }
 
+    // MARK: - Compact actionable snapshot view
+
+    private func makeCompactFixtureSnapshot() -> AppSnapshot {
+        // Index 1 and 3 expose actions; 2 is static text and must not survive the filter.
+        makeSnapshot(
+            treeLines: [
+                "\t0 standard window Sample Chat",
+                "\t\t1 button Send Secondary Actions: Press",
+                "\t\t2 static text Draft saved",
+                "\t\t\t3 text field (settable, string) Message",
+            ],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0, 1: 1, 2: 2, 3: 3],
+            elements: [
+                0: makeElementRecord(index: 0, role: "AXWindow", rawActions: []),
+                1: makeElementRecord(index: 1, role: "AXButton", rawActions: ["AXPress"]),
+                2: makeElementRecord(index: 2, role: "AXStaticText", rawActions: []),
+                3: makeElementRecord(index: 3, role: "AXTextField", rawActions: ["AXConfirm"]),
+            ]
+        )
+    }
+
+    func testCompactViewKeepsOnlyActionableElementsAndPreservesIndices() {
+        let rendered = makeCompactFixtureSnapshot().renderedText(style: .compactActionable)
+
+        XCTAssertTrue(rendered.contains("1 button Send"))
+        XCTAssertTrue(rendered.contains("3 text field"))
+        XCTAssertFalse(rendered.contains("static text Draft saved"))
+        XCTAssertFalse(rendered.contains("standard window Sample Chat"))
+    }
+
+    func testCompactViewFlattensIndentationAndAnnouncesIndexStability() {
+        let rendered = makeCompactFixtureSnapshot().renderedText(style: .compactActionable)
+        let lines = rendered.components(separatedBy: "\n")
+
+        XCTAssertTrue(lines.contains { $0.hasPrefix("Compact actionable view: 2 of 4 elements") })
+        XCTAssertTrue(rendered.contains("element_index values match the full tree"))
+        // Every element row is flush left; tab depth is what the full tree is for.
+        for line in lines where line.first?.isNumber == true {
+            XCTAssertFalse(line.hasPrefix("\t"), "compact row kept its indentation: \(line)")
+        }
+    }
+
+    func testCompactViewReportsWhenNothingIsActionable() {
+        let snapshot = makeSnapshot(
+            treeLines: ["\t0 static text Loading"],
+            focusedSummary: nil,
+            treeLineOffsets: [0: 0],
+            elements: [0: makeElementRecord(index: 0, role: "AXStaticText", rawActions: [])]
+        )
+
+        let rendered = snapshot.renderedText(style: .compactActionable)
+
+        XCTAssertTrue(rendered.contains("no actionable elements found"))
+        XCTAssertFalse(rendered.contains("Compact actionable view:"))
+    }
+
+    func testFullStateViewIsUnchangedByCompactSupport() {
+        let rendered = makeCompactFixtureSnapshot().renderedText(style: .fullState)
+
+        XCTAssertTrue(rendered.contains("\t\t2 static text Draft saved"))
+        XCTAssertTrue(rendered.contains("\t0 standard window Sample Chat"))
+        XCTAssertFalse(rendered.contains("Compact actionable view:"))
+    }
+
+    func testGetAppStateExposesCompactFlagAsBoolean() throws {
+        let definition = try XCTUnwrap(ToolDefinitions.all.first { $0.name == "get_app_state" })
+        let schema = try XCTUnwrap(definition.inputSchema["properties"] as? [String: Any])
+        let compact = try XCTUnwrap(schema["compact"] as? [String: Any])
+
+        XCTAssertEqual(compact["type"] as? String, "boolean")
+        XCTAssertFalse(definition.inputSchema["required"] as? [String] == ["app", "compact"])
+    }
+
     func testAccessibilityTreeBudgetAllowsDeepElectronWebViews() {
         XCTAssertEqual(accessibilityTreeMaxNodeCount, 1200)
         XCTAssertEqual(accessibilityTreeMaxDepth, 64)
@@ -2708,7 +2782,13 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(listResponse!.contains("list_apps"))
     }
 
-    private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
+    private func makeSnapshot(
+        treeLines: [String],
+        focusedSummary: String?,
+        selectedText: String? = nil,
+        treeLineOffsets: [Int: Int] = [:],
+        elements: [Int: ElementRecord] = [:]
+    ) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(
                 name: "Sample Chat",
@@ -2723,10 +2803,23 @@ final class OpenComputerUseKitTests: XCTestCase {
             screenshotPNGData: nil,
             mode: .accessibility,
             treeLines: treeLines,
+            treeLineOffsets: treeLineOffsets,
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: selectedText,
-            elements: [:]
+            elements: elements
+        )
+    }
+
+    private func makeElementRecord(index: Int, role: String, rawActions: [String]) -> ElementRecord {
+        ElementRecord(
+            index: index,
+            identifier: nil,
+            element: nil,
+            localFrame: nil,
+            role: role,
+            rawActions: rawActions,
+            prettyActions: []
         )
     }
 
@@ -2975,6 +3068,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             screenshotPNGData: nil,
             mode: .fixture,
             treeLines: [],
+            treeLineOffsets: [:],
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
@@ -2997,6 +3091,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             screenshotPNGData: nil,
             mode: .fixture,
             treeLines: [],
+            treeLineOffsets: [:],
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
@@ -3019,6 +3114,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             screenshotPNGData: pngData,
             mode: .accessibility,
             treeLines: [],
+            treeLineOffsets: [:],
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,

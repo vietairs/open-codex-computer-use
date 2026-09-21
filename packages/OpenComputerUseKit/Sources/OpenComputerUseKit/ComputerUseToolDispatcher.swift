@@ -58,7 +58,8 @@ public final class ComputerUseToolDispatcher {
                 treeLimits: AccessibilityTreeLimits.defaults.replacing(
                     maxNodeCount: try optionalPositiveInt("max_tree_nodes", in: arguments),
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
-                )
+                ),
+                compact: optionalBool("compact", in: arguments) ?? false
             )
         case "click":
             return try service.click(
@@ -185,6 +186,33 @@ public final class ComputerUseToolDispatcher {
 
         if let number = arguments[key] as? NSNumber {
             return number.doubleValue
+        }
+
+        return nil
+    }
+
+    /// Reads an optional boolean flag. Accepts a real boolean, the strings "true"/"false", and
+    /// 1/0, because MCP clients differ in how they encode booleans. Anything else reads as absent
+    /// rather than throwing: these flags only ever widen or narrow a read-only view.
+    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
+        guard let value = arguments[key] else {
+            return nil
+        }
+
+        if let boolean = value as? Bool {
+            return boolean
+        }
+
+        if let text = value as? String {
+            switch text.lowercased() {
+            case "true": return true
+            case "false": return false
+            default: return nil
+            }
+        }
+
+        if let number = value as? Int {
+            return number != 0
         }
 
         return nil

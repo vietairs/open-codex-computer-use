@@ -111,6 +111,9 @@ public struct AppSnapshot {
     public let screenshotPNGData: Data?
     let mode: SnapshotMode
     let treeLines: [String]
+    /// Position of each element's own row inside `treeLines`, keyed by element index.
+    /// Lets the compact view reuse the exact rendered row instead of re-deriving it.
+    let treeLineOffsets: [Int: Int]
     let focusedSummary: String?
     let focusedElement: AXUIElement?
     let selectedText: String?
@@ -128,7 +131,11 @@ public struct AppSnapshot {
 
         lines.append("App=\(appReference) (pid \(app.pid))")
         lines.append("Window: \(quoted(displayTitle)), App: \(app.name).")
-        lines.append(contentsOf: treeLines)
+        if style == .compactActionable {
+            lines.append(contentsOf: compactActionableLines())
+        } else {
+            lines.append(contentsOf: treeLines)
+        }
 
         if let selectedText, !selectedText.isEmpty {
             lines.append("")
@@ -140,11 +147,64 @@ public struct AppSnapshot {
 
         return lines.joined(separator: "\n")
     }
+
+    /// Rows for elements that expose at least one accessibility action, flattened and with the
+    /// focused element first. Element indices are the ones the full tree assigned, so every
+    /// `element_index` printed here stays valid for `click`, `set_value`, `scroll` and the rest.
+    ///
+    /// Deliberately does not de-duplicate rows that render identically: two "Delete" buttons in a
+    /// list are distinct targets, and dropping the correct one is a worse failure than printing a
+    /// near-duplicate.
+    func compactActionableLines() -> [String] {
+        let actionable = elements.values
+            .filter { !$0.rawActions.isEmpty && treeLineOffsets[$0.index] != nil }
+            .map(\.index)
+
+        guard !actionable.isEmpty else {
+            return ["(no actionable elements found; re-run without compact for the full tree)"]
+        }
+
+        let focusedIndex = focusedElementIndex()
+        let ordered = actionable.sorted { lhs, rhs in
+            if lhs == focusedIndex { return true }
+            if rhs == focusedIndex { return false }
+            return lhs < rhs
+        }
+
+        var lines = [
+            "Compact actionable view: \(ordered.count) of \(elements.count) elements, screenshot omitted."
+                + " element_index values match the full tree; re-run without compact for full context."
+        ]
+        for index in ordered {
+            guard let offset = treeLineOffsets[index], treeLines.indices.contains(offset) else {
+                continue
+            }
+            var line = Substring(treeLines[offset])
+            while line.first == "\t" || line.first == " " {
+                line = line.dropFirst()
+            }
+            lines.append(index == focusedIndex ? "\(line) (focused)" : String(line))
+        }
+        return lines
+    }
+
+    private func focusedElementIndex() -> Int? {
+        guard let focusedElement else {
+            return nil
+        }
+        return elements.values.first { record in
+            guard let element = record.element else { return false }
+            return CFEqual(element, focusedElement)
+        }?.index
+    }
 }
 
 public enum SnapshotTextStyle {
     case fullState
     case actionResult
+    /// Actionable rows only, no screenshot. The token-cheap view for agents that already
+    /// know what they are looking for.
+    case compactActionable
 }
 
 enum SnapshotBuilder {
@@ -255,6 +315,7 @@ enum SnapshotBuilder {
             screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
             treeLines: renderer.lines,
+            treeLineOffsets: renderer.lineOffsets,
             focusedSummary: renderer.focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
@@ -376,6 +437,7 @@ enum SnapshotBuilder {
         var lines: [String] = []
 
         var records: [Int: ElementRecord] = [:]
+        var lineOffsets: [Int: Int] = [:]
         let focusedIdentifier = state.focusedIdentifier
         var focusedSummary: String?
 
@@ -385,6 +447,7 @@ enum SnapshotBuilder {
             let actionsSegment = element.actions.isEmpty ? "" : " Secondary Actions: \(element.actions.joined(separator: ", "))"
             let focusSegment = focusedIdentifier == element.identifier ? " (focused)" : ""
             lines.append("\(String(repeating: "    ", count: element.index == 0 ? 0 : 1))\(element.index) \(element.role)\(titleSegment)\(focusSegment) ID: \(element.identifier)\(valueSegment)\(actionsSegment) Frame: \(element.frame.cgRect.renderedLocalFrame)")
+            lineOffsets[element.index] = lines.count - 1
 
             let record = ElementRecord(
                 index: element.index,
@@ -411,6 +474,7 @@ enum SnapshotBuilder {
             screenshotPNGData: nil,
             mode: .fixture,
             treeLines: lines,
+            treeLineOffsets: lineOffsets,
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: nil,
@@ -683,6 +747,7 @@ private struct TreeRenderer {
     var nextIndex = 0
     var lines: [String] = []
     var records: [Int: ElementRecord] = [:]
+    var lineOffsets: [Int: Int] = [:]
     var identifierIndex: [String: String] = [:]
     var focusedSummary: String?
 
@@ -847,6 +912,7 @@ private struct TreeRenderer {
 
         let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)\(placeholderSegment)\(frameSegment)"
         lines.append("\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
+        lineOffsets[index] = lines.count - 1
 
         let record = ElementRecord(
             index: index,
