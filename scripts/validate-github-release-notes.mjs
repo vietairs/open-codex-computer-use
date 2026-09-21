@@ -1,13 +1,40 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const repositoryURL = "https://github.com/iFurySt/open-codex-computer-use";
+// A fork releases under its own slug, so its Full Changelog link must point at the
+// fork's compare view. Derive the URL from the release remote and keep the upstream
+// slug as the fallback for checkouts with no remote configured.
+const repositoryURL = resolveRepositoryURL();
 const tagPattern = /^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/;
 const cjkPattern = /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/u;
+
+function resolveRepositoryURL() {
+  const fallback = "https://github.com/iFurySt/open-codex-computer-use";
+  const configured = process.env.OPEN_COMPUTER_USE_RELEASE_REPO_URL;
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  try {
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    const match = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
+    if (match) {
+      return `https://github.com/${match[1]}`;
+    }
+  } catch {
+    // No git, no origin, or not a GitHub remote: fall back to the upstream slug.
+  }
+
+  return fallback;
+}
 
 function fail(message) {
   throw new Error(message);
