@@ -67,7 +67,11 @@ enum MacOSAppAgentProxy {
 
     private static func defaultSocketPath() -> String {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("open-computer-use-agent.sock")
+            .appendingPathComponent(
+                openComputerUseAppAgentSocketFileName(
+                    namespace: ProcessInfo.processInfo.environment[openComputerUseAppAgentSocketNamespaceEnvironmentKey]
+                )
+            )
             .standardizedFileURL
             .path
     }
@@ -123,6 +127,7 @@ enum MacOSAppAgentProxy {
             let response = try client.request([
                 "kind": "mcp",
                 "line": line,
+                "environment": proxiedEnvironment(),
             ])
 
             if let responseLine = response["response"] as? String {
@@ -400,7 +405,11 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return ["ok": true]
             case "mcp":
                 let line = request["line"] as? String ?? ""
-                if let response = server.handle(line: line) {
+                let environment = request["environment"] as? [String: String] ?? [:]
+                let response = AppAgentEnvironment.withOverrides(environment) {
+                    server.handle(line: line)
+                }
+                if let response {
                     return ["response": response]
                 }
                 return ["response": NSNull()]
