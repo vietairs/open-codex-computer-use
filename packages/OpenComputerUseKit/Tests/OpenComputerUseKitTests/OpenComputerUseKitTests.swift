@@ -1371,6 +1371,35 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(Array(renderedBody), expectedBody)
     }
 
+    func testSpanRowsDoNotShiftTheOffsetsOfTheIndexedRowsAroundThem() {
+        // Both renderers append rows through this one buffer, so this covers the live-AX path that
+        // no test can drive directly — it needs a real AXUIElement. The case worth pinning is a
+        // span row landing between two indexed rows: that is what an offset written separately
+        // from its append gets wrong, and it is what the live renderer does for every table row
+        // and every synthetic text summary.
+        var buffer = IndexedLineBuffer()
+        buffer.appendIndexedLine(index: 0, "0 group")
+        buffer.appendSpanLine("Acme Corp")
+        buffer.appendSpanLine("Invoice #42")
+        buffer.appendIndexedLine(index: 1, "1 button Send")
+        buffer.appendIndexedLine(index: 2, "2 static text Status")
+
+        XCTAssertEqual(buffer.lines, [
+            "0 group",
+            "Acme Corp",
+            "Invoice #42",
+            "1 button Send",
+            "2 static text Status",
+        ])
+        XCTAssertEqual(buffer.offsets, [0: 0, 1: 3, 2: 4])
+        for (index, offset) in buffer.offsets {
+            XCTAssertTrue(
+                buffer.lines[offset].hasPrefix("\(index) "),
+                "row for index \(index) mis-registered: \(buffer.lines[offset])"
+            )
+        }
+    }
+
     private func stripFixtureIndent(_ text: String) -> String {
         var line = Substring(text)
         while line.first == "\t" || line.first == " " {
