@@ -15,6 +15,8 @@
 
 `open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS、Linux 和 Windows 上的 `Computer Use` 能力。
 
+*以下第一人称叙述均出自上游作者 Leo 的原文。*
+
 项目的背后是 OpenAI 刚发布的 [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/)，让我看到了基于 Accessibility 可以实现非抢占式 CUA 能力，因此决定复刻一个开源版本
 
 在这期间我利用了之前写的 [harness 模版](https://github.com/iFurySt/harness-template) 开启了这个新项目。这是一个可以快速拉起面向 AI 仓库的 template，非常适合 100% AI-Generated 的项目，也是这一个月来我们最大的实践和收获。现在我们可以基于这套方法论快速实现很多东西；如果你有兴趣，我也写了一篇[文章](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/)专门介绍这套方法论
@@ -41,11 +43,18 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 
 ## Quick Start
 
+> [!IMPORTANT]
+> `@vietairs/open-computer-use` **尚未发布到 npm**，因此下面的命令在首个 scoped
+> 版本发布之前会失败。在此之前请从源码构建：克隆本仓库后运行 `make app`（macOS），
+> 或对应的 `scripts/build-open-computer-use-*.sh`（Linux / Windows）。
+
+等该 scoped 包发布之后：
+
 ```bash
 npm i -g @vietairs/open-computer-use
 ```
 
-通过 npm 安装后也会同时提供短命令 `ocu`。
+该包安装后也会同时提供短命令 `ocu`。
 
 > [!IMPORTANT]
 > macOS 运行环境要求 macOS 14.0 或更高版本。

@@ -15,6 +15,8 @@
 
 `open-computer-use` is an open-source `Computer Use` service wrapped as `MCP`. Any AI agent or MCP client can use it to run Computer Use on macOS, Linux, and Windows.
 
+*The first-person passages below are upstream author Leo's own account of the project.*
+
 This project was inspired by OpenAI's [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of Accessibility, so I decided to build an open-source version.
 
 I started this repo with my [harness template](https://github.com/iFurySt/harness-template), a template for quickly spinning up AI-first projects. It has been one of our most useful workflows lately, especially for nearly 100% AI-generated projects. I also wrote [a post](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/) about the methodology behind it.
@@ -49,11 +51,19 @@ For unattended agents (Claude Code, Codex) that must keep working while the scre
 
 ## Quick Start
 
+> [!IMPORTANT]
+> `@vietairs/open-computer-use` is **not published to npm yet**, so the command
+> below will fail until the first scoped release is pushed. Until then, build
+> from source: clone this repository and run `make app` (macOS) or the matching
+> `scripts/build-open-computer-use-*.sh` for Linux/Windows.
+
+Once the scoped package is published:
+
 ```bash
 npm i -g @vietairs/open-computer-use
 ```
 
-The npm package also exposes `ocu` as the short CLI alias.
+That package will also expose `ocu` as the short CLI alias.
 
 > [!IMPORTANT]
 > The macOS runtime requires macOS 14.0 or later.

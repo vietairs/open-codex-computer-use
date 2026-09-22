@@ -15,8 +15,8 @@ fork:
 
 <https://github.com/vietairs/open-codex-computer-use/security/advisories/new>
 
-If that is unavailable, you can reach the maintainer via their GitHub profile
-[@vietairs](https://github.com/vietairs).
+Private vulnerability reporting is enabled on this repository, so that form is
+the correct channel. Please do not put vulnerability details in a public issue.
 
 When reporting, please include:
 

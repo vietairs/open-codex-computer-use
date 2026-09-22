@@ -26,8 +26,9 @@ stale pipeline tails.
 - **README accuracy**: Quick Start told fork users to `npm i -g open-computer-use`,
   which installs upstream's package (registry-verified at 0.3.5 while this fork is
   0.3.6-vietairs.1). Repointed that plus every badge, skill-install command,
-  releases link and Star History URL. Removed the DeepWiki badge after confirming
-  it 404s for the fork; kept LLMAPIS and the release badge after confirming both
+  releases link and Star History URL. Removed the DeepWiki badge because the fork page,
+  while it returns 200, is an empty 31KB shell against upstream's 545KB — it has
+  not been indexed. Kept LLMAPIS and the release badge after confirming both
   return 200.
 - **Repo hygiene**: added the 11 files `check-repo-hygiene.sh` requires, which is
   why `scripts/ci.sh` exited 1. Written as real content, not presence-satisfying
@@ -62,9 +63,15 @@ binary this project ships.
 - `docs/histories/2026-09/20260923-0024-fork-release-readiness.md` (this note)
 
 ### ⚠️ Known Gaps
-- Ownership of the `@vietairs` npm scope is **unverified** — no authenticated
-  registry access. If the scope is not owned, `npm publish` fails with 403 at
-  release time, after build and pack have already succeeded.
+- `@vietairs/open-computer-use` is **not published yet** (registry returns 404),
+  so both READMEs carry an explicit build-from-source caveat above the install
+  command rather than advertising a command that fails today. Ownership of the
+  `@vietairs` scope is also **unverified** — no authenticated registry access —
+  so `npm publish` could still fail with 403 at release time, after build and
+  pack have already succeeded.
+- GitHub private vulnerability reporting was **disabled** on the fork, which made
+  the advisory URL in `SECURITY.md` unusable by outside reporters. Enabled during
+  this run and verified `{"enabled":true}`.
 - `supply-chain-security.yml` uses plain-shell `npm audit` / `govulncheck` instead
   of `dependency-review-action`, because no verified SHA pin was available for it
   and `check-action-pinning.sh` rejects unpinned actions. The repo currently has
