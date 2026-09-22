@@ -1,0 +1,111 @@
+name: supply-chain-security
+
+# actions/dependency-review-action has no verified SHA pin in this repo yet
+# (see .github/dependency-review-config.yml for the schema it would use once
+# one is added), so this workflow checks dependencies with plain shell
+# instead of that action.
+#
+# The Go scan walks EVERY module in the repository and scans every one of them,
+# with no dependency-count precondition. Two earlier revisions each claimed
+# coverage they did not have: the first scanned apps/ alone while
+# scripts/computer-use-cli/go.mod carried seven third-party requirements; the
+# second enumerated all three modules but scanned only the one declaring
+# `require`, silently skipping the two whose binaries actually ship.
+#
+# This job pins the same go-version as ci.yml and release.yml. That agreement is
+# load-bearing, not tidiness: govulncheck reports the stdlib of the toolchain it
+# runs under, so a scanner on a newer Go than the release builder reports "No
+# vulnerabilities found" for binaries that ship with known-vulnerable stdlib.
+# Keep the three pins equal, or this gate goes quietly blind again.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: supply-chain-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit-dependencies:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          # Minor pinned, patch floating -- and identical in ci.yml and
+          # release.yml. The patch must float: go1.26.0 exactly (what
+          # GOTOOLCHAIN=auto resolves to from the go directive in
+          # scripts/computer-use-cli) reports nine stdlib advisories that later
+          # 1.26 patches already fix. The minor must be >= 1.26 to satisfy both
+          # that go directive and govulncheck v1.8.0's own minimum.
+          go-version: "1.27.x"
+
+      - name: Audit npm dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm audit --audit-level=high
+          else
+            echo "No package-lock.json in this repo; nothing for npm audit to check."
+          fi
+
+      - name: Audit Go module dependencies
+        env:
+          # Pinned rather than a floating @latest tag: this repository requires
+          # SHA-pinned actions, and check-action-pinning.sh only inspects action
+          # reference lines, so an unpinned tool fetched inside a run block would
+          # slip past the gate it exists to enforce.
+          #
+          # Each govulncheck release carries its own minimum go directive
+          # (v1.2.0 already needs 1.25, v1.8.0 needs 1.26), which is why the
+          # go-version minor above cannot drop below 1.26. Verified against the
+          # module proxy; when raising this, check that minimum still holds.
+          GOVULNCHECK_VERSION: v1.8.0
+        run: |
+          set -euo pipefail
+
+          # Enumerate into a file so a failure of `find` itself is visible.
+          # In `for x in $(find ...)` the command substitution's exit status is
+          # discarded, so a broken path would silently produce an empty list
+          # and a reassuring "nothing to check".
+          find . -name go.mod -not -path './.build/*' -not -path './node_modules/*' | sort > /tmp/gomods.txt
+          if [ ! -s /tmp/gomods.txt ]; then
+            echo "No go.mod found anywhere in the repository." >&2
+            exit 1
+          fi
+
+          echo "Go modules discovered:"
+          cat /tmp/gomods.txt
+
+          # Every module is scanned, including ones with no `require` at all.
+          # A module with no third-party dependency is NOT uninteresting: it
+          # still links the standard library, and the standard library is where
+          # this repository's actual exposure has been. apps/OpenComputerUseLinux
+          # and apps/OpenComputerUseWindows declare zero requirements and ship as
+          # the bundled runtimes inside the npm tarballs; scanned under the
+          # toolchain that builds them they reported three call-reachable stdlib
+          # advisories (GO-2025-3956 in os/exec, GO-2025-3750 in syscall,
+          # GO-2026-4602). An earlier revision skipped exactly those two modules
+          # on the theory that "no require" means "nothing to check".
+          while IFS= read -r gomod; do
+            module_dir="$(dirname "${gomod}")"
+            echo "Running govulncheck in ${module_dir}"
+            (
+              cd "${module_dir}"
+              go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
+            )
+          done < /tmp/gomods.txt

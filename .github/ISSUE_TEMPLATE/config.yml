@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/vietairs/open-codex-computer-use/security/advisories/new
+    about: Report a security vulnerability privately. Do not open a public issue for this.
+  - name: Upstream project
+    url: https://github.com/iFurySt/open-codex-computer-use
+    about: This repository is a fork. If the behaviour also occurs upstream, consider reporting it there too.

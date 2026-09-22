@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Split by what each half actually needs, rather than running everything on
+  # one macOS runner. scripts/ci.sh is shell, Node, Python and Go -- none of it
+  # needs macOS, and putting it there actively broke: `go test` for
+  # apps/OpenComputerUseLinux built a darwin test binary that macOS 26's dyld
+  # rejected ("missing LC_UUID load command", abort trap). Linux is also the
+  # native platform for the module being tested.
+  repo-checks:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          # Kept equal to release.yml and supply-chain-security.yml. See the
+          # header of supply-chain-security.yml for why the three must agree.
+          go-version: "1.27.x"
+
+      # The single source of truth for what "passing CI" means locally --
+      # `make ci` runs this same script. It re-runs check-docs.sh,
+      # check-repo-hygiene.sh and check-action-pinning.sh, duplicating
+      # docs-check.yml and repo-hygiene.yml; that overlap is intentional so a
+      # contributor running `make ci` sees exactly what CI checks.
+      - name: Run repository CI script
+        run: ./scripts/ci.sh
+
+  # The Swift package is this repository's primary deliverable, and
+  # scripts/ci.sh has no swift step at all -- without this job a green CI run
+  # would say nothing about the shipped binary. macos-26 matches the runner
+  # release.yml builds and signs against.
+  swift:
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Build Swift package
+        run: swift build
+
+      - name: Test Swift package
+        run: swift test

@@ -1,0 +1,18 @@
+# Policy for reviewing dependency changes introduced by a pull request.
+#
+# This file follows the schema consumed by GitHub's dependency-review-action
+# (https://github.com/actions/dependency-review-action#configuration-options).
+# It is not currently wired to that action in this repo's workflows because no
+# SHA-pinned reference for it has been verified yet (see
+# .github/workflows/supply-chain-security.yml, which runs plain-shell checks
+# instead). Keeping this file in the action's schema means it can be adopted
+# directly once a pinned reference is added.
+
+fail-on-severity: high
+comment-summary-in-pr: on-failure
+allow-licenses:
+  - MIT
+  - Apache-2.0
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - ISC

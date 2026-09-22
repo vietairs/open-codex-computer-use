@@ -3,6 +3,7 @@
 .build/
 .swiftpm/
 dist/
+plugins/**/*.app/
 .gemini/
 artifacts/codex-dumps/
 research/
@@ -11,3 +12,6 @@ __pycache__/
 
 # Local tooling cache
 .impeccable/
+
+# Agent-managed git worktrees
+.claude/worktrees/

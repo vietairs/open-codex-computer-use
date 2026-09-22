@@ -149,8 +149,8 @@ workflow 会使用 `docs/releases/github/<tag>.md` 创建新 Release；如果 Re
 ### 1. 先看最新 run
 
 ```bash
-gh run list -R iFurySt/open-codex-computer-use --limit 10
-gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
+gh run list -R vietairs/open-codex-computer-use --limit 10
+gh run view -R vietairs/open-codex-computer-use <run-id> --log-failed
 ```
 
 ### 2. 重点看哪一类错误

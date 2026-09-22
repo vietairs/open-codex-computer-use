@@ -1,15 +1,38 @@
-# 安全策略
+# Security Policy
 
-## 漏洞反馈
+## Supported Versions
 
-如果发现疑似安全漏洞，不要直接提公开 issue。
+This is a fork (`vietairs/open-codex-computer-use`) of `iFurySt/open-codex-computer-use`.
+Security fixes are provided for the latest release on this fork's `main` branch,
+currently `0.3.6-vietairs.1`. Older tags are not maintained.
 
-请通过你们组织内部约定的私有安全通道反馈，并尽量附上：
+## Reporting a Vulnerability
 
-- 影响范围和潜在风险。
-- 复现步骤或 PoC。
-- 已知的缓解方式或临时绕过方案。
+Please do not open a public issue for a suspected security vulnerability.
 
-## 适用范围
+Report it privately through GitHub's private vulnerability reporting for this
+fork:
 
-这个仓库本身只是一个基础模板。基于它创建的新项目，应该把这里替换成自己真实的安全联系人和响应流程。
+<https://github.com/vietairs/open-codex-computer-use/security/advisories/new>
+
+Private vulnerability reporting is enabled on this repository, so that form is
+the correct channel. Please do not put vulnerability details in a public issue.
+
+When reporting, please include:
+
+- Affected scope and potential impact.
+- Steps to reproduce, or a proof of concept.
+- Any known mitigation or workaround.
+
+## Response Handling
+
+Reports are acknowledged and triaged on a best-effort basis by the maintainer.
+Once a report is confirmed, a fix is prepared and released as a new tag on
+this fork; the reporter is credited unless they ask otherwise.
+
+## Upstream Issues
+
+Because this repository is a fork, some code paths are inherited from
+upstream. If a vulnerability appears to originate in upstream code rather than
+in fork-specific changes, please also consider reporting it to upstream at
+[iFurySt/open-codex-computer-use](https://github.com/iFurySt/open-codex-computer-use).

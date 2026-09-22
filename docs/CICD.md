@@ -1,41 +1,70 @@
-# CI/CD 说明
+# CI/CD
 
-这个模板自带一套不依赖具体语言栈的 CI/CD 骨架。
+This repository ships a CI/CD skeleton that does not assume any particular
+language stack.
 
-## 当前 release 入口
+## Current release entry points
 
-- `scripts/release-package.sh`：构建 universal `Open Computer Use.app`，cross-compile Linux / Windows runtime，stage 三个既有 root/alias npm 包；每个包都会内置 macOS app、Linux binaries 和 Windows exes，并暴露 `open-computer-use` / `ocu` 等 npm bin 入口，产出 `dist/release/npm/*.tgz` 与 `dist/release/release-manifest.json`。当前 CI 继续显式使用 ad-hoc signing，保持和此前发布链路一致；本地 debug/dev 构建则允许使用开发机自己的签名身份。
-- `scripts/build-cursor-motion-dmg.sh`：本地构建 `Cursor Motion.app` 并封装 `dist/release/cursor-motion/CursorMotion-<version>.dmg`，支持 `native` / `arm64` / `x86_64` / `universal`。
-- `scripts/build-open-computer-use-linux.sh`：本地构建实验性 Linux `open-computer-use` binary，支持 `arm64` / `amd64`；release package 会把这两个产物内置进既有 npm 包的 `dist/linux/`。
-- `scripts/build-open-computer-use-windows.sh`：本地构建实验性 Windows `open-computer-use.exe`，支持 `arm64` / `amd64`；release package 会把这两个产物内置进既有 npm 包的 `dist/windows/`。
-- `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会同时跑 npm release 打包逻辑与 `Cursor Motion` 的 DMG 打包，并把 `.dmg` 上传到对应的 GitHub Releases 页面。`Open Computer Use` 的 npm 产物默认走 ad-hoc signing；如果配置了 `OPEN_COMPUTER_USE_CODESIGN_*` secrets，则会先导入 `Developer ID Application` 证书，再按同一 identity 对 release `.app` 统一签名。`Cursor Motion` 的 DMG 也会复用同一张 `Developer ID Application` 证书签 app；若同时配置 `APPLE_NOTARY_*` secrets，则会在上传前对 `.dmg` 做 notarization 和 staple。
+- `scripts/release-package.sh`: builds the universal `Open Computer Use.app`, cross-compiles the Linux / Windows runtimes, and stages the three existing root/alias npm packages. Every package embeds the macOS app, the Linux binaries and the Windows executables, and exposes the `open-computer-use` / `ocu` npm bin entry points. Outputs `dist/release/npm/*.tgz` and `dist/release/release-manifest.json`. CI still uses ad-hoc signing explicitly, matching the previous release path; local debug/dev builds may use the developer machine's own signing identity.
+- `scripts/build-cursor-motion-dmg.sh`: builds `Cursor Motion.app` locally and packages `dist/release/cursor-motion/CursorMotion-<version>.dmg`. Supports `native` / `arm64` / `x86_64` / `universal`.
+- `scripts/build-open-computer-use-linux.sh`: builds the experimental Linux `open-computer-use` binary locally for `arm64` / `amd64`. The release package embeds both artifacts into the existing npm packages under `dist/linux/`.
+- `scripts/build-open-computer-use-windows.sh`: builds the experimental Windows `open-computer-use.exe` locally for `arm64` / `amd64`. The release package embeds both artifacts into the existing npm packages under `dist/windows/`.
+- `.github/workflows/release.yml`: releases automatically on a pushed semver tag, and can also be triggered manually. A tag push runs both the npm release packaging and the `Cursor Motion` DMG packaging, then uploads the `.dmg` to the matching GitHub Releases page. The `Open Computer Use` npm artifacts default to ad-hoc signing; when the `OPEN_COMPUTER_USE_CODESIGN_*` secrets are configured, the workflow first imports the `Developer ID Application` certificate and then signs the release `.app` under that identity. The `Cursor Motion` DMG reuses the same `Developer ID Application` certificate to sign the app; when the `APPLE_NOTARY_*` secrets are also configured, the `.dmg` is notarized and stapled before upload.
 
-## 设计原则
+## Current CI gates
 
-这套默认流水线的目标，是在项目真正成形前先把交付链路搭起来，而不是假装已经知道未来项目该怎么 build 和 deploy。
+Besides the release pipeline, the repository runs four independent gate
+workflows on every PR and on every push to `main`. The workflow files are the
+authority on the exact steps; this section is navigation only.
 
-当新项目的技术栈确定后，你应该继续在 `scripts/release-package.sh` 这条真实构建链路上扩展，而不是另起一套平行流程。
+- `.github/workflows/ci.yml`: runs `scripts/ci.sh` (shell syntax checks, `check-docs.sh` / `check-repo-hygiene.sh` / `check-action-pinning.sh`, the Linux runtime's Python tests, and the Go tests for both the Linux and Windows runtimes), then additionally runs `swift build` and `swift test`.
+- `.github/workflows/docs-check.yml`: runs `scripts/check-docs.sh` on its own.
+- `.github/workflows/repo-hygiene.yml`: runs `scripts/check-repo-hygiene.sh` and `scripts/check-action-pinning.sh`.
+- `.github/workflows/supply-chain-security.yml`: audits npm and Go dependencies for vulnerabilities. See `docs/SUPPLY_CHAIN_SECURITY.md` for details.
 
-所有 GitHub Actions 都已经 pin 到 commit SHA。后续升级 action 时，也要继续保持这个约束。
+### Go toolchain pin
 
-## 推荐接入顺序
+`ci.yml`, `release.yml` and `supply-chain-security.yml` deliberately pin the
+same `go-version`. This is load-bearing rather than tidiness: `govulncheck`
+reports the standard library of the toolchain it runs under, so a scanner
+running on a newer Go than the release builder will report a clean result for
+binaries that ship with a known-vulnerable standard library. Keep the three pins
+equal when raising any one of them. The patch component must stay floating — an
+exact version such as `go1.26.0` reports advisories that later patches of the
+same minor already fix.
 
-1. 保留 `ci.yml`，作为仓库的基础门禁。
-2. 在 `scripts/ci.sh` 里继续叠加项目自己的验证命令。
-3. 在 `scripts/release-package.sh` 已有的真实构建基础上继续扩展 release 产物。
-4. 技术栈和环境稳定后，再补具体的部署 job。
-5. 即使交付方式变化，SBOM 和 provenance 这类供应链能力也建议保留。
+## Design principles
 
-## 默认 release 产物
+The goal of this default pipeline is to establish the delivery path before the
+project has fully taken shape, rather than pretending we already know how a
+future project should be built and deployed.
 
-当前 release 流水线会产出：
+Once a new project's stack is settled, extend the real build path in
+`scripts/release-package.sh` rather than starting a parallel process beside it.
+
+All GitHub Actions are pinned to commit SHAs. Keep that constraint when
+upgrading an action later.
+
+## Suggested adoption order
+
+1. Keep `ci.yml` as the repository's baseline gate.
+2. Keep adding the project's own verification commands inside `scripts/ci.sh`.
+3. Extend release artifacts on top of the real build already in `scripts/release-package.sh`.
+4. Add concrete deployment jobs once the stack and environments are stable.
+5. Keep supply-chain capabilities such as SBOM and provenance even if the delivery method changes.
+
+## Default release artifacts
+
+The current release pipeline produces:
 
 - `dist/release/release-manifest.json`
-- `dist/release/npm/open-computer-use-<version>.tgz`
-- `dist/release/npm/open-computer-use-mcp-<version>.tgz`
-- `dist/release/npm/open-codex-computer-use-mcp-<version>.tgz`
+- `dist/release/npm/vietairs-open-computer-use-<version>.tgz`
+- `dist/release/npm/vietairs-open-computer-use-mcp-<version>.tgz`
+- `dist/release/npm/vietairs-open-codex-computer-use-mcp-<version>.tgz`
 - `dist/release/cursor-motion/CursorMotion-<version>.dmg`
-- GitHub Actions 中上传的 npm release artifact
-- GitHub Releases 中和 tag 对齐的 `CursorMotion-<version>.dmg`
+- the npm release artifact uploaded from GitHub Actions
+- the tag-aligned `CursorMotion-<version>.dmg` on GitHub Releases
 
-也就是说，即使项目还没进入更复杂的部署阶段，仓库现在也已经同时具备了一条真实可复用的 npm 制品封装链路，以及一条由 git tag 驱动的 macOS app DMG 交付链路。
+In other words, even before the project reaches a more complex deployment
+stage, the repository already has both a real, reusable npm artifact packaging
+path and a git-tag-driven macOS app DMG delivery path.
