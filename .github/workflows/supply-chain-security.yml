@@ -3,11 +3,12 @@ name: supply-chain-security
 # actions/dependency-review-action has no verified SHA pin in this repo yet
 # (see .github/dependency-review-config.yml for the schema it would use once
 # one is added), so this workflow checks dependencies with plain shell
-# instead of that action. It only checks what actually exists: this repo has
-# no npm dependencies (package.json declares no "dependencies" field and
-# ships no lockfile) and no third-party Go module requirements today, so the
-# npm/Go steps below are guarded to no-op cleanly rather than pretending to
-# audit dependencies that are not there.
+# instead of that action.
+#
+# The Go scan walks EVERY module in the repository, not just apps/. An earlier
+# revision scanned apps/ alone and printed "nothing to check" while
+# scripts/computer-use-cli/go.mod carried seven third-party requirements --
+# a green run asserting coverage it did not have.
 
 on:
   pull_request:
@@ -18,6 +19,9 @@ on:
 concurrency:
   group: supply-chain-security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   audit-dependencies:
@@ -46,19 +50,49 @@ jobs:
           fi
 
       - name: Audit Go module dependencies
+        env:
+          # Pinned rather than a floating @latest tag: this repository requires
+          # SHA-pinned actions, and check-action-pinning.sh only inspects action
+          # reference lines, so an unpinned tool fetched inside a run block would
+          # slip past the gate it exists to enforce.
+          #
+          # v1.1.4 is the newest release whose go directive (1.22.0) matches the
+          # Go version this job installs. v1.3.0+ require Go 1.25 and v1.8.0
+          # requires Go 1.26, so they would fail to build here. Raise both
+          # together, never just this one.
+          GOVULNCHECK_VERSION: v1.1.4
         run: |
+          set -euo pipefail
+
+          # Enumerate into a file so a failure of `find` itself is visible.
+          # In `for x in $(find ...)` the command substitution's exit status is
+          # discarded, so a broken path would silently produce an empty list
+          # and a reassuring "nothing to check".
+          find . -name go.mod -not -path './.build/*' -not -path './node_modules/*' | sort > /tmp/gomods.txt
+          if [ ! -s /tmp/gomods.txt ]; then
+            echo "No go.mod found anywhere in the repository." >&2
+            exit 1
+          fi
+
+          echo "Go modules discovered:"
+          cat /tmp/gomods.txt
+
           audited=0
-          for gomod in $(find apps -maxdepth 2 -name go.mod | sort); do
+          while IFS= read -r gomod; do
             module_dir="$(dirname "${gomod}")"
-            if grep -q '^require ' "${gomod}"; then
+            # Match both `require x v1` and block form `require (`.
+            if grep -qE '^[[:space:]]*require([[:space:]]|\()' "${gomod}"; then
               audited=1
               echo "Running govulncheck in ${module_dir}"
               (
                 cd "${module_dir}"
-                go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+                go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
               )
+            else
+              echo "No require directive in ${module_dir}; skipping."
             fi
-          done
+          done < /tmp/gomods.txt
+
           if [ "${audited}" -eq 0 ]; then
-            echo "No third-party Go module requirements found under apps/; nothing for govulncheck to check."
+            echo "No Go module in this repository declares any requirement."
           fi

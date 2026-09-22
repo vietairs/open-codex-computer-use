@@ -50,7 +50,7 @@ function resolveRepositoryURL() {
       cwd: repoRoot,
       encoding: "utf8",
     }).trim();
-    const match = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
+    const match = remote.match(/github\.com[:/](.+?)(?:\.git)?\/?$/);
     if (match) {
       return `https://github.com/${match[1]}`;
     }

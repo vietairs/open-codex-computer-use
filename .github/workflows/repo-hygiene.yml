@@ -10,6 +10,9 @@ concurrency:
   group: repo-hygiene-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   check-hygiene:
     runs-on: ubuntu-24.04
