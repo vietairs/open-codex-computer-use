@@ -1371,6 +1371,44 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(Array(renderedBody), expectedBody)
     }
 
+    func testSpanRowsDoNotShiftTheOffsetsOfTheIndexedRowsAroundThem() {
+        // Both renderers now append through this one buffer, so its recording rule is tested once
+        // for both — including the live-AX renderer, which no test can drive directly because it
+        // needs a real AXUIElement. What this does NOT cover is either renderer's choice of which
+        // method to call: a live call site that asks for an indexed row where it means a span row
+        // still passes everything here. The case pinned below is a span row landing between two
+        // indexed rows, which is what an offset written separately from its append gets wrong, and
+        // what the live renderer produces for every table row and every synthetic text summary.
+        var buffer = IndexedLineBuffer()
+        buffer.appendIndexedLine(index: 0, "0 group")
+        buffer.appendSpanLine("Acme Corp")
+        buffer.appendSpanLine("Invoice #42")
+        buffer.appendIndexedLine(index: 1, "1 button Send")
+        buffer.appendIndexedLine(index: 2, "2 static text Status")
+
+        XCTAssertEqual(buffer.lines, [
+            "0 group",
+            "Acme Corp",
+            "Invoice #42",
+            "1 button Send",
+            "2 static text Status",
+        ])
+        XCTAssertEqual(buffer.offsets, [0: 0, 1: 3, 2: 4])
+        for (index, offset) in buffer.offsets {
+            // Range-check before subscripting: an off-by-one in the buffer is exactly what this
+            // test exists to catch, and an out-of-range subscript would trap the whole xctest
+            // process instead of failing one test — taking every later test down with it.
+            guard buffer.lines.indices.contains(offset) else {
+                XCTFail("offset \(offset) out of range for index \(index)")
+                continue
+            }
+            XCTAssertTrue(
+                buffer.lines[offset].hasPrefix("\(index) "),
+                "row for index \(index) mis-registered: \(buffer.lines[offset])"
+            )
+        }
+    }
+
     private func stripFixtureIndent(_ text: String) -> String {
         var line = Substring(text)
         while line.first == "\t" || line.first == " " {

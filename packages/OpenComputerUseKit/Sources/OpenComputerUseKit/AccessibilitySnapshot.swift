@@ -416,8 +416,8 @@ enum SnapshotBuilder {
             targetWindowLayer: windowCapture.layer,
             screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
-            treeLines: renderer.lines,
-            treeLineOffsets: renderer.lineOffsets,
+            treeLines: renderer.buffer.lines,
+            treeLineOffsets: renderer.buffer.offsets,
             focusedSummary: renderer.focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
@@ -536,10 +536,9 @@ enum SnapshotBuilder {
     }
 
     static func buildFixtureSnapshot(app: RunningAppDescriptor, state: FixtureAppState) -> AppSnapshot {
-        var lines: [String] = []
+        var buffer = IndexedLineBuffer()
 
         var records: [Int: ElementRecord] = [:]
-        var lineOffsets: [Int: Int] = [:]
         let focusedIdentifier = state.focusedIdentifier
         var focusedSummary: String?
 
@@ -548,8 +547,7 @@ enum SnapshotBuilder {
             let valueSegment = element.value.map { " Value: \($0)" } ?? ""
             let actionsSegment = element.actions.isEmpty ? "" : " Secondary Actions: \(element.actions.joined(separator: ", "))"
             let focusSegment = focusedIdentifier == element.identifier ? " (focused)" : ""
-            lines.append("\(String(repeating: "    ", count: element.index == 0 ? 0 : 1))\(element.index) \(element.role)\(titleSegment)\(focusSegment) ID: \(element.identifier)\(valueSegment)\(actionsSegment) Frame: \(element.frame.cgRect.renderedLocalFrame)")
-            lineOffsets[element.index] = lines.count - 1
+            buffer.appendIndexedLine(index: element.index, "\(String(repeating: "    ", count: element.index == 0 ? 0 : 1))\(element.index) \(element.role)\(titleSegment)\(focusSegment) ID: \(element.identifier)\(valueSegment)\(actionsSegment) Frame: \(element.frame.cgRect.renderedLocalFrame)")
 
             let record = ElementRecord(
                 index: element.index,
@@ -575,8 +573,8 @@ enum SnapshotBuilder {
             targetWindowLayer: nil,
             screenshotPNGData: nil,
             mode: .fixture,
-            treeLines: lines,
-            treeLineOffsets: lineOffsets,
+            treeLines: buffer.lines,
+            treeLineOffsets: buffer.offsets,
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: nil,
@@ -844,12 +842,35 @@ private struct RenderContext {
     let treeLimits: AccessibilityTreeLimits
 }
 
+/// Collects rendered tree rows and the index -> row lookup that has to stay in step with them.
+///
+/// The compact view is only usable because a compact row's leading number is the element's
+/// full-tree index, never a renumbering. That holds exactly as long as every indexed row's offset
+/// points at the row it was appended as. Recording the offset inside the same call that appends
+/// the row is what makes the two impossible to separate: there is no longer a gap between them for
+/// a later edit to insert a row into.
+struct IndexedLineBuffer {
+    private(set) var lines: [String] = []
+    private(set) var offsets: [Int: Int] = [:]
+
+    /// Appends a row that owns `index`, and registers that row as the element's line.
+    mutating func appendIndexedLine(index: Int, _ text: String) {
+        lines.append(text)
+        offsets[index] = lines.count - 1
+    }
+
+    /// Appends a row that owns no index and belongs to the element above it. Compact folds such
+    /// rows into that element's span rather than printing them as entries of their own.
+    mutating func appendSpanLine(_ text: String) {
+        lines.append(text)
+    }
+}
+
 private struct TreeRenderer {
     let context: RenderContext
     var nextIndex = 0
-    var lines: [String] = []
+    var buffer = IndexedLineBuffer()
     var records: [Int: ElementRecord] = [:]
-    var lineOffsets: [Int: Int] = [:]
     var identifierIndex: [String: String] = [:]
     var focusedSummary: String?
 
@@ -1013,8 +1034,7 @@ private struct TreeRenderer {
         let linePrefix = renderedRoleText.isEmpty ? "\(index)" : "\(index) \(renderedRoleText)"
 
         let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)\(placeholderSegment)\(frameSegment)"
-        lines.append("\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
-        lineOffsets[index] = lines.count - 1
+        buffer.appendIndexedLine(index: index, "\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
 
         let record = ElementRecord(
             index: index,
@@ -1037,7 +1057,7 @@ private struct TreeRenderer {
 
         if role == kAXRowRole as String, boolValue(of: root, attribute: kAXSelectedAttribute) != true {
             for text in Array(rowTexts.dropFirst()) {
-                lines.append(text)
+                buffer.appendSpanLine(text)
             }
             return
         }
@@ -1066,7 +1086,12 @@ private struct TreeRenderer {
 
         let index = nextIndex
         nextIndex += 1
-        lines.append("\(String(repeating: "\t", count: depth))\(index) text \(text)")
+        // Deliberately a span row even though it prints an index of its own: registering an offset
+        // here would terminate the parent's span, and since synthetic text is never ordered into
+        // compact on its own, its text would vanish from the compact view entirely. Folding it into
+        // the parent keeps it. Behavior preserved from before this buffer existed — see the history
+        // note for the inconsistency this leaves with `records`.
+        buffer.appendSpanLine("\(String(repeating: "\t", count: depth))\(index) text \(text)")
 
         records[index] = ElementRecord(
             index: index,
