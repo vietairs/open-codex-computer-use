@@ -245,7 +245,7 @@ function platformLaunchTable() {
   );
 }
 
-function renderLauncher() {
+function renderLauncher(packageName) {
   return `#!/usr/bin/env node
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -362,7 +362,7 @@ function resolveNativeExecutable() {
     fail(\`Missing bundled native runtime for \${platformKey} at \${executablePath}.
 
 Reinstall with:
-  npm install -g open-computer-use\`);
+  npm install -g ${packageName}\`);
   }
 
   return executablePath;
@@ -646,7 +646,7 @@ function stageMetaPackage(packageName, version, outDir, repositoryURL) {
   copyBundledRuntimes(packageRoot, packageName);
   copyInstallerScripts(packageRoot);
 
-  const launcher = renderLauncher();
+  const launcher = renderLauncher(packageName);
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use"), launcher);
   writeExecutable(path.join(packageRoot, "bin", "ocu"), launcher);
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use-mcp"), launcher);

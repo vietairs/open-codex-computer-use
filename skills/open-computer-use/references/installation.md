@@ -37,7 +37,7 @@ Supported npm packages expose `ocu` as the short alias. If it is unavailable, us
 If the package is already installed and the user asks to update it:
 
 ```sh
-npm update -g open-computer-use
+npm update -g @vietairs/open-computer-use
 ```
 
 ## macOS Permissions

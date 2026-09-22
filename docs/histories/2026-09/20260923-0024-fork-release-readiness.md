@@ -74,8 +74,11 @@ binary this project ships.
   this run and verified `{"enabled":true}`.
 - `supply-chain-security.yml` uses plain-shell `npm audit` / `govulncheck` instead
   of `dependency-review-action`, because no verified SHA pin was available for it
-  and `check-action-pinning.sh` rejects unpinned actions. The repo currently has
-  no lockfile and no third-party Go deps, so those checks truthfully no-op today.
+  and `check-action-pinning.sh` rejects unpinned actions. The npm half no-ops
+  honestly (no lockfile, no declared dependencies). The Go half originally
+  scanned only `apps/` and so missed `scripts/computer-use-cli`, the one module
+  that does have third-party requirements -- it now walks every module in the
+  repository and fails loudly if enumeration returns nothing.
 - `scripts/ci.sh` could not be run end-to-end locally: its `python3 -m unittest`
   step is SIGKILLed in this agent environment. The constituent check scripts were
   run directly instead, and all pass.

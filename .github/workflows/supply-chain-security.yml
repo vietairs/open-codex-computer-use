@@ -39,7 +39,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
-          go-version: "1.22.x"
+          # "stable", not the 1.22.x the other workflows pin. This job is the
+          # only one that enters scripts/computer-use-cli, whose go.mod declares
+          # go 1.26.0. With an older Go installed, GOTOOLCHAIN=auto resolves to
+          # EXACTLY go1.26.0, and govulncheck then reports every stdlib advisory
+          # fixed in 1.26.1 -- a red run caused by the pin, not by a real
+          # dependency problem. Installing current stable keeps the toolchain
+          # ahead of every go directive in the repo.
+          go-version: "stable"
 
       - name: Audit npm dependencies
         run: |
@@ -56,11 +63,11 @@ jobs:
           # reference lines, so an unpinned tool fetched inside a run block would
           # slip past the gate it exists to enforce.
           #
-          # v1.1.4 is the newest release whose go directive (1.22.0) matches the
-          # Go version this job installs. v1.3.0+ require Go 1.25 and v1.8.0
-          # requires Go 1.26, so they would fail to build here. Raise both
-          # together, never just this one.
-          GOVULNCHECK_VERSION: v1.1.4
+          # Each govulncheck release carries its own minimum go directive
+          # (v1.2.0 already needs 1.25, v1.8.0 needs 1.26), which is the other
+          # half of why this job installs current stable rather than a pin.
+          # Verified against the module proxy; raise alongside go-version.
+          GOVULNCHECK_VERSION: v1.8.0
         run: |
           set -euo pipefail
 
