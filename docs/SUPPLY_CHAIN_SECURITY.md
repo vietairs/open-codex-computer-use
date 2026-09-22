@@ -1,30 +1,52 @@
-# 供应链安全
+# Supply Chain Security
 
-这份文档定义仓库默认采用的供应链安全做法。
+This document describes the supply-chain security practices the repository
+actually uses. It deliberately describes what runs, not what would be nice to
+have — a security document advertising controls that do not run is worse than
+one that admits it has few.
 
-## 默认控制项
+## Default controls
 
-- 用 `npm audit` 对 npm 依赖做漏洞扫描。
-- 用 `govulncheck` 对声明了 `require` 的每个 Go module 做漏洞扫描。
-- 所有 GitHub Actions 都固定到不可变的 commit SHA，而不是漂移的版本标签。
-- 依赖变更审查（`actions/dependency-review-action`）已预留配置，尚未接入实际 gate，见下文限制。
+- Scan npm dependencies for vulnerabilities with `npm audit`.
+- Scan every Go module for vulnerabilities with `govulncheck`, with no dependency-count precondition.
+- Pin every GitHub Action to an immutable commit SHA rather than a floating version tag.
+- Dependency review (`actions/dependency-review-action`) has its configuration prepared but is **not** wired into a live gate. See the limitations below.
 
-## 当前对应关系
+## How those map to the repository
 
-- `.github/workflows/supply-chain-security.yml`：`audit-dependencies` job，在每个 PR 和 `main` push 上跑 `npm audit --audit-level=high`（仓库存在 `package-lock.json` 时）和逐 Go module 的 `govulncheck`。
-- `.github/dependency-review-config.yml`：`actions/dependency-review-action` 的配置 schema，供后续接入该 action 时直接复用；该 action 本身因缺少经校验的 SHA pin，当前**没有**在任何 workflow 里实际运行。
-- `scripts/check-action-pinning.sh`：如果 workflow 里出现浮动 tag 而不是 SHA，直接让 CI 失败（在 `repo-hygiene.yml` 和 `ci.yml` 里跑）。
+- `.github/workflows/supply-chain-security.yml`: the `audit-dependencies` job. On every PR and every push to `main` it runs `npm audit --audit-level=high` (when a `package-lock.json` exists) and `govulncheck` per Go module.
+- `.github/dependency-review-config.yml`: the configuration schema for `actions/dependency-review-action`, ready to reuse when that action is wired in. The action itself does **not** run in any workflow today, because no verified SHA pin is available for it.
+- `scripts/check-action-pinning.sh`: fails CI when a workflow references a floating tag instead of a SHA. Runs in both `repo-hygiene.yml` and `ci.yml`.
 
-SBOM 生成、build provenance attestation、OpenSSF Scorecard 目前均**未实现**，不要假设它们在跑。
+SBOM generation, build provenance attestation and OpenSSF Scorecard are **not
+implemented**. Do not assume they are running.
 
-## 限制和前提
+## Why every Go module is scanned
 
-- `npm audit` 和 `govulncheck` 的效果依赖仓库里存在可识别的 lockfile / `require` 声明；没有 `package-lock.json` 时 npm 审计会跳过并打印提示。
-- Dependency Review 一旦接入，在 public repo 可以直接使用；private repo 通常需要 GitHub Advanced Security 或对应的代码安全能力。
+The audit scans every module it enumerates, including modules that declare no
+dependencies at all. A module with no third-party requirements is not
+uninteresting: it still links the standard library, and the standard library is
+where this repository's real exposure has been. `apps/OpenComputerUseLinux` and
+`apps/OpenComputerUseWindows` declare zero requirements and ship as the bundled
+runtimes inside the npm tarballs; an earlier revision skipped exactly those two
+modules on the theory that "no requirements" means "nothing to check", while
+they were reporting three call-reachable standard-library advisories under the
+toolchain that built them.
 
-## 后续可以补的事
+For the same reason, the `go-version` pin in `supply-chain-security.yml` is kept
+equal to the pins in `ci.yml` and `release.yml`. `govulncheck` reports the
+standard library of the toolchain it runs under, so a scanner ahead of the
+builder returns a clean result for binaries that ship vulnerable.
 
-- 给 `actions/dependency-review-action` 补一个经校验的 SHA pin，接入 PR 门禁。
-- 为 release 产物生成 SBOM 和签名 build provenance attestation。
-- 引入 OpenSSF Scorecard 做仓库级安全姿态分析。
-- 把 attestation 校验继续下沉到部署平台或准入层。
+## Limitations and assumptions
+
+- `npm audit` depends on a recognizable lockfile being present; without `package-lock.json` the npm audit step skips and prints a notice.
+- `govulncheck` reports against the toolchain it runs under, so its results are only as current as the pinned `go-version`.
+- Once dependency review is wired in, it works directly on public repositories; private repositories generally need GitHub Advanced Security or an equivalent code-security capability.
+
+## Possible follow-ups
+
+- Add a verified SHA pin for `actions/dependency-review-action` and wire it into the PR gate.
+- Generate an SBOM and a signed build provenance attestation for release artifacts.
+- Adopt OpenSSF Scorecard for repository-level security posture analysis.
+- Push attestation verification down into the deployment platform or admission layer.
