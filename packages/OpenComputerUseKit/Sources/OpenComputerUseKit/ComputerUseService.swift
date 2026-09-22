@@ -462,9 +462,13 @@ public final class ComputerUseService {
     public func getAppState(
         app query: String,
         textLimit: SnapshotTextLimit = .defaults,
-        treeLimits: AccessibilityTreeLimits = .defaults
+        treeLimits: AccessibilityTreeLimits = .defaults,
+        compact: Bool = false
     ) throws -> ToolCallResult {
-        snapshotResult(for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits), style: .fullState)
+        snapshotResult(
+            for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits),
+            style: compact ? .compactActionable : .fullState
+        )
     }
 
     public func click(
@@ -1940,7 +1944,8 @@ public final class ComputerUseService {
 
     private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
-        if let screenshotPNGData = snapshot.screenshotPNGData {
+        // The compact view exists to cut tokens; attaching the screenshot would defeat it.
+        if style != .compactActionable, let screenshotPNGData = snapshot.screenshotPNGData {
             content.append(.pngImage(screenshotPNGData))
         }
         return ToolCallResult(content: content)

@@ -78,6 +78,7 @@ public enum ToolDefinitions {
                     "text_limit": textLimitProperty(description: "Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
                     "max_tree_nodes": positiveIntegerProperty(description: "Maximum accessibility tree nodes to render. Defaults to 1200."),
                     "max_tree_depth": positiveIntegerProperty(description: "Maximum accessibility tree depth to render. Defaults to 64."),
+                    "compact": booleanProperty(description: "Return only elements that expose an accessibility action, flattened, with no screenshot. Element indices match the full tree, so they stay valid for click, set_value and scroll. Much cheaper per call; re-run without it when you need surrounding context or the screenshot. Defaults to false."),
                 ],
                 required: ["app"]
             )
@@ -196,6 +197,13 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
     }
 
     return property
+}
+
+private func booleanProperty(description: String) -> [String: Any] {
+    [
+        "type": "boolean",
+        "description": description,
+    ]
 }
 
 private func integerProperty(description: String) -> [String: Any] {

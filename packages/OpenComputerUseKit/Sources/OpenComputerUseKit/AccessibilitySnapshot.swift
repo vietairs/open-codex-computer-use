@@ -111,6 +111,9 @@ public struct AppSnapshot {
     public let screenshotPNGData: Data?
     let mode: SnapshotMode
     let treeLines: [String]
+    /// Position of each element's own row inside `treeLines`, keyed by element index.
+    /// Lets the compact view reuse the exact rendered row instead of re-deriving it.
+    let treeLineOffsets: [Int: Int]
     let focusedSummary: String?
     let focusedElement: AXUIElement?
     let selectedText: String?
@@ -128,7 +131,11 @@ public struct AppSnapshot {
 
         lines.append("App=\(appReference) (pid \(app.pid))")
         lines.append("Window: \(quoted(displayTitle)), App: \(app.name).")
-        lines.append(contentsOf: treeLines)
+        if style == .compactActionable {
+            lines.append(contentsOf: compactActionableLines())
+        } else {
+            lines.append(contentsOf: treeLines)
+        }
 
         if let selectedText, !selectedText.isEmpty {
             lines.append("")
@@ -140,11 +147,166 @@ public struct AppSnapshot {
 
         return lines.joined(separator: "\n")
     }
+
+    /// Rows for elements that expose at least one accessibility action, flattened and with the
+    /// focused element first. Element indices are the ones the full tree assigned, so every
+    /// `element_index` printed here stays valid for `click`, `set_value`, `scroll` and the rest.
+    ///
+    /// Deliberately does not de-duplicate rows that render identically: two "Delete" buttons in a
+    /// list are distinct targets, and dropping the correct one is a worse failure than printing a
+    /// near-duplicate.
+    func compactActionableLines() -> [String] {
+        let actionable = elements.values
+            .filter { isActionableForCompactView($0) && treeLineOffsets[$0.index] != nil }
+            .map(\.index)
+
+        guard !actionable.isEmpty else {
+            return ["(no actionable elements found; re-run without compact for the full tree)"]
+        }
+
+        // Focused element first, then ascending index. Built by partitioning rather than with a
+        // custom comparator: a predicate answering `true` for two equal focused indices is not a
+        // strict weak ordering, and the standard library is entitled to trap on one.
+        let focusedIndex = focusedElementIndex()
+        let ordered: [Int]
+        if let focusedIndex, actionable.contains(focusedIndex) {
+            ordered = [focusedIndex] + actionable.filter { $0 != focusedIndex }.sorted()
+        } else {
+            ordered = actionable.sorted()
+        }
+
+        let addressable = elements.values.filter { !$0.isSyntheticText }.count
+        var lines = [
+            "Compact actionable view: \(ordered.count) of \(addressable) elements, screenshot omitted."
+                + " element_index values match the full tree; re-run without compact for full context."
+        ]
+        // Rows that carry no index of their own belong to the element above them, so they are the
+        // element's span rather than separate entries.
+        let rowStarts = treeLineOffsets.values.sorted()
+        for index in ordered {
+            guard let offset = treeLineOffsets[index], treeLines.indices.contains(offset) else {
+                continue
+            }
+            let end = rowStarts.first { $0 > offset } ?? treeLines.count
+            let span = treeLines[offset..<min(end, treeLines.count)]
+                .map(Self.stripLeadingIndent)
+                .filter { !$0.isEmpty }
+            guard var line = span.first else { continue }
+            // Trailing rows are an element's own label/columns; joining them keeps the row
+            // distinguishable from its siblings, which is the whole point of printing it.
+            if span.count > 1 {
+                line += " — " + span.dropFirst().joined(separator: " | ")
+            }
+            lines.append(index == focusedIndex ? "\(line) (focused)" : line)
+        }
+        return lines
+    }
+
+    private static func stripLeadingIndent(_ text: String) -> String {
+        var line = Substring(text)
+        while line.first == "\t" || line.first == " " {
+            line = line.dropFirst()
+        }
+        return String(line)
+    }
+
+    /// Whether an element is worth keeping in the compact view.
+    ///
+    /// Exposing an accessibility action is the common case, but not the only one. `set_value` only
+    /// requires `AXValue` to be settable, and macOS text fields routinely advertise no actions at
+    /// all — filtering on actions alone would delete exactly the elements an agent means to type
+    /// into, and the compact header would claim nothing was there. Settability itself cannot be
+    /// used as the test: it is a live AX query, and running one per element would add a round trip
+    /// per node to every snapshot. Text-entry roles stand in for it, which over-includes a
+    /// read-only text field but never hides a writable one.
+    ///
+    /// In fixture mode every element is addressable: `click` and `set_value` dispatch by
+    /// identifier, which `FixtureElementState` always carries, and `rawActions` holds only the
+    /// fixture's *secondary* actions. So compact genuinely has nothing to filter there — it keeps
+    /// the whole tree and only drops the screenshot. Stated outright rather than written as a
+    /// condition, because a guard that can never be false reads like a real one.
+    private func isActionableForCompactView(_ record: ElementRecord) -> Bool {
+        if record.isSyntheticText {
+            return false
+        }
+        if mode == .fixture {
+            return true
+        }
+        if let role = record.role, Self.textEntryRoles.contains(role) {
+            return true
+        }
+        let actuating = record.rawActions.filter { !Self.nonActuatingActions.contains($0) }
+        guard !actuating.isEmpty else {
+            return false
+        }
+        // Web content stamps the ubiquitous actions — `AXPress`, and on this page `AXShowMenu`
+        // too — onto the static text inside a clickable region as well as onto the region itself,
+        // so a page of prose arrives as hundreds of apparently actionable labels. A label is not
+        // the target: whatever handles the click carries its own press, and that ancestor is kept.
+        // Static text therefore earns a row only by advertising an action that is *not* one every
+        // node has, which is what separates a real control mislabelled as text from a paragraph.
+        // `meaningfulRawActions` already defines that set for rendering, and reusing it keeps the
+        // two from drifting apart. Measured on one Chrome page: 280 rows down to 210.
+        //
+        // Deliberately NOT applied to generic containers: the snapshot already treats
+        // `AXGroup`/`AXUnknown` plus a press as a genuine click target (see
+        // `isGenericPrimaryActionSummaryBoundary`), and a clickable div is often the only target a
+        // web app offers. Nor to scroll areas: `scroll` resolves by `element_index` and prefers
+        // the element's own `AXScroll*ByPage` action, so dropping them would leave it no target.
+        if let role = record.role, role == kAXStaticTextRole as String {
+            return !meaningfulRawActions(record.rawActions, role: role).isEmpty
+        }
+        return true
+    }
+
+    /// Actions that do not actuate anything. WebKit and Electron advertise `AXScrollToVisible` on
+    /// nearly every node, so treating "has any action" as actionable would keep the whole tree and
+    /// make the compact view pointless on exactly the apps it exists for.
+    private static let nonActuatingActions: Set<String> = [
+        "AXScrollToVisible",
+        "AXShowDefaultUI",
+        "AXShowAlternateUI",
+    ]
+
+    /// Roles whose value is typically settable through `set_value` even with no advertised action.
+    /// Mirrors `canUseKeyboardTextFallback`'s role list rather than inventing a second one, plus
+    /// the secure and combo-box forms: a password field that reports role `AXSecureTextField`
+    /// rather than the subrole would otherwise vanish from a login sheet.
+    private static let textEntryRoles: Set<String> = [
+        kAXTextFieldRole as String,
+        kAXTextAreaRole as String,
+        "AXTextView",
+        "AXSecureTextField",
+        kAXComboBoxRole as String,
+    ]
+
+    /// Index of the focused element, or nil when nothing is focused.
+    ///
+    /// Two records can carry the same `AXUIElement`: the element's own row, and the synthetic text
+    /// row rendered for it. The synthetic row exposes no actions and so never reaches the compact
+    /// view, meaning a match against it would silently drop the focused marker. Synthetic records
+    /// are therefore skipped, and the lowest matching index wins: `Dictionary.values` has no
+    /// defined order, so an arbitrary pick would order the same UI differently between runs.
+    private func focusedElementIndex() -> Int? {
+        guard let focusedElement else {
+            return nil
+        }
+        return elements.values
+            .filter { record in
+                guard !record.isSyntheticText, let element = record.element else { return false }
+                return CFEqual(element, focusedElement)
+            }
+            .map(\.index)
+            .min()
+    }
 }
 
 public enum SnapshotTextStyle {
     case fullState
     case actionResult
+    /// Actionable rows only, no screenshot. The token-cheap view for agents that already
+    /// know what they are looking for.
+    case compactActionable
 }
 
 enum SnapshotBuilder {
@@ -255,6 +417,7 @@ enum SnapshotBuilder {
             screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
             treeLines: renderer.lines,
+            treeLineOffsets: renderer.lineOffsets,
             focusedSummary: renderer.focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
@@ -376,6 +539,7 @@ enum SnapshotBuilder {
         var lines: [String] = []
 
         var records: [Int: ElementRecord] = [:]
+        var lineOffsets: [Int: Int] = [:]
         let focusedIdentifier = state.focusedIdentifier
         var focusedSummary: String?
 
@@ -385,6 +549,7 @@ enum SnapshotBuilder {
             let actionsSegment = element.actions.isEmpty ? "" : " Secondary Actions: \(element.actions.joined(separator: ", "))"
             let focusSegment = focusedIdentifier == element.identifier ? " (focused)" : ""
             lines.append("\(String(repeating: "    ", count: element.index == 0 ? 0 : 1))\(element.index) \(element.role)\(titleSegment)\(focusSegment) ID: \(element.identifier)\(valueSegment)\(actionsSegment) Frame: \(element.frame.cgRect.renderedLocalFrame)")
+            lineOffsets[element.index] = lines.count - 1
 
             let record = ElementRecord(
                 index: element.index,
@@ -411,6 +576,7 @@ enum SnapshotBuilder {
             screenshotPNGData: nil,
             mode: .fixture,
             treeLines: lines,
+            treeLineOffsets: lineOffsets,
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: nil,
@@ -683,6 +849,7 @@ private struct TreeRenderer {
     var nextIndex = 0
     var lines: [String] = []
     var records: [Int: ElementRecord] = [:]
+    var lineOffsets: [Int: Int] = [:]
     var identifierIndex: [String: String] = [:]
     var focusedSummary: String?
 
@@ -847,6 +1014,7 @@ private struct TreeRenderer {
 
         let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)\(placeholderSegment)\(frameSegment)"
         lines.append("\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
+        lineOffsets[index] = lines.count - 1
 
         let record = ElementRecord(
             index: index,

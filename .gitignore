@@ -8,3 +8,6 @@ artifacts/codex-dumps/
 research/
 __pycache__/
 *.pyc
+
+# Local tooling cache
+.impeccable/

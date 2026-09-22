@@ -58,7 +58,8 @@ public final class ComputerUseToolDispatcher {
                 treeLimits: AccessibilityTreeLimits.defaults.replacing(
                     maxNodeCount: try optionalPositiveInt("max_tree_nodes", in: arguments),
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
-                )
+                ),
+                compact: try optionalBool("compact", in: arguments) ?? false
             )
         case "click":
             return try service.click(
@@ -188,6 +189,36 @@ public final class ComputerUseToolDispatcher {
         }
 
         return nil
+    }
+
+    /// Reads an optional boolean flag. Accepts a real boolean, the strings "true"/"false", and
+    /// 1/0, because MCP clients differ in how they encode booleans.
+    ///
+    /// Anything else throws rather than falling back to the default. A silently ignored `compact`
+    /// returns the full tree plus a screenshot — the most expensive possible answer to a request
+    /// that asked for the cheapest — and the caller has no way to tell it was dropped.
+    private func optionalBool(_ key: String, in arguments: [String: Any]) throws -> Bool? {
+        guard let value = arguments[key] else {
+            return nil
+        }
+
+        if let boolean = value as? Bool {
+            return boolean
+        }
+
+        if let text = value as? String {
+            switch text.lowercased() {
+            case "true": return true
+            case "false": return false
+            default: break
+            }
+        }
+
+        if let number = value as? Int {
+            return number != 0
+        }
+
+        throw ComputerUseError.invalidArguments("\(key) must be a boolean")
     }
 
     private func optionalPositiveInt(_ key: String, in arguments: [String: Any]) throws -> Int? {
