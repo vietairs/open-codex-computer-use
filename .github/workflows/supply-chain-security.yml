@@ -1,0 +1,64 @@
+name: supply-chain-security
+
+# actions/dependency-review-action has no verified SHA pin in this repo yet
+# (see .github/dependency-review-config.yml for the schema it would use once
+# one is added), so this workflow checks dependencies with plain shell
+# instead of that action. It only checks what actually exists: this repo has
+# no npm dependencies (package.json declares no "dependencies" field and
+# ships no lockfile) and no third-party Go module requirements today, so the
+# npm/Go steps below are guarded to no-op cleanly rather than pretending to
+# audit dependencies that are not there.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: supply-chain-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit-dependencies:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: "1.22.x"
+
+      - name: Audit npm dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm audit --audit-level=high
+          else
+            echo "No package-lock.json in this repo; nothing for npm audit to check."
+          fi
+
+      - name: Audit Go module dependencies
+        run: |
+          audited=0
+          for gomod in $(find apps -maxdepth 2 -name go.mod | sort); do
+            module_dir="$(dirname "${gomod}")"
+            if grep -q '^require ' "${gomod}"; then
+              audited=1
+              echo "Running govulncheck in ${module_dir}"
+              (
+                cd "${module_dir}"
+                go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+              )
+            fi
+          done
+          if [ "${audited}" -eq 0 ]; then
+            echo "No third-party Go module requirements found under apps/; nothing for govulncheck to check."
+          fi

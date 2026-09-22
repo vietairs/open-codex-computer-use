@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -22,10 +22,44 @@ const defaultOutDir = path.join(repoRoot, "dist", "npm");
 const appBundleName = "Open Computer Use.app";
 const appExecutableName = "OpenComputerUse";
 const metaPackageNames = [
-  "open-computer-use",
-  "open-computer-use-mcp",
-  "open-codex-computer-use-mcp",
+  "@vietairs/open-computer-use",
+  "@vietairs/open-computer-use-mcp",
+  "@vietairs/open-codex-computer-use-mcp",
 ];
+
+// A scoped package name ("@scope/name") contains a "/", which is not safe to
+// use directly as a single directory segment (path.join would silently turn
+// it into two nested directories). Flatten it to a single dir-safe token.
+function packageDirName(packageName) {
+  return packageName.replace(/^@/, "").replace(/\//g, "-");
+}
+
+// A fork releases its own npm packages under its own scope, so package
+// metadata (homepage/repository/bugs URLs, README source link) must point at
+// the fork's remote rather than a hardcoded upstream slug. Mirrors the
+// resolveRepositoryURL() pattern in scripts/validate-github-release-notes.mjs.
+function resolveRepositoryURL() {
+  const fallback = "https://github.com/iFurySt/open-codex-computer-use";
+  const configured = process.env.OPEN_COMPUTER_USE_RELEASE_REPO_URL;
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  try {
+    const remote = execFileSync("git", ["remote", "get-url", "origin"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    }).trim();
+    const match = remote.match(/github\.com[:/](.+?)(?:\.git)?$/);
+    if (match) {
+      return `https://github.com/${match[1]}`;
+    }
+  } catch {
+    // No git, no origin, or not a GitHub remote: fall back to the upstream slug.
+  }
+
+  return fallback;
+}
 const runtimeTargets = [
   {
     os: "darwin",
@@ -405,7 +439,7 @@ for (const line of lines) {
 `;
 }
 
-function renderReadme(packageName, version) {
+function renderReadme(packageName, version, repositoryURL) {
   return `# ${packageName}
 
 Cross-platform npm distribution for the open-source **Open Computer Use** MCP server.
@@ -476,7 +510,7 @@ open-computer-use install-codex-plugin
 - Linux requires a signed-in desktop session with AT-SPI2 / D-Bus accessibility available for real app control.
 - Windows requires a signed-in desktop session for UI Automation access.
 
-Source repository: https://github.com/iFurySt/open-codex-computer-use
+Source repository: ${repositoryURL}
 `;
 }
 
@@ -493,19 +527,19 @@ function packageKeywords(extraKeywords = []) {
   ];
 }
 
-function renderMetaPackageJson(packageName, version) {
+function renderMetaPackageJson(packageName, version, repositoryURL) {
   return {
     name: packageName,
     version,
     description: "Cross-platform Computer Use MCP server launcher. After install, configure open-computer-use mcp.",
     license: "MIT",
-    homepage: "https://github.com/iFurySt/open-codex-computer-use",
+    homepage: repositoryURL,
     repository: {
       type: "git",
-      url: "git+https://github.com/iFurySt/open-codex-computer-use.git",
+      url: `git+${repositoryURL}.git`,
     },
     bugs: {
-      url: "https://github.com/iFurySt/open-codex-computer-use/issues",
+      url: `${repositoryURL}/issues`,
     },
     keywords: packageKeywords(),
     preferGlobal: true,
@@ -594,8 +628,8 @@ function copyBundledRuntimes(packageRoot, packageName) {
   }
 }
 
-function stageMetaPackage(packageName, version, outDir) {
-  const packageRoot = path.join(outDir, packageName);
+function stageMetaPackage(packageName, version, outDir, repositoryURL) {
+  const packageRoot = path.join(outDir, packageDirName(packageName));
   rmSync(packageRoot, { recursive: true, force: true });
 
   mkdirSync(path.join(packageRoot, ".agents", "plugins"), { recursive: true });
@@ -618,18 +652,18 @@ function stageMetaPackage(packageName, version, outDir) {
   writeExecutable(path.join(packageRoot, "bin", "open-computer-use-mcp"), launcher);
   writeExecutable(path.join(packageRoot, "bin", "open-codex-computer-use-mcp"), launcher);
   writeFileSync(path.join(packageRoot, "scripts", "postinstall.mjs"), renderPostinstall(packageName, version), "utf-8");
-  writeFileSync(path.join(packageRoot, "README.md"), renderReadme(packageName, version), "utf-8");
-  writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderMetaPackageJson(packageName, version), null, 2)}\n`, "utf-8");
+  writeFileSync(path.join(packageRoot, "README.md"), renderReadme(packageName, version, repositoryURL), "utf-8");
+  writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderMetaPackageJson(packageName, version, repositoryURL), null, 2)}\n`, "utf-8");
 
   removeJunkFiles(packageRoot);
 }
 
-function stagePackage(packageName, version, outDir) {
+function stagePackage(packageName, version, outDir, repositoryURL) {
   if (!metaPackageNames.includes(packageName)) {
     throw new Error(`Unsupported package name: ${packageName}`);
   }
 
-  stageMetaPackage(packageName, version, outDir);
+  stageMetaPackage(packageName, version, outDir, repositoryURL);
 }
 
 function main() {
@@ -644,8 +678,9 @@ function main() {
   rmSync(options.outDir, { recursive: true, force: true });
   mkdirSync(options.outDir, { recursive: true });
 
+  const repositoryURL = resolveRepositoryURL();
   for (const packageName of options.packageNames) {
-    stagePackage(packageName, version, options.outDir);
+    stagePackage(packageName, version, options.outDir, repositoryURL);
   }
 
   process.stdout.write(`${options.outDir}\n`);

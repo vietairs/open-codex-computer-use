@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # macos-26 matches the toolchain release.yml already builds and signs
+    # against, so swift build/test run against the same Swift version we
+    # ship. Go and the Linux Python runtime harness run on the same runner
+    # rather than a matrix, since they are small and this keeps the
+    # dependency footprint (Node/Go setup) to a single job.
+    runs-on: macos-26
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version: "1.22.x"
+
+      # scripts/ci.sh is the single source of truth for what "passing CI"
+      # means locally (make ci runs the same script). It also re-runs
+      # check-docs.sh / check-repo-hygiene.sh / check-action-pinning.sh,
+      # which duplicates the dedicated docs-check.yml and repo-hygiene.yml
+      # workflows; that overlap is intentional so a contributor running
+      # `make ci` locally sees exactly what this job checks, at the cost of
+      # those two checks running twice per PR.
+      - name: Run repository CI script
+        run: ./scripts/ci.sh
+
+      # scripts/ci.sh deliberately covers only the shell/Node/Go/docs surface —
+      # it has no swift step. The Swift package is this repository's primary
+      # deliverable, so it is built and tested explicitly here; without these
+      # two steps a green CI run would say nothing about the shipped binary.
+      - name: Build Swift package
+        run: swift build
+
+      - name: Test Swift package
+        run: swift test

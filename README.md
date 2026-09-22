@@ -2,9 +2,11 @@
 
 [![English](https://img.shields.io/badge/English-Click-yellow)](./README.md)
 [![简体中文](https://img.shields.io/badge/简体中文-点击查看-orange)](./README.zh-CN.md)
-[![Release](https://img.shields.io/github/v/release/iFurySt/open-codex-computer-use)](https://github.com/iFurySt/open-codex-computer-use/releases)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/iFurySt/open-codex-computer-use)
-<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="20" /></a>
+[![Release](https://img.shields.io/github/v/release/vietairs/open-codex-computer-use)](https://github.com/vietairs/open-codex-computer-use/releases)
+<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2Fvietairs%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/vietairs/open-codex-computer-use" alt="LLMAPIS" width="20" /></a>
+
+> [!NOTE]
+> This is a fork of [iFurySt/open-codex-computer-use](https://github.com/iFurySt/open-codex-computer-use), maintained at [vietairs/open-codex-computer-use](https://github.com/vietairs/open-codex-computer-use). See upstream for the original project.
 
 > [!TIP]
 > Interested in Browser Use? Check out [open-browser-use](https://github.com/iFurySt/open-codex-browser-use).
@@ -48,7 +50,7 @@ For unattended agents (Claude Code, Codex) that must keep working while the scre
 ## Quick Start
 
 ```bash
-npm i -g open-computer-use
+npm i -g @vietairs/open-computer-use
 ```
 
 The npm package also exposes `ocu` as the short CLI alias.
@@ -90,14 +92,14 @@ Install the skill directly:
 
 ```bash
 # Install for Codex
-npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer-use -y
+npx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
 npx skills ls -g -a codex | rg 'open-computer-use'
 ```
 
 Install for Claude Code:
 
 ```bash
-npx skills add iFurySt/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+npx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
 ```
 
 Update an existing global install, including the Codex install created above:
@@ -166,17 +168,17 @@ ocu -h
 
 ## Cursor Motion
 
-Cursor Motion is an open-source cursor motion system for macOS, based on public information shared by members of the Software.Inc team. You can download the app from the [Releases page](https://github.com/iFurySt/open-codex-computer-use/releases).
+Cursor Motion is an open-source cursor motion system for macOS, based on public information shared by members of the Software.Inc team. You can download the app from the [Releases page](https://github.com/vietairs/open-codex-computer-use/releases).
 
 [![Cursor Motion custom demo cover](./docs/generated/readme-assets/cursor-motion-demo-cover.png)](https://youtu.be/KRUq5GUHv1Q)
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=iFurySt%2Fopen-codex-computer-use&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=vietairs%2Fopen-codex-computer-use&type=date&legend=top-left">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
-    <img alt="Star History Chart for open-computer-use" src="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=vietairs/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=vietairs/open-codex-computer-use&type=date&legend=top-left" />
+    <img alt="Star History Chart for open-computer-use" src="https://api.star-history.com/chart?repos=vietairs/open-codex-computer-use&type=date&legend=top-left" />
   </picture>
 </a>
 
