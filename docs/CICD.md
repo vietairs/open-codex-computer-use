@@ -10,6 +10,15 @@
 - `scripts/build-open-computer-use-windows.sh`：本地构建实验性 Windows `open-computer-use.exe`，支持 `arm64` / `amd64`；release package 会把这两个产物内置进既有 npm 包的 `dist/windows/`。
 - `.github/workflows/release.yml`：支持 push semver tag 自动发布，也支持手动触发；tag push 时会同时跑 npm release 打包逻辑与 `Cursor Motion` 的 DMG 打包，并把 `.dmg` 上传到对应的 GitHub Releases 页面。`Open Computer Use` 的 npm 产物默认走 ad-hoc signing；如果配置了 `OPEN_COMPUTER_USE_CODESIGN_*` secrets，则会先导入 `Developer ID Application` 证书，再按同一 identity 对 release `.app` 统一签名。`Cursor Motion` 的 DMG 也会复用同一张 `Developer ID Application` 证书签 app；若同时配置 `APPLE_NOTARY_*` secrets，则会在上传前对 `.dmg` 做 notarization 和 staple。
 
+## 当前 CI 门禁
+
+除 release 流水线外，仓库在每个 PR 和 `main` push 上还跑四条独立的 gate workflow；具体步骤以各 workflow 文件为准，这里只做导航：
+
+- `.github/workflows/ci.yml`：跑 `scripts/ci.sh`（脚本语法检查、`check-docs.sh` / `check-repo-hygiene.sh` / `check-action-pinning.sh`、Linux runtime 的 Python/Go 测试），再额外跑 `swift build` / `swift test`。
+- `.github/workflows/docs-check.yml`：单独跑 `scripts/check-docs.sh`。
+- `.github/workflows/repo-hygiene.yml`：跑 `scripts/check-repo-hygiene.sh` 和 `scripts/check-action-pinning.sh`。
+- `.github/workflows/supply-chain-security.yml`：对 npm 和 Go 依赖做漏洞审计，细节见 `docs/SUPPLY_CHAIN_SECURITY.md`。
+
 ## 设计原则
 
 这套默认流水线的目标，是在项目真正成形前先把交付链路搭起来，而不是假装已经知道未来项目该怎么 build 和 deploy。
