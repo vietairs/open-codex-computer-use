@@ -1267,6 +1267,118 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(rendered.contains("Compact actionable view:"))
     }
 
+    func testTreeLineOffsetsMatchEveryElementRowFromARealRenderer() {
+        // Every other compact test hand-authors treeLineOffsets, so an off-by-one at the recording
+        // site (`AccessibilitySnapshot.swift`'s `buildFixtureSnapshot`) has zero coverage. This test
+        // drives the real fixture renderer instead, and feeds it elements out of index order so the
+        // offset-ordering assertion below also catches a regression that dropped the renderer's own
+        // sort-by-index step.
+        let focused = FixtureElementState(
+            identifier: "field-message",
+            index: 1,
+            role: "AXTextField",
+            title: nil,
+            value: "Draft reply",
+            actions: [],
+            frame: FixtureRect(rect: CGRect(x: 0, y: 30, width: 200, height: 24))
+        )
+        let titled = FixtureElementState(
+            identifier: "btn-send",
+            index: 0,
+            role: "AXButton",
+            title: "Send",
+            value: nil,
+            actions: [],
+            frame: FixtureRect(rect: CGRect(x: 0, y: 0, width: 80, height: 24))
+        )
+        let labelled = FixtureElementState(
+            identifier: "label-status",
+            index: 2,
+            role: "AXStaticText",
+            title: "Status",
+            value: nil,
+            actions: [],
+            frame: FixtureRect(rect: CGRect(x: 0, y: 60, width: 100, height: 20))
+        )
+        let withSecondaryActions = FixtureElementState(
+            identifier: "row-item",
+            index: 3,
+            role: "AXRow",
+            title: "Item 1",
+            value: nil,
+            actions: ["Copy", "Delete"],
+            frame: FixtureRect(rect: CGRect(x: 0, y: 90, width: 150, height: 20))
+        )
+        let state = FixtureAppState(
+            windowTitle: "Fixture Window",
+            windowBounds: FixtureRect(rect: CGRect(x: 0, y: 0, width: 400, height: 300)),
+            focusedIdentifier: focused.identifier,
+            // Deliberately non-ascending, so the offset-ordering assertion can catch a dropped sort.
+            elements: [withSecondaryActions, focused, titled, labelled]
+        )
+        let app = RunningAppDescriptor(
+            name: "Fixture App",
+            bundleIdentifier: "com.example.Fixture",
+            pid: 24_601,
+            runningApplication: NSRunningApplication.current
+        )
+
+        let snapshot = SnapshotBuilder.buildFixtureSnapshot(app: app, state: state)
+
+        XCTAssertEqual(Set(snapshot.treeLineOffsets.keys), Set([0, 1, 2, 3]))
+        // Offsets must ascend with the index. This is what the non-ascending input above actually
+        // buys: the per-row prefix check below passes under any emission order, because a row's text
+        // and indent derive from `element.index` alone and the offsets stay self-consistent. Only
+        // comparing the offsets to their sorted positions catches a dropped sort — and it catches an
+        // off-by-one too, since that shifts every entry.
+        XCTAssertEqual((0...3).compactMap { snapshot.treeLineOffsets[$0] }, [0, 1, 2, 3])
+        for index in 0...3 {
+            guard let offset = snapshot.treeLineOffsets[index], snapshot.treeLines.indices.contains(offset) else {
+                XCTFail("no treeLineOffsets entry for element index \(index)")
+                continue
+            }
+            let line = stripFixtureIndent(snapshot.treeLines[offset])
+            XCTAssertTrue(line.hasPrefix("\(index) "), "row for index \(index) mis-registered: \(line)")
+        }
+
+        let renderedBody = snapshot.renderedText(style: .compactActionable)
+            .components(separatedBy: "\n")
+            .drop { !$0.hasPrefix("Compact actionable view:") }
+            .dropFirst()
+            // Take every row up to the blank line that precedes the focused-element summary, rather
+            // than a fixed count: a fixed count would silently truncate — and so hide — a spurious
+            // extra row.
+            .prefix { !$0.isEmpty }
+        // Secondary check, weaker than the loop above on purpose: `expectedBody` is derived from
+        // `treeLineOffsets`, so this does not re-prove the offsets themselves. What it does prove is
+        // that compact emits those rows verbatim, in ascending index order, one row per element.
+        //
+        // All four elements survive because `isActionableForCompactView` short-circuits to true in
+        // fixture mode, so nothing here is filtered — if a future change to that rule drops a row,
+        // this assertion fails on the row COUNT, which is an actionability change, not an offset
+        // bug. Read a failure here against that rule before suspecting the renderer.
+        //
+        // Fixture snapshots carry no AXUIElement, so `focusedElementIndex()` cannot match one and
+        // compact falls back to plain ascending order; the "(focused)" marker fixture rows carry
+        // comes from `buildFixtureSnapshot` itself, not from a suffix compact appends.
+        let expectedBody = (0...3).compactMap { index -> String? in
+            guard let offset = snapshot.treeLineOffsets[index],
+                  snapshot.treeLines.indices.contains(offset) else {
+                return nil
+            }
+            return stripFixtureIndent(snapshot.treeLines[offset])
+        }
+        XCTAssertEqual(Array(renderedBody), expectedBody)
+    }
+
+    private func stripFixtureIndent(_ text: String) -> String {
+        var line = Substring(text)
+        while line.first == "\t" || line.first == " " {
+            line = line.dropFirst()
+        }
+        return String(line)
+    }
+
     func testGetAppStateExposesCompactFlagAsBoolean() throws {
         let definition = try XCTUnwrap(ToolDefinitions.all.first { $0.name == "get_app_state" })
         let schema = try XCTUnwrap(definition.inputSchema["properties"] as? [String: Any])

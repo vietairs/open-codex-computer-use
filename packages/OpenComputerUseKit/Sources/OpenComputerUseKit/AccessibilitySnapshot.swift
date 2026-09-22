@@ -535,7 +535,7 @@ enum SnapshotBuilder {
         return copyElement(appElement, attribute: kAXFocusedUIElementAttribute)
     }
 
-    private static func buildFixtureSnapshot(app: RunningAppDescriptor, state: FixtureAppState) -> AppSnapshot {
+    static func buildFixtureSnapshot(app: RunningAppDescriptor, state: FixtureAppState) -> AppSnapshot {
         var lines: [String] = []
 
         var records: [Int: ElementRecord] = [:]
