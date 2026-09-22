@@ -14,7 +14,7 @@
 
 除 release 流水线外，仓库在每个 PR 和 `main` push 上还跑四条独立的 gate workflow；具体步骤以各 workflow 文件为准，这里只做导航：
 
-- `.github/workflows/ci.yml`：跑 `scripts/ci.sh`（脚本语法检查、`check-docs.sh` / `check-repo-hygiene.sh` / `check-action-pinning.sh`、Linux runtime 的 Python/Go 测试），再额外跑 `swift build` / `swift test`。
+- `.github/workflows/ci.yml`：跑 `scripts/ci.sh`（脚本语法检查、`check-docs.sh` / `check-repo-hygiene.sh` / `check-action-pinning.sh`、Linux runtime 的 Python 测试、Linux 与 Windows runtime 的 Go 测试），再额外跑 `swift build` / `swift test`。
 - `.github/workflows/docs-check.yml`：单独跑 `scripts/check-docs.sh`。
 - `.github/workflows/repo-hygiene.yml`：跑 `scripts/check-repo-hygiene.sh` 和 `scripts/check-action-pinning.sh`。
 - `.github/workflows/supply-chain-security.yml`：对 npm 和 Go 依赖做漏洞审计，细节见 `docs/SUPPLY_CHAIN_SECURITY.md`。

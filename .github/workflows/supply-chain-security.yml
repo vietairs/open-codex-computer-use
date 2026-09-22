@@ -5,10 +5,18 @@ name: supply-chain-security
 # one is added), so this workflow checks dependencies with plain shell
 # instead of that action.
 #
-# The Go scan walks EVERY module in the repository, not just apps/. An earlier
-# revision scanned apps/ alone and printed "nothing to check" while
-# scripts/computer-use-cli/go.mod carried seven third-party requirements --
-# a green run asserting coverage it did not have.
+# The Go scan walks EVERY module in the repository and scans every one of them,
+# with no dependency-count precondition. Two earlier revisions each claimed
+# coverage they did not have: the first scanned apps/ alone while
+# scripts/computer-use-cli/go.mod carried seven third-party requirements; the
+# second enumerated all three modules but scanned only the one declaring
+# `require`, silently skipping the two whose binaries actually ship.
+#
+# This job pins the same go-version as ci.yml and release.yml. That agreement is
+# load-bearing, not tidiness: govulncheck reports the stdlib of the toolchain it
+# runs under, so a scanner on a newer Go than the release builder reports "No
+# vulnerabilities found" for binaries that ship with known-vulnerable stdlib.
+# Keep the three pins equal, or this gate goes quietly blind again.
 
 on:
   pull_request:
@@ -39,14 +47,13 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
-          # "stable", not the 1.22.x the other workflows pin. This job is the
-          # only one that enters scripts/computer-use-cli, whose go.mod declares
-          # go 1.26.0. With an older Go installed, GOTOOLCHAIN=auto resolves to
-          # EXACTLY go1.26.0, and govulncheck then reports every stdlib advisory
-          # fixed in 1.26.1 -- a red run caused by the pin, not by a real
-          # dependency problem. Installing current stable keeps the toolchain
-          # ahead of every go directive in the repo.
-          go-version: "stable"
+          # Minor pinned, patch floating -- and identical in ci.yml and
+          # release.yml. The patch must float: go1.26.0 exactly (what
+          # GOTOOLCHAIN=auto resolves to from the go directive in
+          # scripts/computer-use-cli) reports nine stdlib advisories that later
+          # 1.26 patches already fix. The minor must be >= 1.26 to satisfy both
+          # that go directive and govulncheck v1.8.0's own minimum.
+          go-version: "1.27.x"
 
       - name: Audit npm dependencies
         run: |
@@ -64,9 +71,9 @@ jobs:
           # slip past the gate it exists to enforce.
           #
           # Each govulncheck release carries its own minimum go directive
-          # (v1.2.0 already needs 1.25, v1.8.0 needs 1.26), which is the other
-          # half of why this job installs current stable rather than a pin.
-          # Verified against the module proxy; raise alongside go-version.
+          # (v1.2.0 already needs 1.25, v1.8.0 needs 1.26), which is why the
+          # go-version minor above cannot drop below 1.26. Verified against the
+          # module proxy; when raising this, check that minimum still holds.
           GOVULNCHECK_VERSION: v1.8.0
         run: |
           set -euo pipefail
@@ -84,22 +91,21 @@ jobs:
           echo "Go modules discovered:"
           cat /tmp/gomods.txt
 
-          audited=0
+          # Every module is scanned, including ones with no `require` at all.
+          # A module with no third-party dependency is NOT uninteresting: it
+          # still links the standard library, and the standard library is where
+          # this repository's actual exposure has been. apps/OpenComputerUseLinux
+          # and apps/OpenComputerUseWindows declare zero requirements and ship as
+          # the bundled runtimes inside the npm tarballs; scanned under the
+          # toolchain that builds them they reported three call-reachable stdlib
+          # advisories (GO-2025-3956 in os/exec, GO-2025-3750 in syscall,
+          # GO-2026-4602). An earlier revision skipped exactly those two modules
+          # on the theory that "no require" means "nothing to check".
           while IFS= read -r gomod; do
             module_dir="$(dirname "${gomod}")"
-            # Match both `require x v1` and block form `require (`.
-            if grep -qE '^[[:space:]]*require([[:space:]]|\()' "${gomod}"; then
-              audited=1
-              echo "Running govulncheck in ${module_dir}"
-              (
-                cd "${module_dir}"
-                go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
-              )
-            else
-              echo "No require directive in ${module_dir}; skipping."
-            fi
+            echo "Running govulncheck in ${module_dir}"
+            (
+              cd "${module_dir}"
+              go run "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}" ./...
+            )
           done < /tmp/gomods.txt
-
-          if [ "${audited}" -eq 0 ]; then
-            echo "No Go module in this repository declares any requirement."
-          fi

@@ -35,7 +35,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
         with:
-          go-version: "1.22.x"
+          # Kept equal to release.yml and supply-chain-security.yml. See the
+          # header of supply-chain-security.yml for why the three must agree.
+          go-version: "1.27.x"
 
       # The single source of truth for what "passing CI" means locally --
       # `make ci` runs this same script. It re-runs check-docs.sh,

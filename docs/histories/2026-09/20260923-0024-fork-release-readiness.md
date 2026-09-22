@@ -75,10 +75,28 @@ binary this project ships.
 - `supply-chain-security.yml` uses plain-shell `npm audit` / `govulncheck` instead
   of `dependency-review-action`, because no verified SHA pin was available for it
   and `check-action-pinning.sh` rejects unpinned actions. The npm half no-ops
-  honestly (no lockfile, no declared dependencies). The Go half originally
-  scanned only `apps/` and so missed `scripts/computer-use-cli`, the one module
-  that does have third-party requirements -- it now walks every module in the
-  repository and fails loudly if enumeration returns nothing.
+  honestly (no lockfile, no declared dependencies). The Go half took two
+  revisions to actually cover the repository. It first scanned only `apps/` and
+  missed `scripts/computer-use-cli`, the one module with third-party
+  requirements. The fix for that enumerated all three modules but scanned only
+  modules declaring `require` -- which skipped `apps/OpenComputerUseLinux` and
+  `apps/OpenComputerUseWindows`, whose binaries are exactly what ships inside the
+  npm tarballs. A module with no dependencies still links the standard library,
+  and the standard library was where the real exposure sat. It now scans every
+  enumerated module unconditionally and fails loudly if enumeration returns
+  nothing.
+- **Go toolchain pin raised, 1.22.x to 1.27.x**, in `ci.yml`, `release.yml` and
+  `supply-chain-security.yml` together. Scanned under the 1.22.x that
+  `release.yml` used, the two shipped runtimes reported three call-reachable
+  stdlib advisories -- GO-2025-3956 (`os/exec.LookPath`), GO-2025-3750
+  (`syscall`, Windows), GO-2026-4602. Under 1.27.x all three modules report no
+  vulnerabilities, and both modules build unchanged; their `go` directives still
+  read 1.22, so the language version is untouched. The three pins are kept equal
+  deliberately: govulncheck reports the stdlib of the toolchain it runs under, so
+  a scanner ahead of the builder returns a clean result for binaries that ship
+  vulnerable. The patch component must float -- `go1.26.0` exactly, which
+  `GOTOOLCHAIN=auto` resolves to from the CLI module's go directive, reports nine
+  advisories that later 1.26 patches already fix.
 - `scripts/ci.sh` could not be run end-to-end locally: its `python3 -m unittest`
   step is SIGKILLed in this agent environment. The constituent check scripts were
   run directly instead, and all pass.
