@@ -1,1 +1,2 @@
 - 2026-07-22 — 260722-0034-sync-upstream-v0.2.1 — COMPLETE — upstream v0.2.1 sync, PR #7 merged (62a89f8)
+- 2026-09-22 — 260718-1008-upstream-v020-merge-lockscreen — COMPLETE — upstream v0.2.0 merge + opt-in work-while-locked, PR #2 merged (e5c9bb5)
