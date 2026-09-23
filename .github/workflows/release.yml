@@ -118,6 +118,35 @@ jobs:
             echo "OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=${keychain_path}"
           } >> "${GITHUB_ENV}"
 
+      - name: Prepare Open Computer Use notarization config
+        env:
+          APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
+        run: |
+          echo "OPEN_COMPUTER_USE_NOTARIZE=auto" >> "${GITHUB_ENV}"
+
+          if [ -z "${APPLE_NOTARY_API_KEY_P8_BASE64}" ] || [ -z "${APPLE_NOTARY_KEY_ID}" ] || [ -z "${APPLE_NOTARY_ISSUER_ID}" ]; then
+            echo "No notary credentials configured; npm release app bundle notarization will be skipped."
+            exit 0
+          fi
+
+          api_key_path="${RUNNER_TEMP}/open-computer-use-notary-key.p8"
+
+          CERT_PATH="${api_key_path}" python3 -c 'import base64, os, pathlib; pathlib.Path(os.environ["CERT_PATH"]).write_bytes(base64.b64decode(os.environ["APPLE_NOTARY_API_KEY_P8_BASE64"]))'
+          chmod 600 "${api_key_path}"
+
+          {
+            echo "APPLE_NOTARY_KEY_PATH=${api_key_path}"
+            echo "APPLE_NOTARY_KEY_ID=${APPLE_NOTARY_KEY_ID}"
+            echo "APPLE_NOTARY_ISSUER_ID=${APPLE_NOTARY_ISSUER_ID}"
+          } >> "${GITHUB_ENV}"
+
+          if [ -n "${APPLE_DEVELOPER_TEAM_ID}" ]; then
+            echo "APPLE_DEVELOPER_TEAM_ID=${APPLE_DEVELOPER_TEAM_ID}" >> "${GITHUB_ENV}"
+          fi
+
       - name: Build npm release artifacts
         run: npm run npm:pack
 

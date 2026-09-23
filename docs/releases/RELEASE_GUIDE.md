@@ -1,54 +1,54 @@
-# 发版指南
+# Release Guide
 
-这份文档约束这个仓库未来的 patch / minor release 流程，目标是避免再次出现 “git tag 已经发了，但 npm staging 产物版本还是旧值” 这类版本源不一致问题。
+This document governs this repository's patch / minor release process. Its goal is to avoid a repeat of the "git tag already pushed, but the npm staging artifact still carries the old version" kind of version-source mismatch.
 
-## 什么时候必读
+## When you must read this first
 
-- 只要任务里包含这些动作之一，就先读这份文档：
-  - bump 版本
-  - 打 release tag
-  - 推送 release tag
-  - 看 GitHub Actions release 失败原因
-  - 重发某个失败版本
+- Read this document before doing any of these:
+  - bumping the version
+  - cutting a release tag
+  - pushing a release tag
+  - looking into why a GitHub Actions release run failed
+  - re-cutting a failed release
 
-## 什么时候才发公开版本
+## When to actually publish a public release
 
-- 日常修复、官方 `computer-use` 对齐验证和本地回归，默认只构建本地 app / 二进制并让 MCP client 指向本地构建产物。
-- 不要把 patch release 当作普通验证手段；只有用户明确要求公开发版，或某个修复已经达到需要交付给外部用户的稳定状态时，才进入下面的 release checklist。
-- 如果只是为了让 Codex 使用最新本地实现，优先更新本机 `~/.codex/config.toml` 中的 `open-computer-use` MCP server command，指向仓库本地构建产物，而不是 bump 版本、打 tag、推 release。
+- For everyday fixes, official `computer-use` parity verification, and local regression testing, default to building the local app / binaries only and pointing the MCP client at the local build.
+- Do not treat a patch release as a routine verification step; only move to the release checklist below once the user explicitly asks for a public release, or a fix has reached a stability level that needs to ship to external users.
+- If the only goal is to have Codex use the latest local implementation, prefer updating the `open-computer-use` MCP server command in your local `~/.codex/config.toml` to point at the repo's local build artifact, instead of bumping the version, tagging, and releasing.
 
-## 当前 release 入口
+## Current release entry points
 
-- 本地 staging / 打 tgz：`./scripts/release-package.sh`
-- 本地构建 Cursor Motion DMG：`./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version <version>`
-- 本地 stage npm 包目录：`node ./scripts/npm/build-packages.mjs`
-- 本地 publish：`node ./scripts/npm/publish-packages.mjs`
-- CI workflow：`.github/workflows/release.yml`
-- 用户可见发布记录：`docs/releases/feature-release-notes.md`
-- GitHub Release 正文：`docs/releases/github/vX.Y.Z.md`
-- GitHub Release 页面：workflow 使用审核过的英文 notes 文件创建或更新，不直接引用 PR 标题自动生成正文。
+- Local staging / tgz packaging: `./scripts/release-package.sh`
+- Local Cursor Motion DMG build: `./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version <version>`
+- Local npm package staging directory: `node ./scripts/npm/build-packages.mjs`
+- Local publish: `node ./scripts/npm/publish-packages.mjs`
+- CI workflow: `.github/workflows/release.yml`
+- User-facing release log: `docs/releases/feature-release-notes.md`
+- GitHub Release body: `docs/releases/github/vX.Y.Z.md`
+- GitHub Release page: the workflow creates or updates the release using the reviewed English notes file; it does not derive the body from PR titles.
 
-## 当前版本源
+## Current version sources
 
-这个仓库当前有三类 release 版本源：
+This repository currently has three release version sources:
 
-- npm staging 包版本：以 `plugins/open-computer-use/.codex-plugin/plugin.json` 里的 `version` 为准。
-- GitHub Release 正文：以 `docs/releases/github/<tag>.md` 为准，文件名必须与实际 tag 完全一致。
-- `CursorMotion-<version>.dmg` 文件名与 GitHub Release asset 版本：以 release tag 为准；workflow 会把 `vX.Y.Z` 规范化成 `X.Y.Z` 写进 DMG 文件名，也可以在本地显式传 `--version`。
+- npm staging package version: taken from `version` in `plugins/open-computer-use/.codex-plugin/plugin.json`.
+- GitHub Release body: taken from `docs/releases/github/<tag>.md`; the file name must exactly match the actual tag.
+- `CursorMotion-<version>.dmg` file name and the GitHub Release asset version: taken from the release tag; the workflow normalizes `vX.Y.Z` to `X.Y.Z` for the DMG file name, or you can pass `--version` explicitly for a local build.
 
-也就是说：
+In other words:
 
-- 只改 git tag，不改这个 manifest，不会得到新 npm 版本。
-- `scripts/npm/build-packages.mjs` 会从这个 manifest 读取版本，再生成三个 root/alias staging 包；每个包内置 macOS、Linux 和 Windows runtime artifacts。
-- 所以 release 前必须先把这份 manifest bump 到目标版本。
-- 如果缺少目标 tag 对应的英文 notes，或者 notes 与 manifest/tag 不一致，`release-metadata` job 会在 npm 与 DMG job 启动前失败。
-- 如果要让 `CursorMotion` 的 DMG 文件名和 release 页面资产名正确落到目标版本，也必须使用目标 tag 推送，或本地显式传入同样的 `--version`。
+- Changing only the git tag, without changing this manifest, does not produce a new npm version.
+- `scripts/npm/build-packages.mjs` reads the version from this manifest and generates three root/alias staging packages; each package bundles macOS, Linux, and Windows runtime artifacts.
+- So the manifest must be bumped to the target version before releasing.
+- If the English notes for the target tag are missing, or the notes are inconsistent with the manifest/tag, the `release-metadata` job fails before the npm and DMG jobs start.
+- To get the `CursorMotion` DMG file name and release page asset name to land on the target version, you must push using the target tag, or pass the same `--version` explicitly locally.
 
 ## Release Checklist
 
-### 1. 先统一版本号
+### 1. Unify the version number first
 
-至少检查并同步这些位置：
+At minimum, check and sync these locations:
 
 - `plugins/open-computer-use/.codex-plugin/plugin.json`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/OpenComputerUseVersion.swift`
@@ -60,30 +60,30 @@
 - `scripts/computer-use-cli/README.md`
 - `docs/releases/feature-release-notes.md`
 - `docs/releases/github/vX.Y.Z.md`
-- `docs/histories/` 中本轮 release 对应的 history
+- the history entry under `docs/histories/` for this release
 
-如果这轮 release 还改了其他对外暴露版本字符串，也要一起对齐，不要只改一半。
+If this release also touches other externally visible version strings, sync those too; do not do a partial update.
 
-### 2. 准备并验证 GitHub Release notes
+### 2. Prepare and validate the GitHub Release notes
 
-从 `docs/releases/github/TEMPLATE.md` 创建目标 tag 对应文件，并运行：
+Create the file for the target tag from `docs/releases/github/TEMPLATE.md`, then run:
 
 ```bash
 node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
 ```
 
-校验要求：
+Validation requirements:
 
-- tag 必须是 `vX.Y.Z` 或 `X.Y.Z`，并与 plugin manifest 版本一致。
-- 正文以 `## What's Changed` 开头，包含 1-3 条用户可感知的英文变化。
-- 正文不能包含 CJK 字符。
-- 正文必须且只能包含一个指向当前 tag 的 `Full Changelog` 链接。
+- The tag must be `vX.Y.Z` or `X.Y.Z`, and must match the plugin manifest version.
+- The body must start with `## What's Changed` and include 1-3 user-facing changes in English.
+- The body must not contain CJK characters.
+- The body must contain exactly one `Full Changelog` link pointing at the current tag.
 
-任何一项不满足都不要打 tag。tag push 后，`release-metadata` job 会再次执行相同校验，并在失败时阻止 npm 与 DMG job 启动。
+Do not tag until every item passes. After the tag is pushed, the `release-metadata` job re-runs the same validation and blocks the npm and DMG jobs on failure.
 
-### 3. 本地验证版本源已经生效
+### 3. Verify locally that the version sources took effect
 
-至少跑这四步：
+Run at least these four steps:
 
 ```bash
 node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
@@ -92,7 +92,7 @@ node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.14
 ```
 
-然后直接检查 staging 包版本和 DMG 文件名：
+Then check the staging package version and DMG file name directly:
 
 ```bash
 node -p "require('./dist/release/npm-staging-check/open-computer-use/package.json').version"
@@ -104,18 +104,18 @@ node -e "if (require('./dist/release/npm-staging-check/open-computer-use/package
 ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 ```
 
-如果这里打印的不是目标版本，或者 DMG 没按目标版本名产出，不要打 tag。
+If what prints here is not the target version, or the DMG was not produced under the target version name, do not tag.
 
-如果当前 checkout 里已经有和目标版本一致的 `dist/Open Computer Use.app`，也可以临时加 `--skip-build` 跳过重复构建；但在干净 checkout 里不要默认加这个参数，否则 staging 脚本会因为缺少 `dist/Open Computer Use.app` 而失败。
+If the current checkout already has a `dist/Open Computer Use.app` matching the target version, you may temporarily add `--skip-build` to skip a redundant build; but do not add this flag by default on a clean checkout, or the staging script will fail from a missing `dist/Open Computer Use.app`.
 
-### 4. 提交版本 bump
+### 4. Commit the version bump
 
-- 用单独 commit 提交 release version bump。
-- commit message 要能直接看出这是 release 收口，而不是普通功能提交。
+- Submit the release version bump as its own commit.
+- The commit message should make clear this is a release close-out, not a regular feature commit.
 
-### 5. 打 tag 并推送
+### 5. Tag and push
 
-当前约定用 `vX.Y.Z`：
+Current convention is `vX.Y.Z`:
 
 ```bash
 git tag -a v0.1.14 -m "v0.1.14"
@@ -123,89 +123,135 @@ git push origin main
 git push origin v0.1.14
 ```
 
-tag push 后，`.github/workflows/release.yml` 会自动做两件事：
+After the tag push, `.github/workflows/release.yml` automatically does two things:
 
-- 发布 npm 包。
-- 构建 `CursorMotion-0.1.14.dmg`，并创建或更新同名 tag 的 GitHub Release asset。
+- Publishes the npm packages.
+- Builds `CursorMotion-0.1.14.dmg`, and creates or updates the GitHub Release asset for the matching tag.
 
-### 6. 检查 GitHub Release notes
+### 6. Check the GitHub Release notes
 
-每次 tag push 后都要检查 GitHub Release 页面，不要只确认 workflow 绿了：
+After every tag push, check the GitHub Release page; do not just confirm the workflow went green:
 
 ```bash
 gh release view v0.1.14 --json body,url
 ```
 
-workflow 会使用 `docs/releases/github/<tag>.md` 创建新 Release；如果 Release 已经存在，则在覆盖上传 DMG 后用同一文件更新正文。GitHub 自动生成 notes 不再是正文来源，因此 PR 标题使用中文也不会改变公开 Release 的语言。
+The workflow creates a new Release using `docs/releases/github/<tag>.md`; if the Release already exists, it overwrites the uploaded DMG and updates the body from the same file. GitHub's auto-generated notes are no longer the source of the body, so PR titles written in Chinese do not affect the language of the public Release.
 
-最低要求：
+Minimum requirements:
 
-- release body 必须与仓库里的目标 notes 文件一致。
-- `What's Changed` 必须列出本次用户可感知的 1-3 个英文变化。
-- 保留 `Full Changelog` 链接。
+- The release body must match the target notes file in the repository.
+- `What's Changed` must list 1-3 user-facing changes in English for this release.
+- The `Full Changelog` link must be preserved.
 
-## Release 失败时怎么查
+## Notarization
 
-### 1. 先看最新 run
+`Open Computer Use.app` supports notarization via `xcrun notarytool`, controlled by `OPEN_COMPUTER_USE_NOTARIZE=auto|required|skip` (default `auto`) in `scripts/build-open-computer-use-app.sh`. Notarization only runs against a bundle signed with a "Developer ID Application" identity, hardened runtime, and a secure timestamp; any other signing outcome (ad-hoc, Apple Development, or unsigned) is skipped in `auto` and fails the build in `required`.
+
+### One-time local setup
+
+Store a keychain profile once per machine:
+
+```bash
+xcrun notarytool store-credentials open-computer-use-notary --apple-id <your-apple-id> --team-id 3HB354R355
+```
+
+You will be prompted for an app-specific password for that Apple ID. Afterward, a local `auto` build automatically picks up this profile with no further configuration when no other credential is set (see resolution order below).
+
+### Environment variables (local / CI)
+
+Credentials are resolved in this order, first match wins:
+
+1. `OPEN_COMPUTER_USE_NOTARY_PROFILE=<keychain profile name>` — an explicit keychain profile.
+2. An App Store Connect API key: `APPLE_NOTARY_KEY_PATH=/path/to/key.p8` or `APPLE_NOTARY_API_KEY_P8_BASE64=<base64-encoded .p8 contents>`, together with `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID` (`APPLE_DEVELOPER_TEAM_ID` optional).
+3. In `auto` mode only, when neither of the above is set: the keychain profile `open-computer-use-notary`, if it has been stored locally (see one-time setup above).
+
+With no credentials configured, `auto` behaves exactly as before, aside from one informational skip line on stderr.
+
+### CI secrets
+
+The `package-npm` job in `.github/workflows/release.yml` reads these secrets in its "Prepare Open Computer Use notarization config" step and forwards them to the build via an API key (decoded to a `0600` file under `RUNNER_TEMP`, matching the existing Cursor Motion DMG notarization step's pattern):
+
+- `APPLE_NOTARY_API_KEY_P8_BASE64`
+- `APPLE_NOTARY_KEY_ID`
+- `APPLE_NOTARY_ISSUER_ID`
+- `APPLE_DEVELOPER_TEAM_ID` (optional)
+
+If any of the required three secrets is missing, the step logs a notice and the npm release app bundle build falls back to `auto` with notarization skipped; it does not block the rest of the release.
+
+### Verification
+
+After a notarized build, confirm the ticket is valid:
+
+```bash
+xcrun stapler validate "dist/Open Computer Use.app"
+spctl -a -vvv -t exec "dist/Open Computer Use.app"
+```
+
+`scripts/build-open-computer-use-app.sh` already runs `stapler staple`, `stapler validate`, and `spctl -a -vvv -t exec` (the last one as evidence only, non-fatal) as part of the notarization step; a failed `stapler validate` fails the build.
+
+## Debugging a release failure
+
+### 1. Check the latest run first
 
 ```bash
 gh run list -R vietairs/open-codex-computer-use --limit 10
 gh run view -R vietairs/open-codex-computer-use <run-id> --log-failed
 ```
 
-### 2. 重点看哪一类错误
+### 2. Focus on which category of error
 
-- `release-metadata` 失败
-  - 先本地运行 `node ./scripts/validate-github-release-notes.mjs --tag <tag>`。
-  - 检查 `docs/releases/github/<tag>.md` 是否存在、manifest 版本是否匹配、正文是否包含 CJK，以及 Full Changelog 是否指向当前 tag。
+- `release-metadata` failure
+  - Run `node ./scripts/validate-github-release-notes.mjs --tag <tag>` locally first.
+  - Check whether `docs/releases/github/<tag>.md` exists, whether the manifest version matches, whether the body contains CJK characters, and whether `Full Changelog` points at the current tag.
 - `npm error 403 ... You cannot publish over the previously published versions`
-  - 通常不是 token 权限问题，而是 staging 包版本仍然是旧版本。
-  - 先回头检查 `plugin.json` 的 `version`，再检查 staging 包实际产出的 `package.json`。
+  - Usually not a token permission issue; the staging package version is still the old one.
+  - Check `plugin.json`'s `version` first, then check the actual `package.json` produced by the staging package.
 - `npm error 404 Not Found - PUT https://registry.npmjs.org/<package>`
-  - 先确认 registry 上目标包旧版本是否仍可见：`npm view <package> versions --json`。
-  - 当前 publish 脚本会在发布前跳过已经存在的同版本 package，并对 publish 失败做短暂重试；如果 GitHub Actions OIDC 可用，会优先用 `--provenance` 走 trusted publishing，再回退到 `NODE_AUTH_TOKEN`。如果 tag 重发前某个 package 已经部分发布成功，重新跑同一个 release 不会因为该 package 已存在而中断。
+  - First confirm whether the target package's old version is still visible on the registry: `npm view <package> versions --json`.
+  - The current publish script skips a package version that already exists before publishing, and does a short retry on publish failure; if GitHub Actions OIDC is available, it prefers `--provenance` trusted publishing, then falls back to `NODE_AUTH_TOKEN`. If a package was already partially published successfully before a tag re-push, re-running the same release will not abort just because that package already exists.
 - `npm error need auth ... You need to authorize this machine using npm adduser`
-  - 如果日志显示已经选择 `GitHub Actions OIDC trusted publishing`，优先检查 CI 里的 npm CLI 版本；trusted publishing 需要 npm `11.5.1+`，当前 release workflow 的 npm package job 使用 Node `24` 并显式检查 npm 版本。
-  - 如果 npm CLI 版本满足要求仍报这个错误，说明 npmjs.com 包侧还没有把当前 GitHub repo / workflow 文件配置成 trusted publisher。
-- 构建阶段失败
-  - 优先看 `Build npm release artifacts`、`Build Cursor Motion DMG` 或 Swift 编译错误。
-- GitHub Release 资产上传失败
-  - 优先看 `Publish Cursor Motion DMG to GitHub Releases`，确认 tag 是否存在、`GH_TOKEN` 权限是否正常，以及生成的 `CursorMotion-<version>.dmg` 路径是否匹配。
-- publish 认证失败
-  - 再去看 `.github/workflows/release.yml`、`scripts/npm/publish-packages.mjs` 和 npm trusted publishing / token fallback 配置。
+  - If the log shows `GitHub Actions OIDC trusted publishing` was selected, check the npm CLI version in CI first; trusted publishing needs npm `11.5.1+`; the current release workflow's npm package job uses Node `24` and explicitly checks the npm version.
+  - If the npm CLI version satisfies the requirement and this error still appears, it means the npmjs.com package side has not yet configured this GitHub repo / workflow file as a trusted publisher.
+- Build-stage failure
+  - Check `Build npm release artifacts`, `Build Cursor Motion DMG`, or Swift compilation errors first.
+- GitHub Release asset upload failure
+  - Check `Publish Cursor Motion DMG to GitHub Releases` first, confirm the tag exists, `GH_TOKEN` permissions are correct, and the generated `CursorMotion-<version>.dmg` path matches.
+- Publish authentication failure
+  - Check `.github/workflows/release.yml`, `scripts/npm/publish-packages.mjs`, and the npm trusted publishing / token fallback configuration.
 
-## 当前已知边界
+## Current known boundaries
 
-- `Open Computer Use` 的 npm release 产物在没有配置 `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` 等 secrets 时，仍会退回 ad-hoc signing；配置后会先导入 `Developer ID Application` 证书，再按该 identity 统一签名。
-- `Cursor Motion` 当前 release 资产会优先复用 `OPEN_COMPUTER_USE_CODESIGN_*` 对 app 做 `Developer ID Application` 签名；如果同时配置 `APPLE_NOTARY_API_KEY_P8_BASE64`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`、`APPLE_DEVELOPER_TEAM_ID`，workflow 会继续对 `.dmg` 执行 notarization 和 staple。
-- 如果上述 secrets 缺失，workflow 会分别退回 ad-hoc signing 或跳过 notarization，而不是阻塞整条 release。
-- `open-computer-use` npm root 包会内置六个 `os-arch` native artifacts，包体积会比 macOS-only 版本更大；release 前要确认 staging 包里包含 `dist/Open Computer Use.app`、`dist/linux/` 和 `dist/windows/`，并确认 launcher 没有声明 `optionalDependencies`。
+- `Open Computer Use` npm release artifacts still fall back to ad-hoc signing when `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` and related secrets are not configured; when configured, the workflow imports the `Developer ID Application` certificate first, then signs uniformly with that identity, and (with notary secrets also configured) notarizes and staples the app bundle.
+- `Cursor Motion`'s current release asset reuses `OPEN_COMPUTER_USE_CODESIGN_*` to sign the app with `Developer ID Application` first; if `APPLE_NOTARY_API_KEY_P8_BASE64`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_DEVELOPER_TEAM_ID` are also configured, the workflow proceeds to notarize and staple the `.dmg`.
+- If the secrets above are missing, the workflow falls back to ad-hoc signing or skips notarization respectively, rather than blocking the whole release.
+- The `open-computer-use` npm root package bundles six `os-arch` native artifacts, so the package size is larger than a macOS-only build; before releasing, confirm the staging package includes `dist/Open Computer Use.app`, `dist/linux/`, and `dist/windows/`, and confirm the launcher does not declare `optionalDependencies`.
 
-## 如果 tag 已经打错了
+## If the tag was already pushed wrong
 
-如果远端 tag 已经指向错误 commit，先删 tag，再修版本源，再重打。
+If the remote tag already points at the wrong commit, delete the tag first, fix the version sources, then re-tag.
 
-本地删 tag：
+Delete locally:
 
 ```bash
 git tag -d v0.1.14
 ```
 
-远端删 tag：
+Delete on the remote:
 
 ```bash
 git push origin :refs/tags/v0.1.14
 ```
 
-修好后再重新创建并推送同名 tag。
+Once fixed, recreate and push the same-named tag.
 
-## 文档同步要求
+## Documentation sync requirements
 
-每次 release 都至少同步这三类文档：
+Every release must sync at least these three kinds of documents:
 
 - `docs/releases/feature-release-notes.md`
 - `docs/releases/github/vX.Y.Z.md`
-- `docs/histories/` 对应 release history
-- 如果 release 流程本身有变化，这份 `docs/releases/RELEASE_GUIDE.md`
+- the matching release history under `docs/histories/`
+- this `docs/releases/RELEASE_GUIDE.md`, if the release process itself changed
 
-如果一次 release 暴露出新的流程坑，就不要只在聊天里记住，直接补进这份文档。
+If a release surfaces a new process pitfall, do not just remember it in chat; add it to this document directly.
