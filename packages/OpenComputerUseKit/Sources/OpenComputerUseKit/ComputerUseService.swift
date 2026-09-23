@@ -471,6 +471,46 @@ public final class ComputerUseService {
         )
     }
 
+    /// Read-only advice from the local decision model. The endpoint and goal are validated before any AX read or
+    /// network call; the snapshot goes through `refreshSnapshot`, so the returned element_index is resolvable later.
+    public func decideNextAction(
+        app query: String,
+        goal: String,
+        environment: [String: String],
+        transport: DecisionModelTransport = URLSessionDecisionModelTransport()
+    ) throws -> ToolCallResult {
+        let endpoint: DecisionModelEndpoint
+        do {
+            guard let configured = try DecisionModelEndpoint.fromEnvironment(environment) else {
+                throw ComputerUseError.stateUnavailable(DecisionAdvisorError.disabled.errorDescription!)
+            }
+            endpoint = configured
+        } catch let error as DecisionModelError {
+            throw ComputerUseError.invalidArguments("\(DecisionModelEndpoint.environmentKey): \(error.errorDescription!)")
+        }
+        guard !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ComputerUseError.invalidArguments("goal must not be empty")
+        }
+
+        let snapshot = try refreshSnapshot(for: query)
+        let appName = snapshot.app.name
+        let renderedFull = snapshot.renderedText(style: .fullState)
+        let renderedCompact = snapshot.renderedText(style: .compactActionable)
+        let client = DecisionModelClient(endpoint: endpoint, transport: transport)
+        do {
+            let advice = try DecisionAdvisor.runOffMainThread {
+                try DecisionAdvisor.advise(
+                    goal: goal, appName: appName, renderedFull: renderedFull, renderedCompact: renderedCompact, client: client
+                )
+            }
+            return .text(try advice.resultJSON(recommendedMinMargin: DecisionAdvisor.recommendedMinMargin))
+        } catch let error as DecisionAdvisorError {
+            throw ComputerUseError.message("decide_next_action: \(error.errorDescription!)")
+        } catch let error as DecisionModelError {
+            throw ComputerUseError.message("decide_next_action: \(error.errorDescription!)")
+        }
+    }
+
     public func click(
         app query: String,
         elementIndex: String?,

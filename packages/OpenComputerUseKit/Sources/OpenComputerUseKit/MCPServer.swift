@@ -1,6 +1,6 @@
 import Foundation
 
-let computerUseServerInstructions = """
+let baseComputerUseServerInstructions = """
 Computer Use tools let you interact with macOS apps by performing UI actions.
 
 Some apps might have a separate dedicated plugin or skill. You may want to use that plugin or skill instead of Computer Use when it seems like a good fit for the task. While the separate plugin or skill may not expose every feature in the app, if the plugin can perform the task with its available features, prefer it. If the needed capability is not exposed there, use Computer Use may be appropriate for the missing interaction.
@@ -17,11 +17,29 @@ Avoid falling back to AppleScript during a computer use session. Prefer Computer
 Ask the user before taking destructive or externally visible actions such as sending, deleting, or purchasing. If helpful, you can ask follow-up questions before taking action to make sure you’re understanding the user’s request correctly.
 """
 
+/// The base instructions under their original name, for existing callers that compare against the unmodified text.
+let computerUseServerInstructions = baseComputerUseServerInstructions
+
+/// The base instructions byte-for-byte when the advisory tool is not listed; otherwise the base plus the cascade
+/// guide, so the host only ever sees guidance for a tool it can actually call.
+func computerUseServerInstructions(environment: [String: String]) -> String {
+    guard ToolDefinitions.listed(environment: environment).count > ToolDefinitions.all.count else {
+        return baseComputerUseServerInstructions
+    }
+    return baseComputerUseServerInstructions + "\n\n" + DecisionAdvisor.cascadeGuide
+}
+
 public final class StdioMCPServer {
     private let dispatcher: ComputerUseToolDispatcher
+    /// Read per request: in the app agent each MCP line runs under the calling host's environment overrides.
+    private let environment: @Sendable () -> [String: String]
 
-    public init(service: ComputerUseService = ComputerUseService()) {
-        self.dispatcher = ComputerUseToolDispatcher(service: service)
+    public init(
+        service: ComputerUseService = ComputerUseService(),
+        environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
+    ) {
+        self.environment = environment
+        self.dispatcher = ComputerUseToolDispatcher(service: service, environment: environment)
     }
 
     public func run() throws {
@@ -61,7 +79,7 @@ public final class StdioMCPServer {
                                 "listChanged": false,
                             ],
                         ],
-                        "instructions": computerUseServerInstructions,
+                        "instructions": computerUseServerInstructions(environment: environment()),
                     ]
                 )
             case "notifications/initialized":
@@ -80,7 +98,7 @@ public final class StdioMCPServer {
                 return try encodeJSONRPCResult(
                     id: id,
                     result: [
-                        "tools": ToolDefinitions.all.map(\.asDictionary),
+                        "tools": ToolDefinitions.listed(environment: environment()).map(\.asDictionary),
                     ]
                 )
             case "tools/call":

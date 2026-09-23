@@ -32,6 +32,10 @@ let package = Package(
             name: "StandaloneCursor",
             targets: ["StandaloneCursor"]
         ),
+        .executable(
+            name: "DecisionModelEval",
+            targets: ["DecisionModelEval"]
+        ),
     ],
     targets: [
         .target(
@@ -65,6 +69,11 @@ let package = Package(
             name: "StandaloneCursor",
             dependencies: ["StandaloneCursorSupport"],
             path: "experiments/StandaloneCursor/Sources/StandaloneCursor"
+        ),
+        .executableTarget(
+            name: "DecisionModelEval",
+            dependencies: ["OpenComputerUseKit"],
+            path: "experiments/DecisionModelEval/Sources/DecisionModelEval"
         ),
         .testTarget(
             name: "OpenComputerUseKitTests",

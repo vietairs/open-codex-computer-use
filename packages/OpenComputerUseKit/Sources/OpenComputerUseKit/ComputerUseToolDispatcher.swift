@@ -39,10 +39,16 @@ private func normalizedElementIndexNumber(_ value: Double) -> String? {
 public final class ComputerUseToolDispatcher {
     private let service: ComputerUseService
     private let macSessionGuard: MacSessionGuard
+    private let environment: @Sendable () -> [String: String]
 
-    public init(service: ComputerUseService = ComputerUseService(), guard macSessionGuard: MacSessionGuard = MacSessionGuard()) {
+    public init(
+        service: ComputerUseService = ComputerUseService(),
+        guard macSessionGuard: MacSessionGuard = MacSessionGuard(),
+        environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
+    ) {
         self.service = service
         self.macSessionGuard = macSessionGuard
+        self.environment = environment
     }
 
     public func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
@@ -60,6 +66,12 @@ public final class ComputerUseToolDispatcher {
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
                 ),
                 compact: try optionalBool("compact", in: arguments) ?? false
+            )
+        case "decide_next_action":
+            return try service.decideNextAction(
+                app: requireString("app", in: arguments),
+                goal: requireString("goal", in: arguments),
+                environment: environment()
             )
         case "click":
             return try service.click(
