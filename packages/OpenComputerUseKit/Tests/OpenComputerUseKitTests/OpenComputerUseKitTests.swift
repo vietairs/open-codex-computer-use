@@ -605,7 +605,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testInitializeResponseContainsToolsCapability() throws {
-        let server = StdioMCPServer(service: ComputerUseService())
+        let server = StdioMCPServer(service: ComputerUseService(), environment: { [:] })
         let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.3.5"},"capabilities":{}}}"#)
         XCTAssertNotNil(response)
         XCTAssertTrue(response!.contains(#""name":"open-computer-use""#))
@@ -613,7 +613,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testInitializeResponseContainsComputerUseInstructions() throws {
-        let server = StdioMCPServer(service: ComputerUseService())
+        let server = StdioMCPServer(service: ComputerUseService(), environment: { [:] })
         let response = try XCTUnwrap(
             server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.3.5"},"capabilities":{}}}"#)
         )
@@ -626,7 +626,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testMCPAcceptsTurnEndedNotificationWithoutResponse() {
-        let server = StdioMCPServer(service: ComputerUseService())
+        let server = StdioMCPServer(service: ComputerUseService(), environment: { [:] })
         let response = server.handle(line: #"{"jsonrpc":"2.0","method":"notifications/turn-ended","params":{"type":"agent-turn-complete"}}"#)
 
         XCTAssertNil(response)
@@ -3150,7 +3150,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testMCPServerStillHandlesInitializeWhenLocked() {
         // initialize/ping/tools/list all bypass the dispatcher, so lock state is irrelevant
-        let server = StdioMCPServer(service: ComputerUseService())
+        let server = StdioMCPServer(service: ComputerUseService(), environment: { [:] })
         let initResponse = server.handle(
             line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.0"},"capabilities":{}}}"#
         )
