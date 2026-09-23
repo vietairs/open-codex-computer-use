@@ -111,7 +111,15 @@ Status stays `active/`: the P3 step-count gate is still open, so this plan is no
 | p50 latency | < 1500 ms | 509 ms | PASS |
 
 p95 latency on test: 913 ms. Both latency figures are an optimistic bound: the gate is specified for a 16 GB
-M-series machine, and this was measured on an Apple M4 Max with 48 GB.
+M-series machine, and this was measured on an Apple M4 Max with 48 GB. They are also the advisor's `latency_ms` only
+(candidate pruning plus the model round trip): the accessibility refresh and rendering that the live call performs
+first, and the MCP and app-agent hops, are not included, so a live call takes longer.
+
+The 79 test items come from only 7 screens (16 screens for dev), because the split is by snapshot. Items from one
+screen are correlated, so the passing test AUROC and the test precision at τ are weaker evidence than 79 independent
+items would be. τ was selected on dev only. The pruning tuning rounds (0 and 1) were compared on their dev metrics,
+but they ran over every split, so their reports also printed test aggregates; `eval-run.mjs` now runs tuning rounds
+over `--split dev` only.
 
 `recommended_min_margin` (τ) is **0.72**: the smallest dev margin with precision ≥ 0.90 and coverage ≥ 0.10 (selected
 0.7117, rounded up to 2 decimals). At τ = 0.72, dev precision is 0.90 with 0.1714 coverage, and test precision is
@@ -159,7 +167,9 @@ or stage-2 paging (K11, cut for v1). Both are outside this phase.
   early.
 - 2026-09-22: model weights are downloaded on first use and pinned by SHA-256, never bundled into the npm package,
   and gated behind hardware detection. This preserves local-inference-only as a core property, at the cost of a
-  slower first run.
+  slower first run. **2026-09-23: superseded in part.** Weights are fetched only by an explicit
+  `scripts/decision-model/fetch-model.sh` run, never on first use, and there is no hardware gate; the docs only
+  recommend about 16 GB of unified memory. The SHA-256 pin and the no-weights-in-npm rule stand.
 - 2026-09-22: land this only in the vietairs fork; do not propose it upstream to iFurySt.
 - 2026-09-22: the current pain point is judged to be split evenly between cost/latency and reliability. That makes
   P1's margin-separability gate load-bearing: if the margin cannot separate right from wrong, the classifier only
@@ -183,3 +193,17 @@ or stage-2 paging (K11, cut for v1). Both are outside this phase.
   real-app captures stay under the gitignored `artifacts/decision-eval/`.
 - 2026-09-23: Linux and Windows runtimes remain a non-goal for this tool; `Package.swift` declares macOS only, and
   the Go runtimes are unaffected.
+- 2026-09-23 (review fixes): the client accepts only `http://127.0.0.1:<port>`. `[::1]` is refused because the
+  sidecar binds IPv4 only, so the IPv6 loopback port is free for any same-uid process to take.
+- 2026-09-23 (review fixes): before each request, the agent verifies that the listener on `127.0.0.1:<port>` is the
+  sidecar recorded by `start-sidecar.sh`: the recorded pid runs the recorded `llama-server` binary and holds that
+  listening socket (`DecisionSidecarVerifier.swift`). The sidecar has no authentication, so without this check a
+  process that holds the port while the sidecar is down, including a sandboxed app without Accessibility access, would
+  receive the goal and candidate rows. A shared bearer key was considered and rejected: the client would still send
+  the key and the body to such a squatter.
+- 2026-09-23 (review fixes): the pid file records pid, port, start time, resolved binary, and model key.
+  `stop-sidecar.sh` signals only that pid, and only while its start time and kernel-reported executable still match;
+  `start-sidecar.sh` keeps one sidecar per user and re-runs `check-readout.mjs` before reusing a running one.
+- 2026-09-23 (review fixes): in the shared app agent, `decide_next_action`, `tools/list`, and `initialize` read the
+  decision-model URL from the calling host's per-call environment only, and `decide_next_action` runs outside the
+  agent's process-wide environment-override lock, so its network wait no longer blocks other hosts' calls.

@@ -54,3 +54,24 @@ operation/target, pruned targets) are documented so hosts know when not to trust
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseToolDispatcher.swift`
 - `scripts/decision-model/` (model manifest, sidecar scripts, eval dataset/runner/metrics)
 - `experiments/DecisionModelEval/`
+
+### Review fixes (2026-09-23, round 1)
+- **Sidecar identity**: the agent now checks, before each request, that the recorded pid runs the recorded
+  `llama-server` binary and holds the `127.0.0.1:<port>` listening socket (`DecisionSidecarVerifier.swift`), so a
+  process that squats the unauthenticated port never receives goal or screen text. The client accepts only
+  `127.0.0.1` (no `[::1]`), and readout errors no longer quote server-generated tokens.
+- **Per-host environment**: in the shared app agent, the decision-model URL comes from the calling host's per-call
+  environment only, and `decide_next_action` runs outside the process-wide environment-override lock
+  (`MCPServer.swift`, `ComputerUseToolDispatcher.swift`, `MacOSAppAgentProxy.swift`). The main-thread hop in
+  `DecisionAdvisor.runOffMainThread` now has a bounded wait.
+- **Sidecar scripts**: a shared `sidecar-pid-lib.sh` records pid, port, start time, resolved binary, and model;
+  `stop-sidecar.sh` signals only a pid whose start time and kernel-reported executable still match;
+  `start-sidecar.sh` keeps one sidecar per user and re-runs `check-readout.mjs` before reuse. `check-readout.mjs` no
+  longer lets the operation head stand in for a split target head.
+- **Eval honesty**: tuning rounds run over `--split dev` only; `summary.json` records screens per split and notes
+  that test metrics come from 7 screens, that latency excludes the accessibility refresh, and that the earlier
+  tuning rounds also printed test aggregates. The existing Kit tests no longer depend on the developer's shell
+  environment.
+- **Files**: the Kit sources and tests above plus `DecisionSidecarVerifierTests.swift`;
+  `scripts/decision-model/{start-sidecar.sh,stop-sidecar.sh,sidecar-pid-lib.sh,check-readout.mjs,eval-run.mjs,eval-metrics.mjs}`
+  and their `*.test.mjs`; `fixtures/readout-pin.json`; `eval-data/summary.json`; the exec plan and skill reference.
