@@ -43,18 +43,12 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 
 ## Quick Start
 
-> [!IMPORTANT]
-> `@vietairs/open-computer-use` **尚未发布到 npm**，因此下面的命令在首个 scoped
-> 版本发布之前会失败。在此之前请从源码构建：克隆本仓库后运行 `make app`（macOS），
-> 或对应的 `scripts/build-open-computer-use-*.sh`（Linux / Windows）。
-
-等该 scoped 包发布之后：
-
 ```bash
 npm i -g @vietairs/open-computer-use
 ```
 
-该包安装后也会同时提供短命令 `ocu`。
+该包安装后也会同时提供短命令 `ocu`。之后如需更新，运行
+`npm i -g @vietairs/open-computer-use@latest`。
 
 > [!IMPORTANT]
 > macOS 运行环境要求 macOS 14.0 或更高版本。
