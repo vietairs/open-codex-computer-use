@@ -1,10 +1,10 @@
-# 产品规格索引
+# Product Spec Index
 
-这个目录用于记录面向用户行为的功能定义和工作流说明。
+This directory records feature definitions and workflow descriptions for user-facing behavior.
 
-建议约定：
+Suggested conventions:
 
-- 一个功能或流程一份 spec。
-- 从用户问题和可见结果写起，不要一上来就写实现。
-- 写清验收标准和外部可观察到的变化。
-- 关联对应的 execution plan、release note 和架构调整。
+- One spec per feature or flow.
+- Start from the user's problem and the visible outcome, not the implementation.
+- Clearly write out the acceptance criteria and externally observable changes.
+- Link to the corresponding execution plan, release note, and architecture changes.

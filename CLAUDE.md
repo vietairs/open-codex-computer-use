@@ -1,1 +1,1 @@
-<system-reminder>必须先阅读 AGENTS.md。</system-reminder>
+<system-reminder>You must read AGENTS.md first.</system-reminder>

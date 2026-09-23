@@ -1,28 +1,28 @@
 # Cursor Motion RE Scripts
 
-这个目录承载和官方 `Codex Computer Use.app` cursor motion 逆向相关的独立脚本，不依赖 `CursorMotion`，也不接入主运行时。
+This directory holds standalone scripts related to reverse-engineering the official `Codex Computer Use.app` cursor motion. It doesn't depend on `CursorMotion`, and isn't wired into the main runtime.
 
-当前脚本优先做两件事：
+The current scripts focus on two things:
 
-- 从官方 bundled `SkyComputerUseService` 里提取 motion 相关的 Swift 类型、字段和常量。
-- 基于已经从二进制直接确认的 `CursorMotionPath.sample(progress)`、`CursorMotionPathMeasurement`、`CursorMotionPath/Segment` 布局、`0x10005fd98` 候选几何，以及已经坐实的 `SpringAnimation -> VelocityVerletSimulation` timing 证据，输出一版 binary-lifted 的候选路径和分析结果。
+- Extracting motion-related Swift types, fields, and constants from the officially bundled `SkyComputerUseService`.
+- Based on the already binary-confirmed `CursorMotionPath.sample(progress)`, `CursorMotionPathMeasurement`, the `CursorMotionPath`/`Segment` layout, the `0x10005fd98` candidate geometry, and the already-established `SpringAnimation -> VelocityVerletSimulation` timing evidence, outputting a version of binary-lifted candidate paths and analysis results.
 
-## 文件
+## Files
 
 - `official_cursor_motion.py`
-  - 逆向辅助模块，包含最小 Mach-O section 解析、Swift field metadata 恢复、常量表读取，以及独立的 path / measurement / candidate demo 实现。
+  - The reverse-engineering helper module, containing minimal Mach-O section parsing, Swift field-metadata recovery, constant-table reading, and a standalone path / measurement / candidate demo implementation.
 - `reconstruct_cursor_motion.py`
-  - CLI 入口。
+  - The CLI entry point.
 
-## 用法
+## Usage
 
-查看官方 binary 中恢复出的 motion 类型、字段、常量与候选系数表：
+View the motion types, fields, constants, and candidate coefficient tables recovered from the official binary:
 
 ```bash
 python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py inspect
 ```
 
-对给定起终点生成候选路径，并输出 JSON：
+Generate candidate paths for a given start/end point and output JSON:
 
 ```bash
 python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py demo \
@@ -33,9 +33,9 @@ python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py demo \
   --pretty
 ```
 
-不带 `--bounds` 时，`stays_in_bounds` 会退化为 `true`，只计算几何量。
+Without `--bounds`, `stays_in_bounds` degrades to `true`, and only the geometric quantities are computed.
 
-如需把所有候选的完整 path 和 sample 一次性打出来，再加：
+To dump the full path and samples for every candidate at once, add:
 
 ```bash
 python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py demo \
@@ -47,7 +47,7 @@ python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py demo \
   --pretty
 ```
 
-分析视频里那 5 个 slider 在 shipping bundle 中是否还有直接证据，并输出它们和当前 binary-confirmed 几何 / spring 量的敏感性分析：
+Analyze whether the 5 sliders seen in the video still have direct evidence in the shipping bundle, and output a sensitivity analysis of them against the currently binary-confirmed geometry / spring quantities:
 
 ```bash
 python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py slider-study \
@@ -57,24 +57,24 @@ python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py slider-study \
   --pretty
 ```
 
-## 输出说明
+## Output Notes
 
-- `inspect`：
-  - 输出从官方 binary 中恢复出的 motion 相关类型和字段。
-  - 输出当前版本 bundled app 中提取出的 data-section 常量、候选系数表，以及从反汇编直接确认的 scoring / layout / piecewise 几何常量。
-  - 额外输出 binary-confirmed 的 timing 证据：`CloseEnoughConfiguration` / `CursorNextInteractionTiming` / `SpringParameters` / `AnimationDescriptor` / `Transaction` / `VelocityVerletSimulation.Configuration` 的字段关系，以及 cursor path animation 的 `response=1.4`、`dampingFraction=0.9`、`dt=1/240`、`idleVelocityThreshold=28800`。
-  - `VelocityVerlet` 的 `stiffness` / `drag` 公式和单步 `VelocityVerlet` 更新顺序现在已经按二进制直译。
-  - 还会附带 `0x1005761bc` / `0x1005934b0` 的 finish predicate 证据块，明确哪些是 confirmed control flow，哪些仍然只是字段命名推断。
-- `demo`：
-  - 默认输出 `candidate_summaries` 和 `chosen_candidate`，避免一次性打印全部候选采样点。
-  - `--include-all-candidates` 会额外输出所有候选的完整控制点、measurement 和采样点。
-  - `sample(progress)` 与 `measure_path()` 是从函数控制流直接 lift 出来的实现。
-  - candidate score、in-bounds 优先策略、`CursorMotionPath/Segment` 布局，以及 `20` 条候选几何都已经按当前 bundled binary 直译。
-  - 时间轴输出会额外标出 `raw_progress_first_ge_target_*`、`first_endpoint_lock_*` 和 `close_enough_first_*`，方便对照 spring progress、可见端点锁定和 close-enough 判定。
-  - 当前仍未完全恢复的是 duration / wall-clock timing、`0x1005934b0` 第二段里几个泛型 buffer 的精确语义命名，以及调用前那层 runtime bounds 自动发现。
-  - `first_endpoint_lock_*` 依赖一个已确认前提：`sample(progress)` 会 clamp 到 `0...1`；但它和 `SpringAnimation` finished optional-return 的最终联动，当前仍按“多段已确认证据拼接出的 inference”标注。
-  - 当前输出的 `speed_units_per_progress` 是几何速度，不是带真实 duration 的时间速度；duration 仍在继续逆向。
-- `slider-study`：
-  - 先扫描 shipping bundle，确认 `START HANDLE` / `END HANDLE` / `ARC SIZE` / `ARC FLOW` 这些完整 phrase 是否还存在。
-  - 再把这 5 个 knob 分别映射到当前已经 binary-confirmed 的 `startControl` / `endControl` / `arc*` / `SpringParameters` 相关量，并输出 baseline 与扰动后的 chosen candidate / best arched candidate / endpoint-lock timing 变化。
-  - 输出里会明确区分“release bundle phrase evidence”和“基于 binary-confirmed 几何做的 slider mapping inference”。
+- `inspect`:
+  - Outputs the motion-related types and fields recovered from the official binary.
+  - Outputs the data-section constants, candidate coefficient tables extracted from the current version of the bundled app, and the scoring / layout / piecewise geometry constants confirmed directly from disassembly.
+  - Additionally outputs binary-confirmed timing evidence: the field relationships of `CloseEnoughConfiguration` / `CursorNextInteractionTiming` / `SpringParameters` / `AnimationDescriptor` / `Transaction` / `VelocityVerletSimulation.Configuration`, as well as the cursor path animation's `response=1.4`, `dampingFraction=0.9`, `dt=1/240`, `idleVelocityThreshold=28800`.
+  - `VelocityVerlet`'s `stiffness` / `drag` formulas and the single-step `VelocityVerlet` update order are now transcribed directly from the binary.
+  - Also includes the `0x1005761bc` / `0x1005934b0` finish-predicate evidence block, making clear which parts are confirmed control flow and which are still just field-naming inference.
+- `demo`:
+  - Outputs `candidate_summaries` and `chosen_candidate` by default, avoiding printing every candidate's full sample points at once.
+  - `--include-all-candidates` additionally outputs the full control points, measurement, and sample points for every candidate.
+  - `sample(progress)` and `measure_path()` are implementations lifted directly from the function control flow.
+  - The candidate score, in-bounds priority strategy, `CursorMotionPath`/`Segment` layout, and the 20 candidate geometries have all been transcribed directly from the currently bundled binary.
+  - The timeline output additionally flags `raw_progress_first_ge_target_*`, `first_endpoint_lock_*`, and `close_enough_first_*`, to help compare spring progress, visible endpoint lock, and the close-enough determination.
+  - What's still not fully recovered is the duration / wall-clock timing, the precise semantic naming of a few generic buffers in the second section of `0x1005934b0`, and the runtime bounds auto-discovery layer that happens before the call.
+  - `first_endpoint_lock_*` depends on one confirmed premise: `sample(progress)` clamps to `0...1`; but its final linkage with `SpringAnimation`'s finished optional-return is still labeled as "inference stitched together from multiple confirmed evidence fragments."
+  - The currently output `speed_units_per_progress` is a geometric speed, not a time-based speed with real duration; duration is still being reverse-engineered.
+- `slider-study`:
+  - First scans the shipping bundle to confirm whether the full phrases `START HANDLE` / `END HANDLE` / `ARC SIZE` / `ARC FLOW` still exist.
+  - Then maps these 5 knobs respectively onto the currently binary-confirmed `startControl` / `endControl` / `arc*` / `SpringParameters`-related quantities, and outputs the baseline and perturbed changes in the chosen candidate / best arched candidate / endpoint-lock timing.
+  - The output clearly distinguishes "release bundle phrase evidence" from "slider-mapping inference based on binary-confirmed geometry."

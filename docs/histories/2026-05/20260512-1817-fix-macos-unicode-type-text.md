@@ -2,22 +2,22 @@
 
 ### Request
 
-排查 OCU 在飞书等输入框里用 `type_text` 输入中文时出现乱序或字符错误的问题；先定位原因，再修复并验证。
+Investigate the issue where using `type_text` with OCU to type Chinese text into input fields in apps like Feishu (飞书) produces out-of-order or garbled characters; locate the cause first, then fix and verify.
 
 ### Changes
 
-- 将 macOS `type_text` 从逐个 UTF-16 code unit 发送键盘事件，改为按 Unicode extended grapheme cluster 聚合成小批量 `keyboardSetUnicodeString` 事件。
-- 为 accessibility snapshot 记录当前 focused element；`type_text` 在 focused element 的 `AXValue` 可设置时，优先追加并写回 `AXValue`，作为 Electron 富文本输入框不可靠接收后台键盘事件时的非前台兜底。
-- `AXValue` 兜底会从可编辑子文本推导已有草稿，并过滤 Feishu 输入框占位提示，避免把 placeholder 一起拼进消息内容。
-- 当前 focused element 不是可编辑文本目标时，`type_text` 现在会明确报错要求先 click 文本输入区或使用 `set_value`，不再把无效果的后台键盘投递当成成功。
-- 新增单元测试覆盖中文全角括号、emoji 代理对、ZWJ 序列、组合字符和 CJK 扩展字符，确保 chunking 后能无损还原且不拆分 grapheme cluster。
-- 同步更新架构文档，记录 `type_text` 的 Unicode 输入边界。
+- Changed macOS `type_text` from sending keyboard events for each UTF-16 code unit one at a time, to aggregating Unicode extended grapheme clusters into small batched `keyboardSetUnicodeString` events.
+- Added recording of the currently focused element to the accessibility snapshot; when the focused element's `AXValue` is settable, `type_text` now prefers to append to and write back `AXValue`, as a non-foreground fallback for cases where an Electron rich-text input field unreliably receives background keyboard events.
+- The `AXValue` fallback derives the existing draft from the editable child text and filters out Feishu input-field placeholder hints, avoiding the placeholder getting concatenated into the message content.
+- When the currently focused element is not an editable text target, `type_text` now explicitly errors out, requiring the caller to click the text input area first or use `set_value`, instead of treating an ineffective background keyboard delivery as success.
+- Added unit tests covering Chinese full-width parentheses, emoji surrogate pairs, ZWJ sequences, combining characters, and CJK extension characters, to make sure chunking round-trips losslessly and never splits a grapheme cluster.
+- Updated the architecture docs to record the Unicode input boundaries of `type_text`.
 
 ### Motivation
 
-历史会话里 `type_text` 的参数是正确的，但飞书输入框最终出现中文括号方向、顺序和文本残留问题。代码排查显示一部分问题位于 macOS 输入注入层：原实现把文本拆成单个 UTF-16 code unit 逐次发送，复杂 Unicode 文本在 Electron 富文本控件中容易被异步处理成乱序或错误字符。批量发送完整 Unicode 文本块可以减少事件重排。
+In earlier sessions, `type_text`'s arguments were correct, but the Feishu input field would still end up with reversed parenthesis direction, wrong ordering, and leftover text for Chinese input. Code investigation showed part of the problem sits in the macOS input-injection layer: the original implementation split text into individual UTF-16 code units and sent them one at a time, and complex Unicode text was prone to being processed out of order or garbled asynchronously inside Electron rich-text controls. Sending a complete Unicode text chunk as a batch reduces event reordering.
 
-真实飞书验证还发现，聚焦输入框后后台 `CGEvent.postToPid` 键盘事件仍可能不进入 Electron 富文本编辑器，而同一元素的 `set_value` 路径可以稳定写入完整 Unicode。因此 `type_text` 增加 focused settable `AXValue` 兜底，在不抢前台、不使用剪贴板的前提下复用同一条可设置值能力。后续测试还暴露了另一个假阳性：当前 focus 停在 WebArea 时 `type_text` 会返回成功但没有写入内容。现在这类状态会直接报错，要求先用 OCU click 聚焦输入框。
+Real Feishu verification also found that even after focusing the input field, background `CGEvent.postToPid` keyboard events could still fail to reach the Electron rich-text editor, while the `set_value` path on the same element could reliably write the full Unicode text. So `type_text` now adds a fallback to the focused element's settable `AXValue`, reusing the same settable-value capability without stealing focus or using the clipboard. Later testing also exposed another false positive: when focus was sitting on a WebArea, `type_text` would return success without actually writing anything. This state now results in an explicit error, requiring the caller to first use OCU click to focus the input field.
 
 ### Files
 
@@ -31,6 +31,6 @@
 
 - `swift test`
 - `./scripts/run-tool-smoke-tests.sh`
-- 本地 fixture 窗口手工验证：聚焦 `fixture-input` 后用 batched `CGEvent.keyboardSetUnicodeString` 投递 `（ocu发的）👩🏽‍💻é𠀀`，导出的 fixture state 精确显示同一字符串。
-- 使用 dev app 对飞书做真实验证：同一进程里先点击输入框，再执行 `type_text` 输入 `（ocu发的测试）👩🏽‍💻é𠀀`，后续 snapshot 中实际草稿子文本完整包含中文括号、ZWJ emoji、组合音和 CJK 扩展字符；测试后用 `Command+A` / `BackSpace` 清空草稿。
-- 真实发送链路中复测 `type_text`：未聚焦输入框时不再把 WebArea 当成可编辑目标；先用 OCU `click` 聚焦 text entry area 后，`type_text` + `press_key Return` 成功把完整中文测试消息发送到飞书会话。
+- Manual verification in the local fixture window: after focusing `fixture-input`, delivered `（ocu发的）👩🏽‍💻é𠀀` via batched `CGEvent.keyboardSetUnicodeString`, and the exported fixture state showed the exact same string precisely.
+- Real verification against Feishu with the dev app: in the same process, clicked the input field first, then ran `type_text` to type `（ocu发的测试）👩🏽‍💻é𠀀`; the subsequent snapshot's actual draft child text fully contained the Chinese parentheses, ZWJ emoji, combining accents, and CJK extension characters intact; cleared the draft afterward with `Command+A` / `BackSpace`.
+- Re-tested `type_text` over the real delivery path: when the input field wasn't focused, WebArea was no longer treated as an editable target; after first using OCU `click` to focus the text entry area, `type_text` + `press_key Return` successfully sent the full Chinese test message into the Feishu conversation.

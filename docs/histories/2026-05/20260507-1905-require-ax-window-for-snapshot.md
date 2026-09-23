@@ -6,7 +6,7 @@
 * **Runtime**: `macOS local shell`
 
 ### 📥 User Query
-> 对比最新版 open-computer-use 和官方 computer-use 的工具返回，继续修正差异。
+> Compare the latest open-computer-use with the official computer-use tool outputs, and keep fixing the differences.
 
 ### 🛠 Changes Overview
 **Scope:** `packages/OpenComputerUseKit`

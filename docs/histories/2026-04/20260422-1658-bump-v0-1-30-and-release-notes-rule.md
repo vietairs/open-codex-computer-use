@@ -6,18 +6,18 @@
 * **Runtime**: `local macOS shell`
 
 ### User Query
-> bump 一个版本；确认 v0.1.29 的 What's Changed / New Contributors 是否自动生成，并把后续 release notes 规范写进仓库。
+> Bump a version; confirm whether v0.1.29's What's Changed / New Contributors were auto-generated, and write the release-notes convention going forward into the repo.
 
 ### Changes Overview
 **Scope:** release version sources, release guide, feature release notes
 
 **Key Actions:**
-- **[Version bump]**: 将 Open Computer Use 版本源从 `0.1.29` 同步 bump 到 `0.1.30`。
-- **[Release notes rule]**: 在 `RELEASE_GUIDE.md` 里明确 GitHub Release 会用 `--generate-notes` 自动生成 notes；如果自动正文只有 `Full Changelog`，release agent 必须手动补 `What's Changed`。
-- **[User notes]**: 在 `feature-release-notes.md` 记录 `0.1.30` 的 Windows runtime 预览和 release notes 规范。
+- **[Version bump]**: synced the Open Computer Use version source from `0.1.29` up to `0.1.30`.
+- **[Release notes rule]**: clarified in `RELEASE_GUIDE.md` that the GitHub Release uses `--generate-notes` to auto-generate notes; if the auto-generated body only contains `Full Changelog`, the release agent must manually add `What's Changed`.
+- **[User notes]**: recorded `0.1.30`'s Windows runtime preview and the release-notes convention in `feature-release-notes.md`.
 
 ### Design Intent
-`v0.1.29` 出现 `What's Changed` / `New Contributors` 是 GitHub 自动 release notes 对 merged PR 的归类结果；direct commit release 可能只生成 `Full Changelog`。后续 AI 做版本 bump 时必须检查并补齐 release body，避免用户可见 release 页面缺少变更摘要。
+`v0.1.29` having `What's Changed` / `New Contributors` was the result of GitHub's automatic release notes categorizing merged PRs; a direct-commit release may only generate `Full Changelog`. Going forward, AI performing a version bump must check and fill in the release body, to avoid the user-visible release page lacking a change summary.
 
 ### Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

@@ -1,4 +1,4 @@
-## [2026-04-20 16:08] | Task: 收口 Open Computer Use 的跨渠道 app 身份
+## [2026-04-20 16:08] | Task: Converge Open Computer Use's cross-channel app identity
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> `npm i -g open-computer-use && open-computer-use` 拉起的授权，以及仓库里 `./scripts/build-open-computer-use-app.sh debug` / `./dist/Open Computer Use.app/Contents/MacOS/OpenComputerUse` 拉起的授权，被系统识别成两个 app。希望不管从 npm / brew / dmg 等什么渠道安装，identify 都一样，不要再分裂成多个授权对象；另外需要进一步确认 npmjs 上通过 GitHub Actions 打出来的包是否也会影响这个问题。
+> The authorization prompted by `npm i -g open-computer-use && open-computer-use`, and the authorization prompted by `./scripts/build-open-computer-use-app.sh debug` / `./dist/Open Computer Use.app/Contents/MacOS/OpenComputerUse` in the repo, get recognized by the system as two different apps. Regardless of the install channel — npm / brew / dmg / whatever — the identity should be the same; it shouldn't keep splitting into multiple authorization objects. Also need to further confirm whether the package built via GitHub Actions on npmjs is affected by this same issue.
 
 ### 🛠 Changes Overview
 **Scope:** `packages/OpenComputerUseKit`, `scripts/`, `.github/workflows/`, `README`, `docs/`
 
 **Key Actions:**
-- **[Unified Codesign Path]**: 给 `scripts/build-open-computer-use-app.sh` 补上统一的 codesign 入口，支持显式 identity、自动发现本机 Apple signing identity、以及 ad-hoc/skip 降级，并在 ad-hoc 情况下直接提示 TCC 仍可能把不同构建识别成不同 app。
-- **[Channel-Agnostic Bundle Discovery]**: 把权限目标发现从“优先 npm 全局路径”改成“统一发现当前运行副本、`/Applications`、npm、Homebrew 等渠道的同 bundle app，再优先使用稳定安装副本作为权限目标”，减少渠道偏置，同时避免临时运行副本抢在长期授权对象前面。
-- **[CI Release Signing]**: 给 `release.yml` 增加可选的证书导入步骤；当配置 `OPEN_COMPUTER_USE_CODESIGN_*` secrets 时，GitHub Actions 打出来的 npm 包会用统一 codesign identity 封装，避免 npmjs 上的 `.app` 因 ad-hoc/unsigned 而继续分裂 TCC 身份。
-- **[Docs Sync]**: README、架构和 CI/CD 文档统一改成“正式发布渠道靠同一 bundle id + 同一签名身份收口”，不再把 npm 路径写成唯一长期授权对象。
+- **[Unified Codesign Path]**: Added a unified codesign entry point to `scripts/build-open-computer-use-app.sh`, supporting an explicit identity, auto-discovery of a local Apple signing identity, and ad-hoc/skip fallback, with an explicit warning in the ad-hoc case that TCC may still recognize different builds as different apps.
+- **[Channel-Agnostic Bundle Discovery]**: Changed permission-target discovery from "prefer the npm global path" to "uniformly discover the same-bundle app across the currently running copy, `/Applications`, npm, Homebrew, and other channels, then prefer the stable installed copy as the permission target" — reducing channel bias while avoiding a transient running copy taking priority over the long-lived authorized target.
+- **[CI Release Signing]**: Added an optional certificate-import step to `release.yml`; when the `OPEN_COMPUTER_USE_CODESIGN_*` secrets are configured, the npm package built by GitHub Actions is packaged with a unified codesign identity, preventing the `.app` on npmjs from continuing to split TCC identity due to being ad-hoc/unsigned.
+- **[Docs Sync]**: Updated the README, architecture, and CI/CD docs to say that the official release channels converge via the same bundle id + the same signing identity, rather than writing the npm path as the sole long-term authorization target.
 
 ### 🧠 Design Intent (Why)
-macOS 的 TCC 不只看 `CFBundleIdentifier`，还会把 code requirement 一起纳入身份判断。只统一 bundle id 但继续让各个渠道产出 ad-hoc 或未正式签名的 `.app`，权限条目仍会拆开。要真正把 npm / brew / dmg 收成同一个 app，必须让它们共享同一个 bundle identifier 和同一条正式签名链；源码调试态没有这条签名链时，则要明确告诉用户这是降级行为，而不是继续假装“已经是同一个 app”。
+macOS's TCC doesn't look only at `CFBundleIdentifier` — it also factors the code requirement into identity determination. Unifying only the bundle id while each channel keeps producing ad-hoc or unofficially-signed `.app` bundles still leaves the permission entries split. To truly converge npm / brew / dmg into a single app, they must share the same bundle identifier and the same official signing chain; when the source-debug build doesn't have that signing chain, the user needs to be told explicitly that this is a degraded mode, rather than pretending it's "already the same app."
 
 ### 📁 Files Modified
 - `.github/workflows/release.yml`

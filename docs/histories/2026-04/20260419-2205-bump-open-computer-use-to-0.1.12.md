@@ -1,4 +1,4 @@
-## [2026-04-19 22:05] | Task: 发布 0.1.12
+## [2026-04-19 22:05] | Task: Release 0.1.12
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 0.1.12的tag我在github上删了，你本地删一下，修复好后再重打
+> I deleted the 0.1.12 tag on GitHub; delete it locally too, and re-tag once it's fixed.
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Tag Cleanup]**: 删除本地 `v0.1.12` tag，避免在修正版本源之前继续沿用一份已经指向错误 npm 产物版本的 tag。
-- **[Version Bump]**: 把插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、单测里的 client version 和文档示例统一提升到 `0.1.12`。
-- **[Release Notes]**: 更新功能发布记录，把权限浮窗动效/回位修复和这次 release workflow 的版本收口一起记到 `0.1.12`。
-- **[Publish Validation]**: 本地重跑 `swift test` 和 npm staging 构建，确认生成包的版本已经从 `0.1.11` 变成 `0.1.12`，不再触发 npm “不能覆盖已发布版本”的 403。
+- **[Tag Cleanup]**: Deleted the local `v0.1.12` tag to avoid continuing to use a tag that still pointed at the wrong npm artifact version before the version source was fixed.
+- **[Version Bump]**: Unified the plugin manifest, Swift/Go version constants, smoke suite init version, the client version used in unit tests, and doc examples, bumping them all to `0.1.12`.
+- **[Release Notes]**: Updated the feature release record, logging the permission overlay animation/repositioning fix together with this release workflow's version reconciliation under `0.1.12`.
+- **[Publish Validation]**: Re-ran `swift test` and the npm staging build locally, confirming the generated package version changed from `0.1.11` to `0.1.12` and no longer triggers npm's "cannot overwrite a published version" 403.
 
 ### 🧠 Design Intent (Why)
-这次不是功能性新开发，而是修 release 工具链的版本一致性。tag 已经走到 `v0.1.12`，但 npm staging 产物仍然从插件 manifest 里读取 `0.1.11`，导致 CI 尝试重发旧版本直接失败。把“发布源版本”和所有对外暴露的版本字符串重新收口后，tag、运行时、smoke/test 和 npm 产物才会重新一致。
+This wasn't new feature development, but a fix for version consistency in the release toolchain. The tag had already moved to `v0.1.12`, but the npm staging artifact was still reading `0.1.11` from the plugin manifest, causing CI to fail outright when trying to re-publish the old version. After reconciling the "release source version" with every externally exposed version string, the tag, runtime, smoke/test, and npm artifacts became consistent again.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

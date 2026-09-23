@@ -1,43 +1,43 @@
-# <执行计划标题>
+# <Execution Plan Title>
 
-## 目标
+## Goal
 
-用一段话说明最终想达到的状态。
+State in one paragraph the final state you want to reach.
 
-## 范围
+## Scope
 
-- 包含：
-- 不包含：
+- In scope:
+- Out of scope:
 
-## 背景
+## Background
 
-- 相关文档：
-- 相关代码路径：
-- 已知约束：
+- Related docs:
+- Related code paths:
+- Known constraints:
 
-## 风险
+## Risks
 
-- 风险：
-- 缓解方式：
+- Risk:
+- Mitigation:
 
-## 里程碑
+## Milestones
 
-1. 调研与方案收敛。
-2. 分阶段实现。
-3. 验证、交付与收尾。
+1. Research and converge on an approach.
+2. Implement in phases.
+3. Verify, deliver, and wrap up.
 
-## 验证方式
+## Verification
 
-- 命令：
-- 手工检查：
-- 观测检查：
+- Commands:
+- Manual checks:
+- Observational checks:
 
-## 进度记录
+## Progress Log
 
-- [ ] 示例：确认范围和约束。
-- [ ] 示例：完成第一个实现切片。
-- [ ] 示例：完成验证并记录结果。
+- [ ] Example: confirm scope and constraints.
+- [ ] Example: complete the first implementation slice.
+- [ ] Example: complete verification and record the results.
 
-## 决策记录
+## Decision Log
 
-- YYYY-MM-DD：做了什么决定，为什么这么做，会带来什么影响。
+- YYYY-MM-DD: what decision was made, why, and what impact it has.

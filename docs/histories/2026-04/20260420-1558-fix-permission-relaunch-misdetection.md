@@ -1,4 +1,4 @@
-## [2026-04-20 15:58] | Task: 修复权限授权后重开 app 仍误弹 onboarding
+## [2026-04-20 15:58] | Task: Fix onboarding incorrectly popping again on app reopen after permissions were already granted
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> allow 授权都完成后，重新打开 app 还会弹出两个都要 `Allow` 的授权窗口；但关掉窗口后再跑 `open-computer-use` 或 `open-computer-use doctor` 又显示两个权限都已经 granted。这个回归是后来引入的，需要修掉。
+> After finishing all the `Allow` grants, reopening the app still pops two windows both asking for `Allow` again; but after closing the windows, running `open-computer-use` or `open-computer-use doctor` shows both permissions as already granted. This is a regression introduced later and needs to be fixed.
 
 ### 🛠 Changes Overview
 **Scope:** `packages/OpenComputerUseKit`, `docs/histories`
 
 **Key Actions:**
-- **[Stable Permission Target]**: 把权限目标 bundle 的选择逻辑改成真正优先 npm 全局安装后的稳定 `.app`，不再让当前运行的临时/源码 app copy 抢在前面。
-- **[Permission Client Ordering]**: 重新整理 TCC 查询候选，先认稳定 bundle identifier，再认稳定 app 路径，最后再兼容当前运行中的 app 路径，减少开发态路径误导授权状态。
-- **[Grant Aggregation Fix]**: TCC 查询不再被第一条命中的 `false` 提前短路；现在会遍历所有候选，只要任一匹配记录已 `granted` 就视为已授权，避免旧路径记录把真实授权盖掉。
-- **[Regression Tests]**: 新增单测覆盖“源码/临时 app 重开时仍应沿用稳定安装身份”和“多条候选里任一 granted 即视为 granted”这两个回归点。
+- **[Stable Permission Target]**: changed the permission-target bundle selection logic to genuinely prefer the stable `.app` installed globally via npm, instead of letting the currently running temporary/source app copy take priority.
+- **[Permission Client Ordering]**: reorganized the TCC query candidates to check the stable bundle identifier first, then the stable app path, and finally fall back to the currently running app path, reducing misleading permission state from dev-mode paths.
+- **[Grant Aggregation Fix]**: TCC queries no longer short-circuit on the first `false` match; now all candidates are iterated, and as long as any matching record is `granted`, it's treated as granted, preventing a stale-path record from masking the true grant.
+- **[Regression Tests]**: added unit tests covering both regression points — "reopening a source/temporary app copy should still follow the stable-install identity" and "any granted match among multiple candidates counts as granted."
 
 ### 🧠 Design Intent (Why)
-这次回归的根因不是权限真的丢了，而是权限状态读取在 app 重开时又回到了“当前运行 copy 的路径优先 + 第一条命中即返回”的旧行为，导致某些临时路径或旧记录把真正稳定的授权身份遮住。修复目标是让 app mode、`open-computer-use` 和 `doctor` 对同一份稳定授权身份给出一致结论，不再出现“窗口说缺权限，CLI 说已授权”的分叉。
+The root cause of this regression wasn't that permissions were actually lost, but that permission-state reading, on app reopen, had reverted to the old behavior of "the currently running copy's path takes priority + first match returned wins," which let certain temporary paths or stale records mask the truly stable grant identity. The fix aims to make app mode, `open-computer-use`, and `doctor` reach a consistent conclusion for the same stable authorization identity, so there's no longer a split where "the window says permission is missing, the CLI says it's granted."
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/Permissions.swift`

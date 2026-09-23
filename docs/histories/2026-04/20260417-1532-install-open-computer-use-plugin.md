@@ -1,4 +1,4 @@
-## [2026-04-17 15:32] | Task: 安装 open-computer-use Codex 插件
+## [2026-04-17 15:32] | Task: Install the open-computer-use Codex plugin
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,25 +6,25 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 把我们的 open-codex-computer-use 安装到 codex app 的 plugin 里，plugin 名叫 open-computer-use。
+> Install our open-codex-computer-use into the Codex app's plugins, with the plugin named open-computer-use.
 
 ### 🛠 Changes Overview
 **Scope:** `plugins/open-computer-use`, `scripts/`, `README.md`, `.agents/plugins/`
 
 **Key Actions:**
-- **[Plugin Packaging]**: 在仓库内新增 repo-local Codex marketplace 和 `open-computer-use` 插件 manifest、MCP wrapper 与展示资源。
-- **[Local Install Flow]**: 新增 `scripts/install-codex-plugin.sh`，用于构建 app、注册本仓库为本机 Codex marketplace、把插件缓存包安装到 `~/.codex/plugins/cache/...`，并启用插件。
-- **[Docs Sync]**: 在 README 补充插件安装入口和行为说明，避免插件接入方式只存在聊天上下文里。
+- **[Plugin Packaging]**: Added a repo-local Codex marketplace and the `open-computer-use` plugin manifest, MCP wrapper, and display assets to the repo.
+- **[Local Install Flow]**: Added `scripts/install-codex-plugin.sh`, which builds the app, registers this repo as a local Codex marketplace, installs the plugin cache package into `~/.codex/plugins/cache/...`, and enables the plugin.
+- **[Docs Sync]**: Added the plugin install entry point and behavior notes to the README, so the plugin integration approach doesn't live only in chat context.
 
 ### 🧠 Design Intent (Why)
-把插件定义版本化落在仓库里，比只手工改 `~/.codex/config.toml` 更可追溯，也更符合这个仓库“Agent-first、知识落盘”的约束。安装脚本顺手清理旧的直连 MCP 配置，是为了避免同一套 computer-use tools 被重复注册。
+Keeping the plugin definition version-controlled in the repo is more traceable than only hand-editing `~/.codex/config.toml`, and better fits this repo's "Agent-first, knowledge on disk" constraint. The install script also cleans up old direct-connect MCP config along the way, to avoid the same set of computer-use tools being registered twice.
 
 ### 🔁 Follow-up Fix (2026-04-17 15:38)
-- 补齐真实安装缺口：Codex Desktop 实际从 `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/` 加载插件，单纯写 `config.toml` 不会让插件出现在 UI 里。
-- 更新 launcher，使其同时支持：
-  - 从源码仓库里的 `dist/OpenCodexComputerUse.app` 直接运行
-  - 从 Codex 插件缓存目录里的 `OpenCodexComputerUse.app` 运行
-- README 同步改成当前真实行为，避免“重启后就会出现”的说明继续误导后续安装。
+- Filled a real install gap: Codex Desktop actually loads plugins from `~/.codex/plugins/cache/<marketplace>/<plugin>/<version>/` — simply writing `config.toml` doesn't make the plugin show up in the UI.
+- Updated the launcher so it supports both:
+  - Running directly from `dist/OpenCodexComputerUse.app` in the source repo
+  - Running from `OpenCodexComputerUse.app` inside the Codex plugin cache directory
+- Synced the README to match current real behavior, so the "it'll appear after a restart" note stops misleading future installs.
 
 ### 📁 Files Modified
 - `.agents/plugins/marketplace.json`

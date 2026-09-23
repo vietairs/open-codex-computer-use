@@ -1,76 +1,76 @@
 # Open Source Computer Use Reverse Engineering
 
-## 目标
+## Goal
 
-为 `open-codex-computer-use` 沉淀一套可追溯的逆向分析资料，先把 `SkyComputerUseClient`、`Codex Computer Use.app`、两者之间的宿主依赖与运行时边界分析清楚，再据此设计一版可开源实现。
+Build a traceable set of reverse-engineering material for `open-codex-computer-use`, first clearly analyzing `SkyComputerUseClient`, `Codex Computer Use.app`, and the host dependency and runtime boundaries between the two, then use that to design an open-source implementation.
 
-## 范围
+## Scope
 
-- 包含：
-  - 分析闭源 `Codex Computer Use.app` bundle 结构、标识、权限与运行时行为。
-  - 分析 `SkyComputerUseClient` 的入口、MCP 暴露方式、宿主依赖与失败模式。
-  - 把结论持续沉淀到仓库 `docs/` 下的独立目录。
-- 不包含：
-  - 当前阶段不开始实现开源版代码。
-  - 当前阶段不承诺完全复刻官方私有协议或 UI。
+- In scope:
+  - Analyzing the closed-source `Codex Computer Use.app` bundle structure, identity, permissions, and runtime behavior.
+  - Analyzing `SkyComputerUseClient`'s entry point, MCP exposure method, host dependencies, and failure modes.
+  - Continuously recording findings in a dedicated directory under the repo's `docs/`.
+- Out of scope:
+  - Not starting implementation of the open-source version's code at this stage.
+  - Not committing to fully replicating the official private protocol or UI at this stage.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
   - `docs/references/codex-computer-use-reverse-engineering/README.md`
   - `docs/references/codex-computer-use-reverse-engineering/baseline-architecture.md`
   - `docs/references/codex-computer-use-reverse-engineering/runtime-and-host-dependencies.md`
   - `docs/references/codex-computer-use-reverse-engineering/packaging-and-lifecycle-integration.md`
-- 相关代码路径：
+- Related code paths:
   - `~/.codex/plugins/cache/openai-bundled/computer-use/1.0.750/`
   - `~/.codex/config.toml`
-- 已知约束：
-  - 官方 bundle 为闭源二进制，只能通过 bundle 结构、符号、strings、配置与本机运行痕迹做逆向分析。
-  - 当前 `SkyComputerUseClient mcp` 不能被任意外部 MCP client 稳定直连。
+- Known constraints:
+  - The official bundle is closed-source binary, so it can only be reverse-engineered via bundle structure, symbols, strings, configuration, and local runtime traces.
+  - The current `SkyComputerUseClient mcp` cannot be stably connected to directly by an arbitrary external MCP client.
 
-## 风险
+## Risks
 
-- 风险：把 strings/符号里的能力误判成当前真的启用的功能。
-- 缓解方式：所有文档都区分“已观察事实”和“推断”，并尽量附上本机证据来源。
+- Risk: mistaking capabilities found in strings/symbols for functionality that is actually currently enabled.
+- Mitigation: all docs distinguish between "observed fact" and "inference", and attach the local evidence source wherever possible.
 
-- 风险：把 Inspector 连接失败简单归因于单一原因。
-- 缓解方式：同时记录 direct launch、Inspector、analytics、crash report 四类证据，避免过度下结论。
+- Risk: attributing Inspector connection failures to a single simple cause.
+- Mitigation: record all four types of evidence — direct launch, Inspector, analytics, and crash reports — simultaneously, to avoid overreaching conclusions.
 
-- 风险：后续实现过早锁死到官方私有架构。
-- 缓解方式：持续分离“官方实现细节”和“开源版真正需要的能力边界”。
+- Risk: locking subsequent implementation prematurely onto the official private architecture.
+- Mitigation: continuously separate "official implementation details" from "the capability boundary the open-source version actually needs".
 
-## 里程碑
+## Milestones
 
-1. 调研与方案收敛。
-2. 逆向分析 client / service / IPC / 权限模型。
-3. 基于分析结果收敛开源版架构与实现范围。
+1. Research and converge on an approach.
+2. Reverse-engineer the client / service / IPC / permission model.
+3. Converge on the open-source architecture and implementation scope based on the analysis results.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
   - `plutil -p .../Info.plist`
   - `otool -L ...`
   - `strings ... | rg ...`
   - `sqlite3 ~/Library/Group\ Containers/.../Analytics.db ...`
   - `codesign -dvv ...`
-- 手工检查：
-  - 对照 Inspector 连接现象与本地 crash report。
-  - 对照 `~/.codex/config.toml` 与 `.mcp.json` 的 transport 配置。
-- 观测检查：
-  - 关注 `Analytics.db` 中的 service/client launch 事件。
-  - 关注 `~/Library/Logs/DiagnosticReports/` 中的 crash 记录。
+- Manual checks:
+  - Compare Inspector connection behavior against local crash reports.
+  - Compare `~/.codex/config.toml` against `.mcp.json` transport configuration.
+- Observational checks:
+  - Watch for service/client launch events in `Analytics.db`.
+  - Watch for crash records in `~/Library/Logs/DiagnosticReports/`.
 
-## 进度记录
+## Progress Log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
 
-## 决策记录
+## Decision Log
 
-- 2026-04-17：先把长期逆向分析结果沉淀到 `docs/references/codex-computer-use-reverse-engineering/`，而不是分散在聊天上下文里。这样后续实现开源版时可以直接引用仓库内文档。
-- 2026-04-17：当前先不实现代码，先把 client / service / host dependency 的边界分析清楚，避免一开始就沿着错误假设实现。
-- 2026-04-17：曾在仓库里临时初始化 `uv` 和 Python `mcp` 依赖，用最小 Python SDK 复现实验验证 `stdio` 连接行为，而不是继续依赖 Inspector。
-- 2026-04-17：上述 Python / `uv` 复现实验完成后，不再把这套一次性探针和运行链路保留在仓库里；长期保留的是文档中的证据和结论。
-- 2026-04-17：把插件打包结构、`turn-ended` notify 生命周期和主 app 分发形态单独拆成文档，不和 runtime 宿主依赖混写，方便后续直接映射成开源版的接口边界。
-- 2026-04-17：逆向分析阶段在仓库内收敛完成，后续实现转入 `docs/exec-plans/completed/20260417-open-source-swift-computer-use.md` 对应的 Swift 开源实现计划继续推进。
+- 2026-04-17: Record long-term reverse-engineering results in `docs/references/codex-computer-use-reverse-engineering/` first, rather than scattering them across chat context. This lets the open-source implementation reference the repo's own docs directly later.
+- 2026-04-17: Do not implement code yet; first clearly analyze the boundaries of client / service / host dependencies, to avoid implementing on wrong assumptions from the start.
+- 2026-04-17: Temporarily initialized `uv` and the Python `mcp` dependency in the repo to reproduce experiments with a minimal Python SDK and verify `stdio` connection behavior, instead of continuing to rely on the Inspector.
+- 2026-04-17: After the above Python / `uv` reproduction experiments were complete, the one-off probe and its runtime chain were not kept in the repo; what is kept long-term is the evidence and conclusions in the docs.
+- 2026-04-17: Split the plugin packaging structure, the `turn-ended` notify lifecycle, and the main app's distribution form into a separate document, instead of mixing them with the runtime host dependencies, to make it easier to map them directly to the open-source version's interface boundary later.
+- 2026-04-17: The reverse-engineering phase has converged within the repo; subsequent implementation moves to the Swift open-source implementation plan at `docs/exec-plans/completed/20260417-open-source-swift-computer-use.md`.

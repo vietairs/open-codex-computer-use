@@ -1,4 +1,4 @@
-## [2026-04-17 19:36] | Task: 升级 open-computer-use 到 0.1.1 并刷新 Codex 插件安装
+## [2026-04-17 19:36] | Task: Bump open-computer-use to 0.1.1 and refresh the Codex plugin install
 
 ### 🤖 Execution Context
 * **Agent ID**: `primary`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI + SwiftPM`
 
 ### 📥 User Query
-> 升级版本到 `0.1.1`，然后把插件更新到 Codex。
+> Bump the version to `0.1.1`, then update the plugin in Codex.
 
 ### 🛠 Changes Overview
 **Scope:** `plugins/open-computer-use`, `packages/OpenComputerUseKit`, `apps/OpenComputerUseSmokeSuite`, `scripts`, `docs`
 
 **Key Actions:**
-- **[Version bump]**: 将插件 manifest、MCP server 自报版本、smoke client 版本、CLI 版本与 app bundle 版本统一提升到 `0.1.1`。
-- **[Docs sync]**: 同步修正文档中的示例插件缓存路径，避免继续引用旧的 `0.1.0` 目录。
-- **[Codex install refresh]**: 执行 `./scripts/install-codex-plugin.sh --rebuild`，把本地插件缓存刷新到 `~/.codex/plugins/cache/open-computer-use-local/open-computer-use/0.1.1`，并更新 `~/.codex/config.toml`。
-- **[Verification]**: 运行 `swift test` 通过，并校验缓存中的 `plugin.json` 已显示 `version = 0.1.1`。
+- **[Version bump]**: Unify the plugin manifest, the MCP server's self-reported version, the smoke client version, the CLI version, and the app bundle version, bumping them all to `0.1.1`.
+- **[Docs sync]**: Sync-fix the example plugin cache path in the docs so it no longer references the old `0.1.0` directory.
+- **[Codex install refresh]**: Run `./scripts/install-codex-plugin.sh --rebuild`, refreshing the local plugin cache to `~/.codex/plugins/cache/open-computer-use-local/open-computer-use/0.1.1`, and update `~/.codex/config.toml`.
+- **[Verification]**: Run `swift test`, which passes, and verify that `plugin.json` in the cache now shows `version = 0.1.1`.
 
 ### 🧠 Design Intent (Why)
-这次改动的重点是把仓库内对外暴露的版本标识统一到同一个语义版本上，避免插件 manifest、Codex 缓存目录、MCP 握手版本和 CLI 文档之间出现不一致。版本号统一后，再通过安装脚本刷新本机 Codex 插件，才能确保后续实际调用和本地源码处于同一版本面。
+The focus of this change is to unify the version identifiers the repo exposes externally onto a single semantic version, avoiding inconsistency between the plugin manifest, the Codex cache directory, the MCP handshake version, and the CLI docs. Once the version number is unified, refreshing the local Codex plugin via the install script is what ensures subsequent real-world calls and the local source stay on the same version.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

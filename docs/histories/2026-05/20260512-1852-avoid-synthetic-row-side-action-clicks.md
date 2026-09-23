@@ -2,30 +2,30 @@
 
 ### Request
 
-排查并修复 OCU 点击飞书会话列表时，容易点到会话右侧 hover 出来的“完成”勾，导致消息会话被收掉的问题。
+Investigate and fix the issue where clicking a Feishu (飞书) conversation row in OCU is prone to hitting the "done" checkmark that hovers in on the right side of the row, causing the message conversation to get archived.
 
 ### Changes
 
-- 为 accessibility renderer 合成出来的 summary `text` record 增加 `isSyntheticText` 标记。
-- element-targeted `click` 对 synthetic text 改用左侧安全锚点，不再使用父容器中心作为默认点击点。
-- synthetic text 点击时会过滤右侧紧凑 hover action（如“完成”/ done / archive），再允许剩余行内候选参与点击，避免 side action 被排序成首选候选，同时保留打开会话的主行点击能力。
-- 将右侧紧凑 hover action 过滤推广到普通 row/container/text 的后代候选；用户直接点到 side action 本身时仍可执行该按钮，但点 row 或 row text 时不再把 side action 当主候选。
-- 对静态文本点击优先使用更大的行级父容器 frame 计算点击锚点，降低 Electron text frame 偏移导致点到相邻行的风险。
-- 命中点反查到覆盖整页的 Electron/WebArea 级 AX 元素时，不再扫描整个大容器的子孙候选，避免远处可点击元素劫持当前行点击。
-- activation-only fallback 收窄到窗口级元素；普通静态文本或容器不能再靠 `AXFocused` / `AXMain` 成功就声明点击已处理，必须继续落到定向鼠标事件。
-- Electron/WebArea 里的合成会话行文本现在优先寻找紧邻的行级 `AXPress` 祖先并静默执行，避免依赖物理鼠标 fallback，也避免点到行内右侧 side action。
-- 复测发现这条 WebArea 行级祖先点击优化会误伤 Chrome/GitHub pinned repository card：正式版 OCU 可直接点击 profile pinned `container` 进入 repo，而 dev 版会把点击提前判定为已处理但没有导航。现在该优化收窄到 Electron/Lark 这类目标，浏览器 WebArea 回到通用 link/container 点击路径。
-- app-agent proxy 会透传 `OPEN_COMPUTER_USE_*` 环境变量，方便调试开关在 Dev `.app` agent 内生效；正常验证仍不启用全局物理 pointer fallback。
-- 新增单元测试覆盖 synthetic text 与普通元素的点击锚点策略、右侧 side action 过滤边界、宽泛 hit record 防护、行级 AX 祖先点击边界、Electron-scoped WebArea 优化边界，以及 activation-only fallback 的角色边界。
-- 同步更新架构文档，记录 synthetic text 的点击边界。
+- Added an `isSyntheticText` flag on the summary `text` record synthesized by the accessibility renderer.
+- Element-targeted `click` now uses a left-side safety anchor for synthetic text instead of defaulting to the parent container's center point.
+- When clicking synthetic text, filters out the compact hover action on the right (e.g. "Done" / done / archive) before allowing the remaining inline candidates to participate in click selection, preventing the side action from being ranked as the top candidate, while still preserving the ability to click the main row to open the conversation.
+- Extended the right-side compact hover action filter to descendant candidates of a general row/container/text, so that clicking the side action itself still activates it, but clicking the row or the row's text no longer treats the side action as the primary candidate.
+- For static text clicks, now prefers computing the click anchor using a larger row-level parent container frame first, reducing the risk of hitting an adjacent row due to Electron text-frame offsets.
+- When a hit point resolves back to a page-wide Electron/WebArea-level AX element, no longer scans the entire large container's descendant candidates, to avoid a distant clickable element hijacking the click for the current row.
+- Narrowed the activation-only fallback to window-level elements only; ordinary static text or containers can no longer claim the click was handled just because `AXFocused` / `AXMain` succeeded — they must still fall through to a directed mouse event.
+- Synthesized session-row text in Electron/WebArea now preferentially finds the nearest row-level `AXPress` ancestor and executes it silently, avoiding reliance on the physical-mouse fallback and avoiding hitting the row's right-side side action.
+- A re-test found that this WebArea row-level ancestor click optimization mistakenly affected the Chrome/GitHub pinned repository card: the release version of OCU can click a profile's pinned `container` directly to enter the repo, but the dev build would prematurely mark the click as handled without navigating. This optimization is now scoped down to Electron/Lark-style targets only; browser WebArea falls back to the general link/container click path.
+- The app-agent proxy now passes through `OPEN_COMPUTER_USE_*` environment variables, making it easier for debug toggles to take effect inside the Dev `.app` agent; normal verification still does not enable the global physical pointer fallback.
+- Added unit tests covering the click-anchor strategy for synthetic text vs. ordinary elements, the boundary of the right-side side-action filter, protection against overly broad hit records, the boundary of row-level AX ancestor clicks, the boundary of the Electron-scoped WebArea optimization, and the role boundary of the activation-only fallback.
+- Updated the architecture doc to document the click boundary for synthetic text.
 
 ### Motivation
 
-飞书会话列表中的可读文本经常是 renderer 为父 row/container 合成的 summary，而不是一个真实独立的可点击 text 元素。旧逻辑会用这个父容器的中心点，并继续扫描其可点击子孙；当 Lark 在 row 右侧 hover 出“完成”按钮时，这个按钮可能被选为首个 `AXPress` 候选，从而把“打开会话”误操作成“完成/收起会话”。新的策略把 synthetic text 视为只代表 row 的可读摘要：点击落在左侧安全区域，子孙候选只保留不像右侧 side action 的目标。
+The readable text in a Feishu (飞书) conversation list is often a summary synthesized by the renderer for a parent row/container, rather than a real, independent clickable text element. The old logic used this parent container's center point and kept scanning its clickable descendants; when Lark (飞书) hovers in a "Done" button on the right of the row, this button could get selected as the first `AXPress` candidate, turning "open the conversation" into an accidental "done/archive the conversation." The new strategy treats synthetic text as representing only the row's readable summary: the click lands in a safe zone on the left, and descendant candidates are limited to targets that don't look like a right-side side action.
 
-真实验证还暴露另一个 false positive：不可点的静态文本会在 activation-only fallback 里因为 `AXFocused` / `AXMain` 返回成功而提前结束，导致实际会话没有切换。这个兜底现在只保留给窗口级元素；Electron/WebArea 行文本会优先使用行级 `AXPress` 祖先，保持静默 AX 操作，不把全局物理 pointer fallback 当作正常通过标准。
+Real-world verification also surfaced another false positive: unclickable static text would prematurely end in the activation-only fallback because `AXFocused` / `AXMain` returned success, so the conversation never actually switched. This fallback is now reserved for window-level elements only; Electron/WebArea row text now prefers the row-level `AXPress` ancestor, keeping the AX action silent, and no longer treats the global physical pointer fallback as the normal passing criterion.
 
-Chrome/GitHub pinned card 复测暴露了优化作用域问题：GitHub profile 的 pinned repository card 在 AX 里也是带 URL 的 `container`，但它属于浏览器 WebArea，而不是 Electron 会话列表。对这类通用浏览器页面，应该保留原来的 target / hit-test / 定向鼠标 fallback 链路；Electron row 祖先点击优化只服务于 Lark/Feishu 这类目标，避免为了修会话列表而破坏原有 Chrome 行为。
+The Chrome/GitHub pinned card re-test exposed a scoping problem with the optimization: a GitHub profile's pinned repository card is also a `container` with a URL in the AX tree, but it belongs to the browser's WebArea, not an Electron conversation list. For this kind of general browser page, the original target / hit-test / directed mouse fallback chain should be preserved; the Electron row-ancestor click optimization should only serve Lark/Feishu-style targets, so fixing the conversation list doesn't break the existing Chrome behavior.
 
 ### Files
 
@@ -40,13 +40,13 @@ Chrome/GitHub pinned card 复测暴露了优化作用域问题：GitHub profile 
 - `swift test`
 - `./scripts/run-tool-smoke-tests.sh`
 - `./scripts/build-open-computer-use-app.sh debug`
-- 使用 dev app 对飞书做真实验证：
-  - 旧补丁下点击 `AgentSphere 双周会群` / `AgentSphere 研发群` 这类会话行 text 不再触发“完成”，但也未切换会话。
-  - 旧补丁下点击 row container 仍可能把会话收掉，确认 side-action 过滤不能只作用于 synthetic text。
-  - 新补丁下点击 `AgentSphere 研发群` row text 后，会话行仍保留，未再被“完成”收掉；但当时仍未切换会话，后续定位为普通静态文本 activation-only fallback 抢先返回成功。
-  - 只用 OCU dev app 的 AX 路径复测：动态定位并打开 `司开星` 会话，右侧标题确认后发送 `OCU AX静默测试笑话：为什么程序员喜欢喝咖啡？因为没有咖啡因，线程就起不来。`，列表预览与消息区均出现该消息，输入框清空。
-  - 随后动态定位并打开 `徐昱嵩` 会话，右侧标题确认后先 AX click 聚焦 text entry area，再发送 `OCU AX静默测试笑话：为什么测试工程师进咖啡店先点空杯？因为要测边界条件。`，列表预览与消息区同样确认发送成功。
-  - 验证过程没有设置 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS`，不依赖全局物理鼠标 fallback。
-  - 额外对 Chrome、Finder、Sublime Text 做非破坏性真实 app smoke：`get_app_state` 正常，点击当前已选 tab / 当前已选 Finder sidebar row / 当前已选 Sublime tab 均成功。
-  - 使用已安装正式版 OCU `0.1.49` 对 Chrome/GitHub profile 做对照：直接点击 6 个 pinned repository `container` 均可进入 repo 并读到 star。
-  - 修复后重建 dev app，终止旧 dev app agent，再用 dev OCU 对同一 Chrome/GitHub profile 做相同验证：动态解析 6 个 pinned repository `container`，逐个点击进入 repo、读取 star、Back 回 profile，6 个 URL 均匹配预期。
+- Real verification against Feishu (飞书) using the dev app:
+  - Under the old patch, clicking session row text like `AgentSphere Biweekly Meeting Group` / `AgentSphere R&D Group` no longer triggered "Done," but also did not switch the conversation.
+  - Under the old patch, clicking the row container could still archive the conversation, confirming the side-action filter can't apply only to synthetic text.
+  - Under the new patch, clicking the `AgentSphere R&D Group` row text kept the conversation row intact — it was no longer archived by "Done" — but at that point the conversation still didn't switch; this was later traced to the plain static-text activation-only fallback returning success prematurely.
+  - Using only OCU dev app's AX path for re-testing: dynamically located and opened the `司开星` (Kaixing Si) conversation, confirmed the title on the right, then sent `OCU AX silent test joke: why do programmers like drinking coffee? Because without caffeine, the thread won't start.` — the message appeared in both the list preview and the message area, and the input box cleared.
+  - Then dynamically located and opened the `徐昱嵩` (Yusong Xu) conversation, confirmed the title on the right, first used an AX click to focus the text entry area, then sent `OCU AX silent test joke: why does a test engineer order an empty cup first at a coffee shop? To test the boundary conditions.` — again confirmed successful sending in both the list preview and the message area.
+  - The verification process did not set `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS`, and did not rely on the global physical mouse fallback.
+  - Additionally ran non-destructive real-app smoke tests against Chrome, Finder, and Sublime Text: `get_app_state` worked normally, and clicking the currently selected tab / the currently selected Finder sidebar row / the currently selected Sublime tab all succeeded.
+  - Used the already-installed release version of OCU `0.1.49` as a control against a Chrome/GitHub profile: directly clicking all 6 pinned repository `container`s successfully entered the repo and read the star count each time.
+  - After the fix, rebuilt the dev app, terminated the old dev app agent, then ran the same verification with the dev OCU against the same Chrome/GitHub profile: dynamically resolved all 6 pinned repository `container`s, clicked into each repo one by one, read the star count, went Back to the profile, and all 6 URLs matched expectations.

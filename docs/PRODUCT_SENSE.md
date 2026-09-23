@@ -1,10 +1,10 @@
-# 产品判断原则
+# Product Sense Principles
 
-把那些能帮助 Agent 做出更好产品取舍的长期原则沉淀在这里。
+Capture here the long-term principles that help the Agent make better product trade-offs.
 
-建议覆盖的内容：
+Suggested coverage:
 
-- 核心用户是谁。
-- 产品真正有价值的点是什么。
-- 当前阶段更看重哪些质量维度：速度、可信度、灵活性、成本、体验等。
-- 在早期交付和成熟运营两个阶段，判断标准分别是什么。
+- Who the core users are.
+- What is truly valuable about the product.
+- Which quality dimensions matter most at the current stage: speed, trustworthiness, flexibility, cost, experience, etc.
+- What the judgment criteria are for the early-delivery stage versus the mature-operations stage.

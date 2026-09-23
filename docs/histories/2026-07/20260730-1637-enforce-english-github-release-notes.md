@@ -6,7 +6,7 @@
 * **Runtime**: `Codex desktop`
 
 ### User Query
-> 将近期 GitHub Release 更新日志统一为英文，并让后续 workflow 从审核过的英文 notes 文件发布。
+> Unify the recent GitHub Release changelogs into English, and have subsequent workflows publish from a reviewed English notes file.
 
 ### Changes Overview
 **Scope:** GitHub Release metadata, validation, workflow gating, and release documentation.

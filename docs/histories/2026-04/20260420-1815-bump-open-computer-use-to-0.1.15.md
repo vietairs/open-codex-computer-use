@@ -1,4 +1,4 @@
-## [2026-04-20 18:15] | Task: 发布 0.1.15
+## [2026-04-20 18:15] | Task: Release 0.1.15
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 提交相关改动，然后加个版本号 git tag 推送触发一波看看。
+> Commit the related changes, then add a version-numbered git tag and push it to trigger a run and see.
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 把插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、单测中的 MCP client version 与 CLI 文档路径统一提升到 `0.1.15`。
-- **[Release Notes]**: 在用户可见发布记录里追加 `0.1.15`，说明这次 release 的核心是统一 `Open Computer Use.app` 的跨渠道权限身份与签名链。
-- **[Release Trigger]**: 基于上一条功能 commit 收口 release 输入，准备用 `v0.1.15` tag 推送触发 GitHub Actions 的 npm 包与 DMG 发布链路。
+- **[Version Bump]**: Unify the plugin manifest, Swift/Go version constants, the smoke suite's init version, the MCP client version in unit tests, and the CLI doc path, bumping them all to `0.1.15`.
+- **[Release Notes]**: Append `0.1.15` to the user-facing release notes, explaining that the core of this release is unifying the cross-channel permission identity and signing chain of `Open Computer Use.app`.
+- **[Release Trigger]**: Close out the release input based on the preceding feature commit, preparing to push the `v0.1.15` tag to trigger the GitHub Actions npm package and DMG release pipeline.
 
 ### 🧠 Design Intent (Why)
-这次用户要验证的不是单纯本地修复，而是“签名身份统一”这件事能否真正进入发布链。把版本 bump、tag 和 CI trigger 单独收成一个 patch release，可以把 npm/GitHub Releases 的外部分发行为和本地验证结果对齐，避免功能修复已经在本地 commit 里，release 输入却还停在旧版本。
+What the user needs to verify this time isn't just a local fix, but whether "unifying the signing identity" can actually make it through the release pipeline. Bundling the version bump, tag, and CI trigger into a single patch release keeps the external distribution behavior on npm/GitHub Releases aligned with the local verification results, avoiding a situation where the feature fix already sits in a local commit while the release input is still stuck on the old version.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

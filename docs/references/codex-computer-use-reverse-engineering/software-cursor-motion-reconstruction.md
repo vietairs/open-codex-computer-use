@@ -1,61 +1,61 @@
 # Software Cursor Motion Reconstruction
 
-这份文档比 `software-cursor-motion-model.md` 更窄，专门记录这次继续往函数级推进后，已经能直接从 `SkyComputerUseService` 控制流里确认下来的实现细节，以及哪些部分仍然只是 reconstruction。
+This document is narrower in scope than `software-cursor-motion-model.md`. It specifically records the implementation details that have now been confirmed directly from the `SkyComputerUseService` control flow after pushing the analysis further to the function level, as well as which parts are still only reconstruction.
 
-## 结论概览
+## Summary of Findings
 
-这次最有价值的 4 个结论是：
+The 4 most valuable findings from this round are:
 
-- `CursorMotionPath.sample(progress)` 已经基本能按函数级行为重建出来。
-- `CursorMotionPathMeasurement` 的 5 个输出字段已经能对应到采样循环和角度累计逻辑。
-- `CursorMotionPath` / `Segment` 的真实字段布局已经能和写字段指令一一对上。
-- 候选路径筛选不再只是“可能有一组权重”的推测，现在已经能确认 score 公式、in-bounds 优先策略，以及 `20` 条候选的几何生成形状。
+- `CursorMotionPath.sample(progress)` has now been reconstructed at essentially the function level.
+- The 5 output fields of `CursorMotionPathMeasurement` can now be mapped to the sampling loop and angle-accumulation logic.
+- The real field layout of `CursorMotionPath` / `Segment` can now be matched one-to-one against the field-write instructions.
+- Candidate path filtering is no longer just a guess at "there's probably a set of weights" — the score formula, the in-bounds-first strategy, and the geometric generation shape of the 20 candidates can now all be confirmed.
 
-这轮继续往 timing 侧推进之后，又补上了 4 个可以直接落到二进制实体上的结论：
+After pushing further into the timing side this round, 4 more findings that can be tied directly to binary evidence were added:
 
-- cursor path animation 不是抽象的 easing 黑盒，而是 `Animation.SpringAnimation` 驱动的一条进度动画链。
-- `closeEnough` 相关类型和字段关系已经能从 Swift metadata 直接对上。
-- spring 路径内部确实会落到 `Animation.VelocityVerletSimulation.Configuration`，并且 `stiffness / drag`、`dt = 1/240`、`VelocityVerlet` 单步更新顺序现在都能直接写出来。
-- `ComputerUseCursor.Window` 里承载 cursor animation 状态的几个槽位，已经能和主控制流中的写字段顺序对上。
+- Cursor path animation is not an abstract easing black box — it's a progress-animation chain driven by `Animation.SpringAnimation`.
+- The `closeEnough`-related types and field relationships can now be matched directly from Swift metadata.
+- The spring path internally does resolve down to `Animation.VelocityVerletSimulation.Configuration`, and `stiffness / drag`, `dt = 1/240`, and the `VelocityVerlet` single-step update order can now all be written out directly.
+- The several slots in `ComputerUseCursor.Window` that hold cursor animation state can now be matched to the field-write order in the main control flow.
 
-## 已确认的函数级行为
+## Confirmed Function-Level Behavior
 
-### 1. `CursorMotionPath.sample(progress)` 是“按 segment 选段，再做 cubic 求值”
+### 1. `CursorMotionPath.sample(progress)` "picks a segment, then evaluates a cubic"
 
-函数地址：`0x10005c1dc`
+Function address: `0x10005c1dc`
 
-从控制流可以确认：
+The control flow confirms:
 
-1. 输入 `progress` 会先被 clamp 到 `0...1`。
-2. 根据 `segments.count` 把全局 `progress` 映射到具体 `segmentIndex` 和 segment 内局部 `t`。
-3. 如果 `progress >= 1`，直接落到最后一段、局部 `t = 1`。
-4. 每段都按标准 cubic Bezier 公式求点：
-   - 起点
+1. The input `progress` is first clamped to `0...1`.
+2. Based on `segments.count`, the global `progress` is mapped to a specific `segmentIndex` and a local `t` within that segment.
+3. If `progress >= 1`, it falls directly onto the last segment with local `t = 1`.
+4. Every segment evaluates a point using the standard cubic Bezier formula:
+   - start point
    - `control1`
    - `control2`
-   - 终点
-5. 函数末尾还会调用一个辅助函数，返回额外两维量，结合调用点看更像是 tangent / orientation 相关数据。
+   - end point
+5. At the end of the function, a helper function is also called, returning two additional scalar values; based on the call site, these look more like tangent/orientation-related data.
 
-这说明官方 path sampling 这层不是黑盒 easing，而是标准分段 cubic。
+This shows that the official path-sampling layer isn't a black-box easing — it's standard piecewise cubic.
 
-### 2. `CursorMotionPathMeasurement` 是固定步数采样，不是解析闭式公式
+### 2. `CursorMotionPathMeasurement` samples at a fixed step count, not a closed-form formula
 
-函数地址：`0x100060ac0`
+Function address: `0x100060ac0`
 
-能直接确认的行为：
+Behavior that can be directly confirmed:
 
-- 它会遍历 `segments`。
-- 每段固定按 `24` 个采样点推进。
-- 只在相邻点距离大于 `0.01` 时才把这一小段当成有效步长。
-- 对每个有效步长：
-  - 累加 `length`
-  - 用 `atan2(dy, dx)` 算 heading
-  - 对相邻 heading 做 `[-pi, pi]` unwrap
-  - 累加角度变化平方
-  - 记录最大绝对转角
-  - 累加总绝对转角
+- It iterates over `segments`.
+- Each segment advances by a fixed `24` sample points.
+- A small step is only counted as a valid step when the distance between adjacent points exceeds `0.01`.
+- For each valid step:
+  - accumulates `length`
+  - computes heading via `atan2(dy, dx)`
+  - unwraps adjacent headings into `[-pi, pi]`
+  - accumulates the squared angle change
+  - records the maximum absolute turn angle
+  - accumulates the total absolute turn angle
 
-从寄存器和最终写回顺序可以把 5 个字段对应出来：
+From the registers and the final write-back order, the 5 fields can be matched up as:
 
 - `length`
 - `angleChangeEnergy`
@@ -63,22 +63,22 @@
 - `totalTurn`
 - `staysInBounds`
 
-### 3. `staysInBounds` 是 measurement 阶段顺手维护的布尔值
+### 3. `staysInBounds` is a boolean maintained along the way during the measurement phase
 
-这部分不是独立后处理。
+This isn't separate post-processing.
 
-`0x100060ac0` 在采样循环里会持续维护一个布尔标记，只有当所有关键采样点都还满足边界约束时，这个字段才保持 `true`。
+`0x100060ac0` continuously maintains a boolean flag inside the sampling loop, and this field only stays `true` as long as every key sample point still satisfies the boundary constraint.
 
-当前最保守的解释是：
+The most conservative current interpretation is:
 
-- 如果调用方给了 bounds，measurement 会把采样点逐个做包含性校验。
-- 实现里能看到固定的 `20.0` 边距参与判断，因此不是严格贴边的裸矩形判断。
+- If the caller supplies bounds, the measurement performs a containment check on each sample point individually.
+- The implementation shows a fixed `20.0` margin participating in the check, so it's not a strict, bare-rectangle boundary test.
 
-## 新确认的候选选择逻辑
+## Newly Confirmed Candidate-Selection Logic
 
-### 0. `CursorMotionPath` 和 `Segment` 的内存布局已经钉住
+### 0. The memory layout of `CursorMotionPath` and `Segment` is now pinned down
 
-结合 Swift field metadata 和 `0x10005fd98` / `0x10005c1dc` 的写字段、读字段顺序，可以把这两个关键结构的布局对上：
+By combining Swift field metadata with the field-write/field-read order in `0x10005fd98` / `0x10005c1dc`, the layout of these two key structs can be matched:
 
 - `CursorMotionPath`
   - `start`: `0x00`
@@ -94,47 +94,47 @@
   - `control1`: `0x10`
   - `control2`: `0x20`
 
-`0x10005c1dc` 里对 `Segment` 的读取顺序也能说明：
+The read order for `Segment` inside `0x10005c1dc` also shows that:
 
-- segment 的起点不是单独存的。
-- 第一段起点来自 `CursorMotionPath.start`。
-- 后续段的起点来自上一段的 `Segment.end`。
-- `Segment.end / control1 / control2` 都是 cubic 采样时直接参与公式的绝对点。
+- A segment's start point isn't stored separately.
+- The first segment's start point comes from `CursorMotionPath.start`.
+- Later segments' start points come from the previous segment's `Segment.end`.
+- `Segment.end / control1 / control2` are all absolute points that participate directly in the formula during cubic sampling.
 
-### 1. 候选总量不是 18，而是 20
+### 1. The total candidate count isn't 18 — it's 20
 
-函数地址：`0x10005fd98`
+Function address: `0x10005fd98`
 
-这次把候选生成函数继续拆平后，可以确认：
+After flattening out the candidate-generation function further this round, the following can be confirmed:
 
-- 有两张系数表：
+- There are two coefficient tables:
   - `tableA = [0.55, 0.8, 1.05]`
   - `tableB = [0.65, 1.0, 1.35]`
-- 双层循环枚举 `3 x 3` 组组合。
-- 每组组合会再走左右镜像两条分支。
-- 在进入双层循环前，函数还会先构造两条 base candidate。
+- A nested loop enumerates the `3 x 3` combinations.
+- Each combination then branches into a left/right mirrored pair.
+- Before entering the nested loop, the function first constructs two base candidates.
 
-因此总候选量不是之前保守写法里的“18 条左右”，而是更接近：
+So the total candidate count isn't the "around 18" from the previous, more conservative write-up — it's closer to:
 
-- `2` 条 base candidate
-- `3 x 3 x 2 = 18` 条镜像候选
-- 合计 `20` 条
+- `2` base candidates
+- `3 x 3 x 2 = 18` mirrored candidates
+- `20` total
 
-### 2. 候选生成已经能落到字段级几何，不只是 table 级猜测
+### 2. Candidate generation can now be traced down to field-level geometry, not just table-level guesswork
 
-仍然是 `0x10005fd98`。
+Still within `0x10005fd98`.
 
-现在能直接确认：
+What can now be directly confirmed:
 
-- 有一组 guide 相关系数会先经 `swift_once` 初始化到全局：
+- A set of guide-related coefficients is initialized into a global once via `swift_once`:
   - `(-0.6946583704589973, 0.7193398003386512)`
-- 这组数值本身是 confirmed；但后续对照官方视频后，直接把它当成固定屏幕坐标 guide vector 会在部分象限下产生明显不符的扭曲回环。当前 reconstruction 更保守的做法是：把它当成 path-local basis 里的系数对，再投到世界坐标去生成 candidate 几何。这一层“local-basis projection”目前仍属于 reconstruction-level inference，不是已经由反汇编逐指令坐实的结论。
-- path builder 会先构造两条 base candidate：
+- These numeric values themselves are confirmed; however, after cross-checking against the official video afterward, treating them directly as a fixed screen-coordinate guide vector produces noticeably wrong, twisted loops in some quadrants. The current, more conservative reconstruction treats them as a coefficient pair within a path-local basis, which is then projected into world coordinates to generate the candidate geometry. This "local-basis projection" layer is still reconstruction-level inference at this point, not a conclusion already nailed down instruction-by-instruction from the disassembly.
+- The path builder first constructs two base candidates:
   - `base-full-guide`
   - `base-scaled-guide`
-- 再围绕两张系数表构造 `18` 条两段 cubic 的 arched candidate。
+- It then constructs `18` two-segment cubic arched candidates built around the two coefficient tables.
 
-能直接确认的主尺度包括：
+The main scale factors that can be directly confirmed include:
 
 - `distance * 0.41960295031576633`
 - `distance * 0.9`
@@ -143,15 +143,15 @@
 - `distance * 0.5783555327868779`
 - `clippedTravel * 0.65`
 
-其中有一条之前写得过于粗糙的结论需要修正：
+One earlier finding was written too roughly and needs correcting:
 
-- `arcExtent` 仍然可以安全写成：
+- `arcExtent` can still be safely written as:
 
 ```text
 arcExtent = clamp(distance * 0.5783555327868779, 38, 440)
 ```
 
-- 但 `handleExtent` 不是简单的 `clamp(..., 50, 520)`，而是这版 bundled binary 里的分段逻辑：
+- But `handleExtent` is not a simple `clamp(..., 50, 520)` — it's this piecewise logic in this version of the bundled binary:
 
 ```text
 rawHandle = distance * 0.2765523188064277
@@ -164,7 +164,7 @@ else:
   handleExtent = 520
 ```
 
-在这组 guide 系数原始存储满足 `x < 0, y > 0` 的前提下，base candidate 的 guide travel 也能从原始分支树化简成这组 piecewise：
+Given that this guide-coefficient pair's raw storage satisfies `x < 0, y > 0`, the base candidate's guide travel can also be simplified from the original branch tree into this piecewise form:
 
 ```text
 startExtent =
@@ -181,33 +181,33 @@ endExtent =
   640      otherwise
 ```
 
-再叠加 bounds clipping 后，会得到：
+After further applying bounds clipping, this yields:
 
 - `fullStartControl = start + guide * startExtent`
 - `fullEndControl = end - guide * endExtent`
 - `scaledStartControl = start + guide * (startExtent * 0.65 after clipping)`
 - `scaledEndControl = end - guide * (endExtent * 0.65 after clipping)`
 
-镜像候选也已经能落成具体几何：
+The mirrored candidates can also now be resolved into concrete geometry:
 
-- 先用 midpoint、signed normal、`tableA` 和 `handleExtent` 算 arc anchor。
-- 再用 `tableB`、`arcExtent` 和一条由 `(dx, arcExtent)` 归一化得到的 forward vector 算 `arcIn / arcOut`。
-- 每条 arched candidate 是两段 cubic：
-  - 第一段：`start -> arc`
-  - 第二段：`arc -> end`
+- First, the arc anchor is computed using the midpoint, the signed normal, `tableA`, and `handleExtent`.
+- Then `arcIn / arcOut` are computed using `tableB`, `arcExtent`, and a forward vector normalized from `(dx, arcExtent)`.
+- Each arched candidate is two cubic segments:
+  - first segment: `start -> arc`
+  - second segment: `arc -> end`
 
-### 3. 评分公式已经可以直接写出来
+### 3. The scoring formula can now be written out directly
 
-函数地址：`0x100060da0`
+Function address: `0x100060da0`
 
-这次最重要的推进，是把 candidate measurement 之后的 score 组合方式拆出来了。
+The most important progress this round was pulling apart how the score is composed after candidate measurement.
 
-对每条候选路径，函数会先算：
+For each candidate path, the function first computes:
 
 - `directDistance = max(distance(start, end), 1)`
 - `excessLengthRatio = max(length / directDistance - 1, 0)`
 
-然后 score 为：
+Then the score is:
 
 ```text
 score =
@@ -218,30 +218,30 @@ score =
   + (staysInBounds ? 0 : 45)
 ```
 
-这说明官方筛选逻辑明确偏好：
+This shows that the official filtering logic clearly prefers:
 
-- 不要比直线长太多
-- 不要有太大的角度抖动
-- 不要有单次过猛的转向
-- 不要有累计转向过多
-- 如果候选跑出 bounds，直接加固定 penalty
+- not being much longer than a straight line
+- not having too much angular jitter
+- not having any single overly sharp turn
+- not accumulating too much total turning
+- if a candidate goes out of bounds, a fixed penalty is added directly
 
-### 4. 选择策略是“先保 in-bounds，再比 score”
+### 4. The selection strategy is "keep in-bounds candidates first, then compare score"
 
-`0x100060da0` 在算完所有候选的 measurement 和 score 之后，不是直接对整批取最小值。
+After computing the measurement and score for every candidate, `0x100060da0` doesn't simply take the minimum over the whole batch.
 
-它会先做一遍过滤：
+It first runs a filtering pass:
 
-- 如果存在 `staysInBounds == true` 的候选，只在这批 in-bounds 候选里取最小 score。
-- 只有当没有任何 in-bounds 候选时，才会回退到全体候选里取最小 score。
+- If any candidate with `staysInBounds == true` exists, the minimum score is taken only among that in-bounds subset.
+- Only when there are no in-bounds candidates at all does it fall back to taking the minimum score over the whole set.
 
-这点对外观很重要，因为它解释了为什么官方路径看上去既“俏皮”又不容易穿窗体 / 越界。
+This matters a lot for the visual result, because it explains why the official path looks both "playful" and unlikely to cut through windows or go out of bounds.
 
-## 新确认的 timing / animation 链
+## Newly Confirmed Timing / Animation Chain
 
-### 1. `CloseEnoughConfiguration` / `CursorNextInteractionTiming` 已经能落到真实嵌套类型
+### 1. `CloseEnoughConfiguration` / `CursorNextInteractionTiming` can now be resolved to real nested types
 
-Swift metadata 里已经能直接恢复出这组父子关系：
+The Swift metadata now lets us directly recover this parent/child relationship:
 
 - `ComputerUseCursor.CloseEnoughConfiguration`
   - `progressThreshold`
@@ -250,16 +250,16 @@ Swift metadata 里已经能直接恢复出这组父子关系：
   - `closeEnough`
   - `finished`
 
-这说明之前看到的 `1.0` 和 `0.01` 不是散落常量，而是已经能映射到真实字段：
+This shows that the `1.0` and `0.01` values seen earlier aren't scattered constants — they now map to real fields:
 
 - `progressThreshold = 1.0`
 - `distanceThreshold = 0.01`
 
-从 `0x10005be24..0x10005be3c` 的写栈顺序看，这两项正是 cursor path animation 在组 `next interaction timing` 时使用的 close-enough 配置。
+Looking at the stack-write order at `0x10005be24..0x10005be3c`, these two values are exactly the close-enough configuration used by the cursor path animation when constructing `next interaction timing`.
 
-### 2. `AnimationDescriptor` / `SpringParameters` / `Transaction` 的真实字段也已经恢复
+### 2. The real fields of `AnimationDescriptor` / `SpringParameters` / `Transaction` have also been recovered
 
-同样通过 `__swift5_types` + `__swift5_fieldmd`，已经能确认：
+Also via `__swift5_types` + `__swift5_fieldmd`, the following can now be confirmed:
 
 - `Animation.AnimationDescriptor`
   - `bezier`
@@ -275,33 +275,33 @@ Swift metadata 里已经能直接恢复出这组父子关系：
   - `driverSource`
   - `descriptor`
 
-这里最关键的是：
+The most important part here is:
 
-- cursor path 主链里用到的 spring 常量已经能直接确认是
+- The spring constants used in the cursor path's main chain can now be directly confirmed as:
   - `response = 1.4`
   - `dampingFraction = 0.9`
-- 二进制同时确实导入了
+- The binary also does in fact import
   - `SwiftUI.Animation.spring(response:dampingFraction:blendDuration:)`
 
-因此“官方 cursor path animation 用的是 spring 而不是自定义 bezier duration”这点已经是 binary-backed 结论，不再只是字符串级猜测。
+So "the official cursor path animation uses a spring, not a custom bezier duration" is now a binary-backed conclusion, no longer just a string-level guess.
 
-### 3. `SpringAnimation` 会继续落到 `VelocityVerletSimulation.Configuration`
+### 3. `SpringAnimation` resolves further down into `VelocityVerletSimulation.Configuration`
 
-新的关键链路是：
+The new key chain is:
 
-- `Animation.SpringAnimation` metadata accessor：`0x1005768c4`
-- allocating wrapper：`0x100576790`
-- designated init 主体：`0x10057652c`
-- `Animation.VelocityVerletSimulation.Configuration` metadata accessor：`0x100591fd4`
-- `Configuration` 初始化主链：`0x100592f20`
-- config completion：`0x100593cfc`
+- `Animation.SpringAnimation` metadata accessor: `0x1005768c4`
+- allocating wrapper: `0x100576790`
+- designated init body: `0x10057652c`
+- `Animation.VelocityVerletSimulation.Configuration` metadata accessor: `0x100591fd4`
+- `Configuration` init main chain: `0x100592f20`
+- config completion: `0x100593cfc`
 
-这条链路说明：
+This chain shows that:
 
-- cursor path animation 的“速度”底层不是简单的定长采样。
-- 它通过 spring 参数继续构造成 `VelocityVerletSimulation`。
+- The "velocity" underlying the cursor path animation is not simple fixed-length sampling.
+- It's built up further into a `VelocityVerletSimulation` via the spring parameters.
 
-而 `Animation.VelocityVerletSimulation.Configuration` 的字段已经能直接恢复为：
+And the fields of `Animation.VelocityVerletSimulation.Configuration` can now be directly recovered as:
 
 - `response`
 - `stiffness`
@@ -309,7 +309,7 @@ Swift metadata 里已经能直接恢复出这组父子关系：
 - `dt`
 - `idleVelocityThreshold`
 
-目前能直接确认的数值和公式有：
+Values and formulas that can currently be directly confirmed:
 
 - `dt = 1/240 = 0.004166666666666667`
 - `idleVelocityThreshold = 28800.0`
@@ -318,90 +318,90 @@ Swift metadata 里已经能直接恢复出这组父子关系：
 - `0x100593f18`
   - `drag = 2 * dampingFraction * sqrt(stiffness)`
 - `0x100593404`
-  - 如果 `targetTime - time > 1.0`，先把 `time` 钳到 `targetTime - 1/60`
-  - 然后按 `dt` 循环推进，直到 `time >= targetTime`
+  - if `targetTime - time > 1.0`, first clamp `time` to `targetTime - 1/60`
+  - then advance in a loop by `dt` until `time >= targetTime`
 - `0x100594110`
   - `velocityHalf = velocity + force * (dt / 2)`
   - `current = current + velocityHalf * dt`
   - `force = stiffness * (target - current) + (-drag) * velocityHalf`
   - `velocity = velocityHalf + force * (dt / 2)`
 
-因此现在已经可以明确写成：
+So it can now be clearly stated that:
 
-- 这条链路是 binary-backed 的 `VelocityVerlet` 弹簧仿真，而不是模糊的“某种 spring-like easing”。
-- `stiffness / drag` 这两个核心量已经不再停留在“存在但公式未抄平”的状态。
+- This chain is a binary-backed `VelocityVerlet` spring simulation, not a vague "some kind of spring-like easing."
+- `stiffness / drag`, the two core quantities, are no longer stuck at "known to exist but the formula hasn't been fully transcribed."
 
-### 4. `SpringAnimation` 的 frame update / finished predicate 已经基本拆开
+### 4. `SpringAnimation`'s frame update / finished predicate have now mostly been pulled apart
 
-这里最关键的两个函数是：
+The two most important functions here are:
 
 - `0x1005761bc`
 - `0x1005934b0`
 
-`0x1005761bc` 现在已经能确认成这条控制链：
+`0x1005761bc` can now be confirmed to follow this control chain:
 
-- 通过 `0x1005730bc` 从 hidden self 的 `0x68` 槽位拷一个 current-value-like buffer。
-- 通过 `0x100573390` 从 hidden self 的 `0x70` 槽位拷一个 target-value-like buffer。
-- 调 `0x100593404` 推进 spring simulation。
-- 调 `0x1005934b0` 计算 finished predicate。
-- finished 时走 optional `nil` 返回；未 finished 时走 optional `some(updatedValue)` 返回。
+- Copies a current-value-like buffer from hidden self's `0x68` slot via `0x1005730bc`.
+- Copies a target-value-like buffer from hidden self's `0x70` slot via `0x100573390`.
+- Calls `0x100593404` to advance the spring simulation.
+- Calls `0x1005934b0` to compute the finished predicate.
+- Returns via the optional `nil` branch when finished; returns via the optional `some(updatedValue)` branch when not finished.
 
-`0x1005934b0` 当前已经能确认两段 gate：
+`0x1005934b0` can now be confirmed to have two gate stages:
 
-- 第一段 gate：
-  - 从 hidden self 再取两个标量槽位。
-  - 先做 `Swift.max(slotA, slotB)`。
-  - 再把另一个阈值字段平方后比较。
-  - 只有 `max(slotA, slotB) <= threshold^2` 才会继续往下跑。
-- 第二段 gate：
-  - 明确构造了一个 `0.01` float literal。
-  - 用 `SIMDStorage` 把它广播成和 animatable value 同标量数的向量。
-  - 后面会跑一串逐分量乘法、减法和类型转换。
-  - 末尾不是用近似比较，而是把一个差值派生标量 `A` 做成：
+- First gate stage:
+  - Reads two more scalar slots from hidden self.
+  - First computes `Swift.max(slotA, slotB)`.
+  - Then squares another threshold field and compares against it.
+  - Only continues further when `max(slotA, slotB) <= threshold^2`.
+- Second gate stage:
+  - Explicitly constructs a `0.01` float literal.
+  - Broadcasts it, via `SIMDStorage`, into a vector with the same scalar count as the animatable value.
+  - Runs a series of component-wise multiplications, subtractions, and type conversions afterward.
+  - At the end, instead of an approximate comparison, it derives a difference scalar `A` and tests:
     - `A > 0`
     - `0 > A`
-  - 只有两边都不成立时，才算 finished。
+  - Only counts as finished when neither side holds.
 
-需要明确区分 confirmed 与 inference：
+It's important to clearly separate confirmed from inference here:
 
-- 已确认：
-  - `0x1005761bc` 的 optional `nil / some(updatedValue)` 分支结构
-  - `0x1005934b0` 的 threshold-square gate
-  - `0.01` float literal 广播
-  - 双向比较实现 exact-zero gate
-- 仍然是 inference：
-  - `0x68 / 0x70` 很可能就是 `InterpolatableAnimation._value / _targetValue`
-  - `0x1005934b0` 里 metadata `+0x30` 取到的阈值字段，很可能就是 `idleVelocityThreshold`
+- Confirmed:
+  - The optional `nil / some(updatedValue)` branch structure of `0x1005761bc`
+  - The threshold-square gate of `0x1005934b0`
+  - The `0.01` float literal broadcast
+  - The two-sided comparison implementing an exact-zero gate
+- Still inference:
+  - `0x68 / 0x70` are very likely `InterpolatableAnimation._value / _targetValue`
+  - The threshold field read from metadata `+0x30` inside `0x1005934b0` is very likely `idleVelocityThreshold`
 
-### 5. 可见几何会先锁到终点，这点现在已经能从几段二进制证据拼起来
+### 5. The visible geometry locks onto the endpoint first — this can now be pieced together from several strands of binary evidence
 
-这里要把“confirmed”与“组合推断”分开写：
+This needs to separate "confirmed" from "combined inference":
 
-- 已确认：
-  - `CursorMotionPath.sample(progress)` 会把 `progress` clamp 到 `0...1`
-  - `SpringAnimation` 的 progress 由上面的 `VelocityVerlet` 链驱动
-  - `0x1005761bc` 的 finished 返回是单独由 `0x1005934b0` 控的
-- 因此可以谨慎推出：
-  - 一旦 raw spring progress 首次 `>= 1.0`，可见几何位置就会被 clamp 到 path endpoint
-  - 这件事可能早于 raw spring state 在数值上完全静止
+- Confirmed:
+  - `CursorMotionPath.sample(progress)` clamps `progress` to `0...1`
+  - `SpringAnimation`'s progress is driven by the `VelocityVerlet` chain above
+  - The finished return of `0x1005761bc` is controlled separately by `0x1005934b0`
+- So it can cautiously be inferred that:
+  - Once the raw spring progress first reaches `>= 1.0`, the visible geometry position gets clamped to the path endpoint
+  - This may happen earlier than the raw spring state becoming numerically fully at rest
 
-这也是为什么新的独立 demo 里要同时输出：
+This is also why the new standalone demo needs to output, at the same time:
 
 - `raw_progress_first_ge_target_time`
 - `first_endpoint_lock_time`
 - `close_enough_first_time`
 
-在当前样本里，通常能直接看到：
+In current samples, it's typically possible to directly observe:
 
-- raw progress 已经越过 `1.0`
-- 几何点已经停在终点
-- 但 raw spring velocity / force 仍然非零
+- raw progress has already crossed `1.0`
+- the geometric point has already stopped at the endpoint
+- but raw spring velocity / force is still nonzero
 
-这条“端点先锁住、finished 还未必立刻返回”的结论，目前仍然按 inference 标注，因为它依赖把 `sample(progress)` 的 clamp、`VelocityVerlet` 的原始状态、以及 `0x1005934b0` 的 finished gate 三块证据拼在一起。
+This conclusion — "the endpoint locks first, and finished may not return immediately" — is still labeled as inference for now, because it depends on piecing together three strands of evidence: the clamp in `sample(progress)`, the raw state of `VelocityVerlet`, and the finished gate in `0x1005934b0`.
 
-### 6. `ComputerUseCursor.Window` 的 animation 状态槽位已经能对上主控制流写入
+### 6. `ComputerUseCursor.Window`'s animation state slots can now be matched against the main control flow's writes
 
-`ComputerUseCursor.Window` 的真实字段顺序现在也能恢复：
+The real field order of `ComputerUseCursor.Window` can now also be recovered:
 
 - `style`
 - `appMonitor`
@@ -414,18 +414,18 @@ Swift metadata 里已经能直接恢复出这组父子关系：
 - `useOverlayWindowLevel`
 - `correspondingWindowID`
 
-结合 `0x10005be94..0x10005bf18` 的一串连续写字段，可以把 cursor move 动画主链里这几个写入直接对应到：
+Combined with the run of consecutive field writes at `0x10005be94..0x10005bf18`, these writes in the cursor-move animation's main chain can be matched directly to:
 
 - `cursorMotionProgressAnimation`
 - `cursorMotionNextInteractionTimingHandler`
 - `cursorMotionCompletionHandler`
 - `cursorMotionDidSatisfyNextInteractionTiming`
 
-这意味着顶层控制流已经不只是“某个匿名对象在写几个槽位”，而是可以对回真实 `ComputerUseCursor.Window` 内部状态。
+This means the top-level control flow is no longer just "some anonymous object writing a few slots" — it can now be mapped back to the real internal state of `ComputerUseCursor.Window`.
 
-### 7. `SpringParameters` 区域还有一个已确认的 piecewise remap helper
+### 7. There's also a confirmed piecewise remap helper in the `SpringParameters` area
 
-`0x1005879a4` 位于 `Animation.SpringParameters` 一侧，它会把第二个输入量做如下 piecewise 映射：
+`0x1005879a4` sits on the `Animation.SpringParameters` side, and it applies the following piecewise mapping to its second input value:
 
 ```text
 if x <= -1:
@@ -438,81 +438,81 @@ else:
   mapped = 1 - min(x, 1)
 ```
 
-这说明 bundled binary 里确实存在一层 spring 参数规整逻辑，能够把一个 `[-1, 1]` 附近的量映射到阻尼相关参数。
+This shows that the bundled binary does have a layer of spring-parameter normalization logic that can map a value near `[-1, 1]` to a damping-related parameter.
 
-需要强调的是：
+It's worth emphasizing:
 
-- cursor path move 这条链路里当前已经直接确认使用的是 `response = 1.4`、`dampingFraction = 0.9`。
-- 上面这个 remap helper 是同一套 animation 库里的另一条可复用 spring 参数路径，不代表 cursor move 主链一定先经过这个 remap。
+- The cursor path move chain currently uses directly confirmed values of `response = 1.4`, `dampingFraction = 0.9`.
+- The remap helper above is another reusable spring-parameter path within the same animation library, and it doesn't imply the cursor-move main chain necessarily passes through this remap first.
 
-## 仍在重建中的部分
+## Parts Still Under Reconstruction
 
-### 1. 自动 bounds 发现还没有直接 lift 到脚本输入层
+### 1. Automatic bounds discovery hasn't been lifted directly into the script's input layer yet
 
-主 app 在调用 `0x10005fd98` 前，还会先走一次 `0x10005fa84`：
+Before calling `0x10005fd98`, the main app first runs `0x10005fa84`:
 
-- 从运行时屏幕 / 区域列表里挑出同时覆盖起点和终点的 bounds。
-- 如果找不到这样的单个 rect，再对候选 rect 做 union。
+- It picks bounds from the runtime screen/region list that cover both the start and end points.
+- If no such single rect can be found, it falls back to taking the union of candidate rects.
 
-当前脚本为了保持独立、可重复，要求调用方直接传 `--bounds`，没有把这段 runtime screen discovery 接进来。
+To keep the current script standalone and reproducible, it requires the caller to pass `--bounds` directly; this runtime screen-discovery step hasn't been wired in yet.
 
-### 2. duration / 真正的时间速度还没有完全恢复
+### 2. Duration / true time-based speed hasn't been fully recovered yet
 
-目前已经能稳定输出：
+Currently, the script can stably output:
 
-- path 采样点
+- path sample points
 - tangent
 - `speed_units_per_progress`
 
-但这里的“speed”仍然是几何速度，即：
+But the "speed" here is still a geometric speed, i.e.:
 
-- 相邻等 progress 采样点之间的距离
+- the distance between adjacent equal-progress sample points
 
-真正的时间速度还缺少一层：
+True time-based speed is still missing a layer:
 
-- progress 随时间如何推进
-- `BezierParameters.duration` / `AnimationDescriptor` / `CloseEnoughConfiguration` 在 cursor motion 主链路里的最终接法
+- how progress advances over time
+- the final wiring of `BezierParameters.duration` / `AnimationDescriptor` / `CloseEnoughConfiguration` within the cursor-motion main chain
 
-也就是说，现在已经能比较可靠地回答“路线怎么走”，但对“这条路线多快走完”还没有到可以宣称 exact 的程度。
+In other words, the question "which route does it take" can now be answered fairly reliably, but "how fast is this route traveled" isn't yet at the point of being claimed as exact.
 
-比上一版更进一步的是：
+Going further than the previous version, the following are now confirmed:
 
-- spring family
-- close-enough 阈值
+- the spring family
+- the close-enough thresholds
 - `response / dampingFraction`
-- `VelocityVerletSimulation.Configuration` 的字段
+- the fields of `VelocityVerletSimulation.Configuration`
 - `stiffness / drag`
 - `dt = 1/240`
-- `0x1005761bc` / `0x1005934b0` 的 update + finished predicate 控制流
+- the update + finished-predicate control flow of `0x1005761bc` / `0x1005934b0`
 
-这些已经都能直接从二进制确认。
+All of these can now be confirmed directly from the binary.
 
-仍然没有完全 lift 完的，是：
+What's still not fully lifted is:
 
-- `Animation.Transaction` 在 cursor move 这条主链里的完整组装顺序
-- `0x1005934b0` 第二段里几个泛型临时 buffer 的精确语义命名
-- `0x68 / 0x70 -> _value / _targetValue` 的最终符号级证明
-- 真实 wall-clock duration 如何从 spring 仿真和 transaction 调度一起体现到最终时间轴上
+- the complete assembly order of `Animation.Transaction` within the cursor-move main chain
+- the precise semantic naming of several generic temporary buffers in the second stage of `0x1005934b0`
+- the final symbol-level proof of `0x68 / 0x70 -> _value / _targetValue`
+- how the real wall-clock duration emerges onto the final timeline from the combination of the spring simulation and transaction scheduling
 
-## 脚本化落点
+## Scripting Landing Point
 
-这次为了避开 `CursorMotion`，在 `scripts/cursor-motion-re/` 下落了一套独立脚本：
+To avoid touching `CursorMotion`, this round added a standalone set of scripts under `scripts/cursor-motion-re/`:
 
 - `reconstruct_cursor_motion.py inspect`
-  - 读取官方 binary，输出已恢复的 motion 类型、字段、常量和候选系数表。
+  - Reads the official binary and outputs the recovered motion types, fields, constants, and candidate coefficient tables.
 - `reconstruct_cursor_motion.py demo`
-  - 输入起终点和可选 bounds，输出候选路径、measurement 和采样点。
+  - Takes start/end points and optional bounds as input, and outputs candidate paths, measurements, and sample points.
 
-脚本里明确区分两类实现：
+The script explicitly distinguishes between two categories of implementation:
 
 - `confirmed_from_binary`
-  - 分段 cubic path sampling
+  - piecewise cubic path sampling
   - `CursorMotionPathMeasurement`
-  - 候选系数表提取
-  - 候选 score 公式
-  - in-bounds 优先选择策略
+  - candidate coefficient table extraction
+  - candidate score formula
+  - in-bounds-first selection strategy
 - `reconstructed`
-  - duration / timing model
-  - 调用前的 runtime bounds 发现
+  - the duration/timing model
+  - runtime bounds discovery before the call
 
-这样后续继续深挖时，可以逐项把 reconstruction 替换成更准确的函数级实现，而不是整套推倒重来。
+This way, as the analysis continues to dig deeper, each reconstructed piece can be swapped out for a more accurate function-level implementation one at a time, rather than starting the whole thing over.

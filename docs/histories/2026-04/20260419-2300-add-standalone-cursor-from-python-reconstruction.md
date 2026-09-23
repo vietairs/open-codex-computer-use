@@ -1,4 +1,4 @@
-## [2026-04-19 23:00] | Task: 新增基于 Python 重建脚本的 StandaloneCursor
+## [2026-04-19 23:00] | Task: Add a StandaloneCursor built from the Python reconstruction script
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 现在有一个 `swift run CursorMotion` 的版本，但是感觉做得很不理想。基于单独的 `scripts/cursor-motion-re/reconstruct_cursor_motion.py` 去实现一个新的 `StandaloneCursor` 版本出来看看。
+> We currently have a `swift run CursorMotion` version, but it feels pretty unsatisfactory. Build a new `StandaloneCursor` version based on the standalone `scripts/cursor-motion-re/reconstruct_cursor_motion.py` script and see how it looks.
 
 ### 🛠 Changes Overview
-**Scope:** `Package.swift`、`experiments/StandaloneCursor/`、`README*`、`docs/`
+**Scope:** `Package.swift`, `experiments/StandaloneCursor/`, `README*`, `docs/`
 
 **Key Actions:**
-- **[新增独立 target]**: 在 `Package.swift` 里增加 `StandaloneCursor` executable target、`StandaloneCursorSupport` support module 和对应测试 target，避免继续改当前脏着的 `CursorMotion` 线路。
-- **[Swift 版重建模型]**: 在 `experiments/StandaloneCursor/Sources/StandaloneCursorSupport/StandaloneCursorModel.swift` 里按 Python 脚本重建 `20` 条 candidate、`measure + score`、selection policy，以及 `response=1.4` / `dampingFraction=0.9` / `dt=1/240` 的 raw spring timeline。
-- **[新独立 viewer]**: 新增 `StandaloneCursor` app，支持拖动起终点、切换 candidate、重放路径，并把 endpoint lock / close-enough 时间直接展示在 UI 上。
-- **[验证与文档]**: 新增 `StandaloneCursorSupportTests`，并补齐 `experiments/StandaloneCursor/README.md`、顶层 README、`docs/ARCHITECTURE.md` 和执行计划。
+- **[Added a standalone target]**: Added a `StandaloneCursor` executable target, a `StandaloneCursorSupport` support module, and a corresponding test target to `Package.swift`, avoiding further changes to the currently messy `CursorMotion` code path.
+- **[Swift-side reconstruction model]**: In `experiments/StandaloneCursor/Sources/StandaloneCursorSupport/StandaloneCursorModel.swift`, reconstructed the 20 candidates, `measure + score`, the selection policy, and the raw spring timeline (`response=1.4` / `dampingFraction=0.9` / `dt=1/240`) following the Python script.
+- **[New standalone viewer]**: Added the `StandaloneCursor` app, which supports dragging the start/end points, switching candidates, replaying the path, and displays endpoint-lock / close-enough timing directly in the UI.
+- **[Verification and docs]**: Added `StandaloneCursorSupportTests`, and filled in `experiments/StandaloneCursor/README.md`, the top-level README, `docs/ARCHITECTURE.md`, and the exec plan.
 
 ### 🧠 Design Intent (Why)
-现有 `CursorMotion` 更偏视觉和交互实验，不适合继续承载“基于 Python 脚本直接对照 binary lift”的诉求。这次把新 viewer 做成独立 target，一方面能保留旧 lab 的实验自由度，另一方面也能给后续对照脚本、继续往主运行时收敛时提供一个更干净的中间层。
+The existing `CursorMotion` leans more toward visual and interaction experimentation, and isn't well suited to continue carrying the goal of "directly cross-checking against the binary lift via the Python script." Making the new viewer a standalone target preserves the experimental freedom of the old lab on one hand, while providing a cleaner intermediate layer for further cross-checking scripts and eventual convergence back into the main runtime on the other.
 
 ### 📁 Files Modified
 - `Package.swift`

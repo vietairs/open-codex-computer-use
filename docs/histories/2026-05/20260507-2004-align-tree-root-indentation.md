@@ -1,24 +1,24 @@
-# 对齐 AX tree 根节点缩进
+# Align AX tree root-node indentation
 
-## 用户诉求
+## User Request
 
-继续对比 Lark / Electron app 上开源版和官方 `computer-use` 的 `get_app_state` 返回，逐步修正不一致的输出形状。
+Continue comparing the `get_app_state` output between the open-source version and the official `computer-use` on Lark / Electron apps, and progressively fix mismatched output shapes.
 
-## 主要改动
+## Main Changes
 
-- 将真实 AX tree renderer 的根节点缩进从一层 tab 改为顶格。
-- 合成文本节点沿用同一缩进规则，避免 summary children 比真实 children 多缩一层。
+- Changed the real AX tree renderer's root-node indentation from one tab level to flush-left.
+- Applied the same indentation rule to synthetic text nodes, avoiding summary children being indented one level deeper than real children.
 
-## 设计动机
+## Design Intent
 
-官方 Lark 返回里根节点形态是 `0 standard window ...` 顶格，子节点才从一层 tab 开始。开源版之前输出为 `\t0 standard window ...`，整棵树比官方多缩进一层，影响对比和可读性。
+In the official Lark output, the root node is flush-left, like `0 standard window ...`, with child nodes starting at one tab level. The open-source version previously output `\t0 standard window ...`, so the whole tree was indented one level deeper than official, which hurt comparison and readability.
 
-## 验证
+## Verification
 
-- Lark 本地回归确认前三个树行变为：根节点顶格、一级子节点一层缩进、二级子节点两层缩进。
+- Local Lark regression confirms the first three tree lines are now: root node flush-left, level-1 children at one indent level, level-2 children at two indent levels.
 - `swift test --filter SnapshotRenderedTextStartsDirectlyWithAppHeader`
 - `./scripts/build-open-computer-use-app.sh debug`
 
-## 受影响文件
+## Files Affected
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`

@@ -1,77 +1,77 @@
-# npm 分发与发布执行计划
+# npm Distribution and Release Execution Plan
 
-## 目标
+## Goal
 
-让 `open-computer-use` 这套本地 macOS `computer-use` MCP server 能以 npm 形式直接分发，用户可以通过 `open-computer-use`、`open-computer-use-mcp` 或 `open-codex-computer-use-mcp` 任一包名完成安装，并拿到可直接运行的预编译产物与 Codex 插件安装入口。
+Make `open-computer-use`, this local macOS `computer-use` MCP server, directly distributable as an npm package, so users can install it via any of the package names `open-computer-use`, `open-computer-use-mcp`, or `open-codex-computer-use-mcp` and get a ready-to-run precompiled artifact plus a Codex plugin install entry point.
 
-## 范围
+## Scope
 
-- 包含：
-  - 为仓库补一套真实可发布的 npm 打包与发布脚本。
-  - 产出可直接安装的预编译 `.app` 分发物，而不是只发源码。
-  - 支持三个 npm 包名发布到同一套内容。
-  - 更新 README、release 打包脚本、history 等仓库文档。
-- 不包含：
-  - 完整的 code signing / notarization。
-  - 自动修改用户系统权限设置。
-  - Windows / Linux 支持。
+- In scope:
+  - Add a real, publishable npm packaging and release script set to the repo.
+  - Produce a directly installable precompiled `.app` distribution artifact, not just source.
+  - Support publishing the same content under three npm package names.
+  - Update the README, release packaging scripts, history, and other repo docs.
+- Out of scope:
+  - Full code signing / notarization.
+  - Automatically modifying the user's system permission settings.
+  - Windows / Linux support.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
   - `docs/ARCHITECTURE.md`
   - `docs/CICD.md`
   - `docs/SECURITY.md`
   - `docs/SUPPLY_CHAIN_SECURITY.md`
-- 相关代码路径：
+- Related code paths:
   - `scripts/build-open-computer-use-app.sh`
   - `scripts/release-package.sh`
   - `scripts/install-codex-plugin.sh`
   - `plugins/open-computer-use/`
-- 已知约束：
-  - 当前仓库主体是 Swift 可执行程序，不是 Node 项目。
-  - 现有 release 打包脚本还是占位实现，不代表真实构建产物。
-  - npm 分发要尽量降低门槛，不能要求用户本地再装一套 Swift 构建链。
+- Known constraints:
+  - The repo's main body is currently a Swift executable, not a Node project.
+  - The existing release packaging script is still a placeholder implementation, not representative of a real build artifact.
+  - npm distribution should minimize the barrier to entry and must not require users to install a local Swift build toolchain.
 
-## 风险
+## Risks
 
-- 风险：只发布源码 wrapper，会把安装门槛继续留给用户。
-- 缓解方式：npm 包里直接携带预编译 `.app` 和 CLI wrapper。
+- Risk: shipping only a source wrapper still leaves the install barrier to the user.
+- Mitigation: the npm package directly bundles the precompiled `.app` and CLI wrapper.
 
-- 风险：如果只发单架构二进制，会让一部分 macOS 用户安装后不可用。
-- 缓解方式：优先尝试产出 universal macOS binary；如果做不到，至少在 npm 元数据中显式限制平台。
+- Risk: shipping only a single-architecture binary would leave some macOS users unable to run it after install.
+- Mitigation: prefer producing a universal macOS binary; if that isn't possible, at least explicitly restrict the platform in npm metadata.
 
-- 风险：Codex 插件安装仍依赖源码仓库路径，会削弱 npm 包价值。
-- 缓解方式：让 npm 包自身包含插件目录和安装脚本，能独立完成安装。
+- Risk: Codex plugin installation still depending on the source repo path would weaken the value of the npm package.
+- Mitigation: have the npm package itself contain the plugin directory and install script, so it can complete installation independently.
 
-## 里程碑
+## Milestones
 
-1. 调研与方案收敛。
-2. 分阶段实现。
-3. 验证、交付与收尾。
+1. Research and converge on an approach.
+2. Phased implementation.
+3. Verification, delivery, and wrap-up.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
   - `./scripts/build-open-computer-use-app.sh release --arch universal`
   - `node ./scripts/npm/build-packages.mjs`
   - `npm pack --dry-run`
   - `swift test`
-- 手工检查：
-  - 解包后确认任一 npm 包都包含 `dist/Open Computer Use.app`、CLI alias 和 Codex 插件目录。
-  - 本地通过包内命令执行 `doctor` / `mcp`。
-- 观测检查：
-  - npm publish 前确认每个包名已 stage 为独立目录，版本一致。
+- Manual checks:
+  - After unpacking, confirm every npm package includes `dist/Open Computer Use.app`, a CLI alias, and the Codex plugin directory.
+  - Locally run `doctor` / `mcp` via the command bundled inside the package.
+- Observational checks:
+  - Before npm publish, confirm each package name has been staged into an independent directory with a consistent version.
 
-## 进度记录
+## Progress Log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
 
-## 决策记录
+## Decision Log
 
-- 2026-04-17：npm 分发不走“安装时本地编译”，而是优先走“发布时预编译、安装时直接可用”的方案，目的是把 Swift/Xcode 门槛从最终用户侧移到发布链路。
-- 2026-04-17：`.app` 分发物改成 universal binary，同时覆盖 `arm64` 与 `x86_64`，避免 npm 包把 Intel Mac 用户挡在门外。
-- 2026-04-17：npm 包内部保留一份最小仓库镜像，包括 `.agents/plugins/marketplace.json`、`plugins/open-computer-use/`、`dist/Open Computer Use.app` 与 `scripts/install-codex-plugin.sh`，这样包本身就能独立完成 Codex 插件安装。
-- 2026-04-17：新增 `.github/workflows/release.yml`，后续 GitHub Actions 沿用仓库内 `scripts/release-package.sh` 和 `scripts/npm/publish-packages.mjs` 这条真实构建链路，而不是另起一套发布脚本。
+- 2026-04-17: npm distribution does not do "compile locally at install time"; it instead prioritizes a "precompile at publish time, ready to use at install time" approach, with the goal of moving the Swift/Xcode barrier from the end user to the publish pipeline.
+- 2026-04-17: the `.app` distribution artifact was changed to a universal binary, covering both `arm64` and `x86_64`, so the npm package doesn't lock Intel Mac users out.
+- 2026-04-17: the npm package internally keeps a minimal repo mirror, including `.agents/plugins/marketplace.json`, `plugins/open-computer-use/`, `dist/Open Computer Use.app`, and `scripts/install-codex-plugin.sh`, so the package itself can independently complete Codex plugin installation.
+- 2026-04-17: added `.github/workflows/release.yml`; subsequent GitHub Actions runs follow this real build chain based on the repo's own `scripts/release-package.sh` and `scripts/npm/publish-packages.mjs`, rather than standing up a separate release script.

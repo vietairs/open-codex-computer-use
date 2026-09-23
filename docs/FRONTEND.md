@@ -1,11 +1,11 @@
-# 前端协作说明
+# Frontend Collaboration Notes
 
-当仓库里真正有前端界面时，再把这份文档补完整。
+Fill this document out once the repository actually has a frontend interface.
 
-建议在这里维护：
+Suggested content to maintain here:
 
-- 本地启动、构建和联调方式。
-- 浏览器驱动的验收流程。
-- 共享组件边界。
-- 设计系统、样式变量和 CSS 规范。
-- 前端测试策略。
+- How to run locally, build, and do integrated debugging.
+- Browser-driven acceptance flows.
+- Shared component boundaries.
+- Design system, style variables, and CSS conventions.
+- Frontend testing strategy.

@@ -1,52 +1,52 @@
 # Software Cursor Slider Parameter Investigation
 
-这份文档专门回答一个更聚焦的问题：
+This document answers one narrowly focused question:
 
-- 视频里看到的 5 个 slider (`START HANDLE`、`END HANDLE`、`ARC SIZE`、`ARC FLOW`、`SPRING`) 在当前 shipping 的 `Codex Computer Use.app` 里有没有直接证据？
-- 如果 shipping bundle 里没有这组调试 UI 文案，那么它们更接近哪些已经 binary-confirmed 的几何 / timing 量？
-- 这些量一旦变化，实际会把曲线的哪一段拉长、收紧或后移？
+- Is there direct evidence, in the currently shipping `Codex Computer Use.app`, for the 5 sliders seen in the video (`START HANDLE`, `END HANDLE`, `ARC SIZE`, `ARC FLOW`, `SPRING`)?
+- If the shipping bundle doesn't contain this debug-UI copy, which already binary-confirmed geometry / timing quantities are they closest to?
+- When these quantities change, which part of the actual curve gets stretched, tightened, or shifted?
 
-## 结论先写在前面
+## Conclusions up front
 
-当前最稳的结论有 4 条：
+The most solid conclusions right now are these 4:
 
-1. 在 shipping bundle 中，没有扫到 `START HANDLE`、`END HANDLE`、`ARC SIZE`、`ARC FLOW` 这 4 个完整 slider phrase。
-2. `SPRING` / `DEBUG` / `MAIL` / `CLICK` 这类单词在 shipping bundle 里能扫到，但它们都是高度歧义的 token，不能据此宣称“视频里的 debug UI 还保留在 release app 里”。
-3. 虽然 slider 文案没有直接出现在 release bundle 中，但 binary 里明确保留了对应的 motion 结构：
+1. In the shipping bundle, the 4 full slider phrases `START HANDLE`, `END HANDLE`, `ARC SIZE`, and `ARC FLOW` were not found.
+2. Words like `SPRING` / `DEBUG` / `MAIL` / `CLICK` can be found in the shipping bundle, but they're all highly ambiguous tokens, and this alone cannot support the claim that "the debug UI from the video is still in the release app."
+3. Even though the slider copy doesn't appear directly in the release bundle, the binary clearly retains the corresponding motion structures:
    - `CursorMotionPath.startControl`
    - `CursorMotionPath.arc`
    - `CursorMotionPath.arcIn`
    - `CursorMotionPath.arcOut`
    - `CursorMotionPath.endControl`
    - `Animation.SpringParameters(response, dampingFraction)`
-4. 目前最合理的说法是：
-   - 视频里的 slider 更像是内部调试构建对这些底层几何 / timing 量做的一层调参 UI。
-   - shipping binary 里保留的是“固定常量 + 候选表 + 分段逻辑”，不是同名 slider label。
+4. The most reasonable interpretation right now is:
+   - The sliders in the video look more like an internal debug build's tuning UI layered on top of these underlying geometry / timing quantities.
+   - What the shipping binary retains is "fixed constants + candidate tables + segment logic," not slider labels with matching names.
 
-## 证据分层
+## Evidence, by layer
 
-### 1. shipping bundle phrase scan
+### 1. Shipping-bundle phrase scan
 
-对本机 shipping bundle
+Running a full byte scan of the local shipping bundle
 
 `~/.codex/plugins/cache/openai-bundled/computer-use/1.0.750/Codex Computer Use.app`
 
-做整包字节扫描后，当前结果是：
+currently gives:
 
-- `START HANDLE`: 未命中
-- `END HANDLE`: 未命中
-- `ARC SIZE`: 未命中
-- `ARC FLOW`: 未命中
-- `SPRING`: 命中，但属于歧义单词
-- `DEBUG`: 命中，但属于歧义单词
-- `MAIL`: 命中，但属于歧义单词
-- `CLICK`: 命中，但属于歧义单词
+- `START HANDLE`: not found
+- `END HANDLE`: not found
+- `ARC SIZE`: not found
+- `ARC FLOW`: not found
+- `SPRING`: found, but an ambiguous word
+- `DEBUG`: found, but an ambiguous word
+- `MAIL`: found, but an ambiguous word
+- `CLICK`: found, but an ambiguous word
 
-这里最关键的是前四项。它们作为完整 phrase 没出现在 shipping bundle 里，所以不能把“release binary 里存在 slider label”当成既成事实。
+The key point here is the first four. As full phrases, they do not appear in the shipping bundle, so "a slider label exists in the release binary" cannot be treated as established fact.
 
-### 2. motion struct / timing struct 证据
+### 2. Motion struct / timing struct evidence
 
-虽然 phrase 没命中，但 `SkyComputerUseService` 的 Swift metadata 和字符串里已经能直接恢复出这批 motion 结构：
+Even though the phrases don't match, this batch of motion structures can already be directly recovered from `SkyComputerUseService`'s Swift metadata and strings:
 
 - `CursorMotionPath`
   - `start`
@@ -67,20 +67,20 @@
   - `response`
   - `dampingFraction`
 
-因此“底层曲线确实可拆成 handle / arc / spring 这些量”已经是 binary-backed 结论；当前没坐实的，是“内部调试 UI 上的 5 个 slider 与这些字段之间的一一映射关系”。
+So "the underlying curve can indeed be decomposed into quantities like handle / arc / spring" is already a binary-backed conclusion; what isn't nailed down yet is "the one-to-one mapping between the 5 sliders in the internal debug UI and these fields."
 
-## 当前最合理的 slider 映射
+## Current best-guess slider mapping
 
-下面这层仍然带 inference，但每一项都尽量只挂到已经确认的 binary 量。
+The layer below still carries inference, but every item is pinned to an already-confirmed binary quantity as much as possible.
 
 ### `START HANDLE`
 
-当前最接近：
+Currently closest to:
 
 - `CursorMotionPath.startControl`
-- candidate builder 中的 `startExtent`
+- `startExtent` in the candidate builder
 
-在当前 binary-lift 里，`startExtent` 来自一条 piecewise：
+In the current binary lift, `startExtent` comes from a piecewise function:
 
 ```text
 48
@@ -88,40 +88,40 @@ distance * 0.41960295031576633
 640
 ```
 
-再叠加 bounds clipping 后，写到 `startControl`。
+which is then written into `startControl` after additional bounds clipping.
 
-直观影响：
+Intuitive effect:
 
-- 主要改变起步阶段“先顺车头方向甩出去多远”。
-- handle 更大时，曲线前段更长、更晚才往目标收。
-- handle 更小时，起步更快回咬主轴。
+- Mainly changes how far the motion "flicks out in the direction of the cursor's initial heading" during the start phase.
+- With a larger handle, the early part of the curve is longer, and it turns back toward the target later.
+- With a smaller handle, it bites back toward the main axis faster at the start.
 
 ### `END HANDLE`
 
-当前最接近：
+Currently closest to:
 
 - `CursorMotionPath.endControl`
-- candidate builder 中的 `endExtent`
+- `endExtent` in the candidate builder
 
-它控制终点前那一段导向量拉多长，直观上更像“刹车和收尾的手柄长度”。
+It controls how long the guide vector is stretched before the endpoint, which intuitively is more like "the handle length of the braking and settling motion."
 
-直观影响：
+Intuitive effect:
 
-- 更大时，末段更容易拉出更长的收束钩子。
-- 更小时，末段更早贴回目标。
+- When larger, the tail end more easily produces a longer settling hook.
+- When smaller, the tail end snaps back to the target earlier.
 
-但这项特别容易被 bounds clipping 吃掉，所以某些样例里会看起来“几乎没变”。
+But this one is especially prone to being absorbed by bounds clipping, so in some samples it can look like "barely changed at all."
 
 ### `ARC SIZE`
 
-当前最接近：
+Currently closest to:
 
 - `handleExtent`
 - `arcExtent`
 - `tableA`
 - `tableB`
 
-其中已确认的主尺度是：
+The already-confirmed primary scale is:
 
 ```text
 handleExtent = piecewise(distance * 0.2765523188064277)
@@ -130,57 +130,57 @@ tableA = [0.55, 0.8, 1.05]
 tableB = [0.65, 1.0, 1.35]
 ```
 
-直观影响：
+Intuitive effect:
 
-- 更大时，arched family 的 apex 离 chord 更远，曲线更宽、更弯、长度更长。
-- 更小时，arched family 更像收紧后的椭圆或浅弧。
+- When larger, the arched family's apex sits farther from the chord, and the curve is wider, more curved, and longer.
+- When smaller, the arched family looks more like a tightened ellipse or a shallow arc.
 
 ### `ARC FLOW`
 
-当前没有恢复出一个独立的 `flow` 字段。
+No independent `flow` field has been recovered so far.
 
-shipping binary 里最接近的固定量是：
+The closest fixed quantity in the shipping binary is:
 
 ```text
 arcAnchorBias = guide * (startExtent * 0.65)
 ```
 
-也就是 arc anchor 会被往 guide 方向推一段，而不是严格落在 chord midpoint 上。
+That is, the arc anchor gets pushed some distance toward the guide direction, rather than sitting strictly at the chord midpoint.
 
-因此当前最保守的说法是：
+So the most conservative statement right now is:
 
-- `ARC FLOW` 更像在调“apex 沿路径前后偏移多少”，而不是单纯调“弧有多大”。
-- 它主要改变的是“最宽的那一段出现在路径更前还是更后”。
+- `ARC FLOW` looks more like tuning "how far forward or backward the apex shifts along the path," not simply "how big the arc is."
+- What it mainly changes is "whether the widest part of the path appears earlier or later along the route."
 
-这条判断比 `START/END HANDLE` 和 `ARC SIZE` 更弱，因为 shipping binary 当前没有恢复出一个明确叫 `flow` 的独立字段。
+This judgment is weaker than for `START/END HANDLE` and `ARC SIZE`, because the shipping binary currently has no clearly named independent `flow` field recovered.
 
 ### `SPRING`
 
-这项是目前 5 个里 binary 证据最直接的。
+This one has the most direct binary evidence of the 5.
 
-cursor move 的 timing 链已经直接确认会走：
+The cursor-move timing chain has already been directly confirmed to go through:
 
 - `Animation.SpringParameters(response=1.4, dampingFraction=0.9)`
 - `Animation.VelocityVerletSimulation.Configuration(dt=1/240, idleVelocityThreshold=28800)`
 
-所以至少可以确认：
+So at minimum, this can be confirmed:
 
-- “spring 确实是 cursor motion 的一等 timing 输入”。
-- shipping 默认档的 release 常量就是 `response=1.4`、`dampingFraction=0.9`。
+- "Spring is indeed a first-class timing input to cursor motion."
+- The default shipping-release constants are `response=1.4`, `dampingFraction=0.9`.
 
-当前没恢复的是：
+What hasn't been recovered yet:
 
-- 内部 debug UI 那个单一 `SPRING` slider，究竟怎么映射成 `response/dampingFraction` 这对值。
+- Exactly how the single `SPRING` slider in the internal debug UI maps onto that `response/dampingFraction` pair.
 
-动画库附近还有一个 `0x1005879a4` 的 piecewise remap helper，但当前证据仍指向“cursor move 主链直接用 1.4 / 0.9”，而不是先经过那条 helper。
+There is also a piecewise remap helper at `0x1005879a4` near the animation library, but the current evidence still points to "the main cursor-move chain uses 1.4 / 0.9 directly," rather than going through that helper first.
 
-## 对实际曲线的影响
+## Effect on the actual curve
 
-下面是对两个样例做 `slider-study` 后，最值得记的几条行为结论。
+Below are the most notable behavioral conclusions from running a `slider-study` on two samples.
 
-### 样例 A：lab 默认点位
+### Sample A: default lab point
 
-输入：
+Input:
 
 ```text
 start = (220, 440)
@@ -188,33 +188,33 @@ end   = (860, 260)
 bounds = (0, 0, 1120, 760)
 ```
 
-baseline 选中的仍然是 `base-scaled-guide`，不是 arched family。
+The baseline selection is still `base-scaled-guide`, not the arched family.
 
-因此：
+So:
 
 - `START HANDLE`
-  - `-25%` 时，chosen path 长度约 `744.1`，最大离 chord 偏移约 `44.6`
-  - `+25%` 时，chosen path 长度约 `776.9`，最大离 chord 偏移约 `49.8`
-  - 说明它直接影响当前可见主路径
+  - At `-25%`, the chosen path length is about `744.1`, with a max offset from the chord of about `44.6`
+  - At `+25%`, the chosen path length is about `776.9`, with a max offset from the chord of about `49.8`
+  - This shows it directly affects the currently visible primary path
 - `END HANDLE`
-  - 这组样例里几乎没变
-  - 原因不是“binary 里没有 end handle”，而是 `endControl` 已经被 bounds clipping 钉住
+  - Barely changed in this sample set
+  - Not because "the binary has no end handle," but because `endControl` is already pinned down by bounds clipping
 - `ARC SIZE`
-  - 当前 chosen path 仍然没变
-  - 但 best arched candidate 的离 chord 偏移会从约 `90.1` 涨到约 `152.9`
-  - 说明这项当前更像在改 arched family 的竞争力和宽度
+  - The current chosen path still doesn't change
+  - But the best arched candidate's offset from the chord rises from about `90.1` to about `152.9`
+  - This shows this one currently affects more the competitiveness and width of the arched family
 - `ARC FLOW`
-  - 当前 chosen path 仍然没变
-  - 但 best arched candidate 的 apex progress 会从约 `0.558` 挪到约 `0.863`
-  - 说明它主要在改“最宽的弧出现在更前还是更后”
+  - The current chosen path still doesn't change
+  - But the best arched candidate's apex progress shifts from about `0.558` to about `0.863`
+  - This shows it mainly changes "whether the widest part of the arc appears earlier or later"
 - `SPRING`
-  - baseline endpoint-lock 约 `1.4291667s`
-  - `response -15%` 时，endpoint-lock 提前到约 `1.225s`
-  - `response +15%` 时，endpoint-lock 延后到约 `1.6375s`
+  - Baseline endpoint-lock is about `1.4291667s`
+  - At `response -15%`, the endpoint-lock moves earlier, to about `1.225s`
+  - At `response +15%`, the endpoint-lock is delayed to about `1.6375s`
 
-### 样例 B：更居中的 end-handle 样例
+### Sample B: a more centered end-handle sample
 
-输入：
+Input:
 
 ```text
 start = (240, 420)
@@ -222,46 +222,46 @@ end   = (760, 360)
 bounds = (0, 0, 1280, 900)
 ```
 
-这组更能看出 `END HANDLE` 的实际作用：
+This set shows `END HANDLE`'s actual role more clearly:
 
 - `end_extent -25%`
-  - chosen path 长度约 `632.4`
-  - 最大离 chord 偏移约 `55.2`
+  - Chosen path length is about `632.4`
+  - Max offset from the chord is about `55.2`
   - `endControl ≈ (899.55, 177.60)`
 - `end_extent +25%`
-  - chosen path 长度约 `666.4`
-  - 最大离 chord 偏移约 `75.1`
+  - Chosen path length is about `666.4`
+  - Max offset from the chord is about `75.1`
   - `endControl ≈ (939.02, 126.0)`
 
-也就是说：
+In other words:
 
-- end-handle 不是“没参与 shipping binary”
-- 而是它的可见影响非常依赖当前路径是否先被 bounds clip 住
+- The end handle isn't "absent from the shipping binary"
+- Rather, its visible effect depends heavily on whether the current path has already been clipped by bounds
 
-## 当前最稳的边界
+## Current firm boundaries
 
-可以直接说的：
+What can be said directly:
 
-- shipping binary 里没有 `START HANDLE` / `END HANDLE` / `ARC SIZE` / `ARC FLOW` 这些完整 label phrase。
-- shipping binary 里明确存在 `startControl / arc / arcIn / arcOut / endControl / SpringParameters(response,dampingFraction)`。
-- `SPRING` 对 timing 的参与是 direct binary evidence。
-- `START HANDLE` / `END HANDLE` / `ARC SIZE` / `ARC FLOW` 当前更像是对 release builder 中固定几何量的一层调试 UI 映射。
+- The shipping binary does not contain the full label phrases `START HANDLE` / `END HANDLE` / `ARC SIZE` / `ARC FLOW`.
+- The shipping binary clearly contains `startControl / arc / arcIn / arcOut / endControl / SpringParameters(response,dampingFraction)`.
+- `SPRING`'s participation in timing is direct binary evidence.
+- `START HANDLE` / `END HANDLE` / `ARC SIZE` / `ARC FLOW` currently look more like a debug-UI mapping layered on top of fixed geometry quantities in the release builder.
 
-还不能直接说死的：
+What still cannot be said for certain:
 
-- 5 个 slider 与 shipping binary 内部字段之间已经一一对上。
-- `ARC FLOW` 已经恢复到一个独立字段。
-- 单一 `SPRING` slider 的 release 映射已经确认一定经过 `0x1005879a4`。
+- That the 5 sliders have already been mapped one-to-one to fields inside the shipping binary.
+- That `ARC FLOW` has already been recovered as an independent field.
+- That the single `SPRING` slider's release mapping has been confirmed to definitely go through `0x1005879a4`.
 
-## 可重复命令
+## Reproducible commands
 
-查看当前 binary 的 motion 结构与常量：
+View the current binary's motion structures and constants:
 
 ```bash
 python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py inspect --pretty
 ```
 
-查看 slider 敏感性分析：
+View the slider-sensitivity analysis:
 
 ```bash
 python3 scripts/cursor-motion-re/reconstruct_cursor_motion.py slider-study \

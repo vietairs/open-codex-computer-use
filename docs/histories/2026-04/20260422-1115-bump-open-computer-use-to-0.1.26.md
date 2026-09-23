@@ -1,4 +1,4 @@
-## [2026-04-22 11:15] | Task: 发布 0.1.26
+## [2026-04-22 11:15] | Task: Release 0.1.26
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -9,9 +9,9 @@
 **Scope:** release version bump, release notes, local release verification
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.26`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.26`，说明本次 patch release 聚焦 visual cursor 连续操作生命周期、turn-ended 清理，以及 `scroll` / `drag` 默认非物理 pointer 路径。
-- **[Release Trigger]**: 基于 cursor 生命周期和剩余 tool 默认行为对齐提交，准备用 `v0.1.26` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: Unified the plugin manifest, Swift/Go version constants, smoke suite init version, test MCP client version, and CLI doc paths, bumping them all to `0.1.26`.
+- **[Release Notes]**: Added `0.1.26` to the user-facing release record, noting that this patch release focuses on the visual cursor's continuous-operation lifecycle, turn-ended cleanup, and the default non-physical pointer path for `scroll` / `drag`.
+- **[Release Trigger]**: Based on the cursor lifecycle and the alignment commit for the remaining tools' default behavior, prepared to push the `v0.1.26` tag to trigger a new GitHub Actions release.
 
 ### Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

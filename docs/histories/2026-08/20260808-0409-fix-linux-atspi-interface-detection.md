@@ -6,18 +6,18 @@
 * **Runtime**: `T3 Code / Codex harness`
 
 ### 📥 User Query
-> 修复 Linux 文本编辑流程中发现的上游问题，并准备 Pull Request。
+> Fix the upstream issue found in the Linux text-editing flow, and prepare a Pull Request.
 
 ### 🛠 Changes Overview
 **Scope:** Linux Computer Use runtime
 
 **Key Actions:**
-- **标准接口检测**: 使用 `Accessible.get_interfaces()` 判断 `Text` 与 `EditableText` 能力，移除对部分 PyGObject 环境不存在属性的访问。
-- **回归覆盖**: 添加无桌面依赖的 Python 测试，并接入仓库基础 CI。
-- **文档同步**: 更新 Linux 架构说明、troubleshooting 与用户可见功能记录。
+- **Standard interface detection**: Use `Accessible.get_interfaces()` to determine `Text` and `EditableText` capability, removing access to attributes that don't exist in some PyGObject environments.
+- **Regression coverage**: Added Python tests with no desktop dependency, and wired them into the repo's baseline CI.
+- **Documentation sync**: Updated the Linux architecture notes, troubleshooting guide, and user-facing feature record.
 
 ### 🧠 Design Intent (Why)
-Ubuntu 24.04 的 AT-SPI GI binding 不提供 `Accessible.is_text` 和 `Accessible.is_editable_text` 属性。原实现会在进入容错包装前抛出 `AttributeError`，导致快照和文本工具不可用。`get_interfaces()` 是实际 binding 提供的能力查询接口，并可在不同 toolkit 节点上安全降级。
+Ubuntu 24.04's AT-SPI GI binding does not provide the `Accessible.is_text` and `Accessible.is_editable_text` attributes. The original implementation would throw an `AttributeError` before reaching the fault-tolerant wrapper, making the snapshot and text tools unusable. `get_interfaces()` is the capability-query interface the binding actually provides, and it degrades safely across different toolkit nodes.
 
 ### 📁 Files Modified
 - `apps/OpenComputerUseLinux/runtime.py`

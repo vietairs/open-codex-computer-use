@@ -12,15 +12,15 @@
 **Scope:** `OpenComputerUseKit`, `docs/ARCHITECTURE.md`, `docs/histories/`
 
 **Key Actions:**
-- **[Targeted click fallback]**: 给 `click` 增加 `CGEvent.postToPid` 定向鼠标事件兜底，避免 AX 失败后默认直接落到会移动真实鼠标的全局 HID 路径。
-- **[Semantic click ordering]**: 调整 element-targeted / coordinate `click` 的 AX 顺序，先试直接语义动作与子孙 `AXOpen` 候选，再把 `AXRaise` / focus 类激活放到后面，避免 Finder 侧边栏这类“只聚焦、不导航”的假成功。
-- **[Behavior docs]**: 更新架构文档，明确 `click` 现在的顺序是 `AX -> pid-targeted mouse event -> optional global pointer fallback`。
-- **[Live validation]**: 用 Finder 侧边栏 `Applications` 做真实样本回归，验证默认路径无需抓用户鼠标也能点通。
+- **[Targeted click fallback]**: Added a `CGEvent.postToPid` targeted mouse-event fallback for `click`, to avoid defaulting straight to the global HID path — which moves the real mouse — after an AX failure.
+- **[Semantic click ordering]**: Reordered the AX sequence for element-targeted/coordinate `click`: try direct semantic actions and descendant `AXOpen` candidates first, and push `AXRaise`/focus-style activation later, to avoid a false success on things like the Finder sidebar that only focus without navigating.
+- **[Behavior docs]**: Updated the architecture docs to state that `click`'s order is now `AX -> pid-targeted mouse event -> optional global pointer fallback`.
+- **[Live validation]**: Used the Finder sidebar's `Applications` item as a real-sample regression, confirming the default path can click through without grabbing the user's mouse.
 
 ### 🧠 Design Intent (Why)
-官方 Computer Use 在 Finder 这类 AX 不完整的目标上仍能点击成功，而不会默认抢用户硬件鼠标。本地实现也需要先走更窄的定向事件路径，把全局物理指针 fallback 保持为显式 opt-in 的最后逃生口。
+Official Computer Use can still click successfully on targets with incomplete AX, like Finder, without defaulting to hijacking the user's hardware mouse. The local implementation also needs to try the narrower targeted-event path first, keeping the global physical pointer fallback as an explicit, opt-in last resort.
 
-后续回归里又发现一个更细的行为问题：Finder sidebar row 本身可能允许 `focus/main` 之类激活成功，但这不等于真正执行了导航。如果把这一步放在 `AXOpen` 之前，就会把“没切页的聚焦”误报成成功点击，所以顺序必须继续收敛到“语义点击优先，聚焦激活兜底”。
+A subsequent regression uncovered a subtler behavioral issue: a Finder sidebar row itself may allow a `focus`/`main`-style activation to succeed, but that does not mean navigation actually happened. Placing that step before `AXOpen` would misreport "focused but didn't switch pages" as a successful click, so the ordering must keep converging on "semantic click first, focus/activation as fallback."
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/InputSimulation.swift`

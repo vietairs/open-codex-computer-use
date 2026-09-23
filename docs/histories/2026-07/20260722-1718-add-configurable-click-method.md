@@ -6,20 +6,20 @@
 * **Runtime**: `Codex desktop`
 
 ### 📥 User Query
-> 为 `click` 增加可选实现方式，默认保持当前行为，显式选择时避免 AX 候选把坐标点击重定向到其他元素。
+> Add an optional implementation choice for `click`, keeping the current behavior as the default, and when explicitly selected, avoid AX candidate matching redirecting the coordinate click to a different element.
 
 ### 🛠 Changes Overview
-**Scope:** macOS OpenComputerUseKit / app-agent proxy、Windows runtime、Linux runtime、tool schema、skill 与仓库文档
+**Scope:** macOS OpenComputerUseKit / app-agent proxy, Windows runtime, Linux runtime, tool schema, skill and repo docs
 
 **Key Actions:**
-- **[公共参数]**: 新增 `click_method=auto|accessibility|app_post|global`；未传参数继续走原有 `auto` 路由，显式模式失败时不静默 fallback。
-- **[macOS 路由]**: `accessibility` 只执行 AX，`app_post` 绕过 AX 并使用 `CGEvent.postToPid`，`global` 绕过 AX 并使用 `.cghidEventTap`。
-- **[安全门]**: `global` 继续要求 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`，并让 CLI / MCP proxy 把受限前缀环境变量随请求传给 app agent。
-- **[跨平台映射]**: Windows 将 `app_post` 映射到 HWND `PostMessage` 并拒绝 `global`；Linux 将 `global` 映射到 AT-SPI mouse synthesis 并拒绝 `app_post`。
-- **[验证]**: Swift 全量测试、Windows / Linux Go 测试、skill 打包、标准 tool smoke 和 visual cursor idle smoke 全部通过。
+- **[Shared parameter]**: Added `click_method=auto|accessibility|app_post|global`; when the parameter is not passed, it continues to use the original `auto` routing, and an explicit mode does not silently fall back on failure.
+- **[macOS routing]**: `accessibility` only performs AX; `app_post` bypasses AX and uses `CGEvent.postToPid`; `global` bypasses AX and uses `.cghidEventTap`.
+- **[Safety gate]**: `global` still requires `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`, and the CLI / MCP proxy passes the restricted-prefix environment variable along with the request to the app agent.
+- **[Cross-platform mapping]**: on Windows, `app_post` maps to HWND `PostMessage` and rejects `global`; on Linux, `global` maps to AT-SPI mouse synthesis and rejects `app_post`.
+- **[Verification]**: full Swift test suite, Windows / Linux Go tests, skill packaging, standard tool smoke, and visual cursor idle smoke all passed.
 
 ### 🧠 Design Intent (Why)
-坐标点击的自动 AX 路径可能从命中的容器扫描到不包含原坐标的可点击后代。新增显式实现选择后，调用方可以在保留默认兼容行为的同时，用 `app_post` 严格向目标应用发送原坐标鼠标事件；高风险的全局指针路径仍需调用参数与进程环境双重授权。
+The automatic AX path for coordinate clicks can scan from the hit container to a clickable descendant that doesn't contain the original coordinate. With an explicit implementation choice added, the caller can keep the default compatible behavior while using `app_post` to strictly send the mouse event at the original coordinate to the target app; the higher-risk global pointer path still requires dual authorization — both the call parameter and the process environment.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`

@@ -1,4 +1,4 @@
-## [2026-04-20 18:18] | Task: 修复 CI 在导入 Developer ID 证书后未能解析 signing identity 的回退逻辑
+## [2026-04-20 18:18] | Task: Fix the fallback logic where CI failed to resolve the signing identity after importing the Developer ID certificate
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 可以，bump 小版本 tag 推，然后看看结果
+> Sure, bump the patch version, push the tag, then check the result.
 
 ### 🛠 Changes Overview
-**Scope:** `.github/workflows/`、`docs/`
+**Scope:** `.github/workflows/`, `docs/`
 
 **Key Actions:**
-- **[Failure Triage]**: 检查 `v0.1.17` 的 GitHub Actions 失败日志，确认 `package-npm` 与 `release-cursor-motion-dmg` 都在 “Prepare ... signing config” 阶段退出，原因是 runner 上的 `security find-identity` 输出没有被当前解析逻辑识别到。
-- **[Identity Fallback Fix]**: release workflow 现在会优先使用已配置的 `OPEN_COMPUTER_USE_CODESIGN_IDENTITY` secret 作为签名 identity，只有在该 secret 缺失时才尝试从导入后的 keychain 自动解析。
-- **[Retry Preparation]**: 为同版本重跑 release 做好修复，避免 `.p12` 已正确导入但因输出格式差异导致 workflow 误判 “no usable codesigning identity”。
+- **[Failure Triage]**: Inspected the `v0.1.17` GitHub Actions failure logs and confirmed both `package-npm` and `release-cursor-motion-dmg` exited during the "Prepare ... signing config" stage, because the current parsing logic did not recognize the runner's `security find-identity` output.
+- **[Identity Fallback Fix]**: The release workflow now prefers the configured `OPEN_COMPUTER_USE_CODESIGN_IDENTITY` secret as the signing identity, and only attempts to auto-resolve it from the keychain after import when that secret is missing.
+- **[Retry Preparation]**: Prepared the fix for re-running the release on the same version, avoiding the case where the `.p12` was correctly imported but the workflow still misjudged "no usable codesigning identity" due to an output-format mismatch.
 
 ### 🧠 Design Intent (Why)
-这次失败不是证书本身不可用，而是 CI 对 `security find-identity` 输出的假设过于脆弱。既然 repo secret 里已经明确保存了目标 `Developer ID Application` CN，最稳的做法就是优先信任这份配置，而不是把整个 release 成败绑定在 runner 的工具输出格式上。
+This failure wasn't because the certificate itself was unusable — it was because CI's assumptions about `security find-identity` output were too brittle. Since the repo secret already explicitly stores the target `Developer ID Application` CN, the most robust approach is to trust that configuration first, rather than tying the entire release's success to the runner's tool output format.
 
 ### 📁 Files Modified
 - `.github/workflows/release.yml`

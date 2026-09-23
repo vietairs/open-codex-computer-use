@@ -1,33 +1,33 @@
-# Codex 上游抓包与评估样本沉淀
+# Codex Upstream Traffic Capture and Eval Sample Storage
 
-这份文档描述如何用 `mitmdump` + 仓库内的 `scripts/codex_dump.py` 抓取 Codex 到上游的 HTTP / WebSocket 流量，并把样本沉淀到仓库内的 `artifacts/codex-dumps/` 目录做后续分析和 eval。
+This document describes how to use `mitmdump` plus the repo's own `scripts/codex_dump.py` to capture Codex's HTTP / WebSocket traffic to its upstream, and store the samples under the repo's `artifacts/codex-dumps/` directory for later analysis and eval.
 
-默认排查顺序里，这份文档应该优先于 `docs/references/codex-local-runtime-logs.md`：
+In the default troubleshooting order, this document should take priority over `docs/references/codex-local-runtime-logs.md`:
 
-- 先看上游 LLM call dump。
-- 再看同一个 dump 目录里的 `local-sessions/*.json`，确认本地 `function_call` / `function_call_output`。
-- 只有当这两层仍然不足以解释本地 tool / MCP 行为时，才补查 Codex 自己更底层的本地日志。
+- First look at the upstream LLM call dump.
+- Then look at `local-sessions/*.json` in the same dump directory, to confirm the local `function_call` / `function_call_output`.
+- Only check Codex's own lower-level local logs when these two layers still aren't enough to explain the local tool / MCP behavior.
 
-现在的 `scripts/codex_dump.py` 会利用 websocket 握手里的 `session_id`，把对应的 `~/.codex/sessions/rollout-*.jsonl` 摘要一起落到当前 session 目录里，所以很多关于官方 `computer-use` 的问题，已经不需要第一时间跳去查 `logs_2.sqlite`。
+The current `scripts/codex_dump.py` uses the `session_id` from the websocket handshake to also drop a summary of the corresponding `~/.codex/sessions/rollout-*.jsonl` into the current session directory, so many questions about the official `computer-use` no longer need an immediate detour into `logs_2.sqlite`.
 
-## 适用场景
+## Use Cases
 
-- 观察 Codex 实际发往上游的请求形态。
-- 记录不同 prompt / 配置 /模型下的真实响应轨迹。
-- 为后续 eval、回归对比或逆向分析沉淀样本。
-- 让 Agent 可以直接在后台启动抓包，再执行一批 Codex 用例。
+- Observing the actual shape of requests Codex sends upstream.
+- Recording real response traces under different prompts / configs / models.
+- Storing samples for later eval, regression comparison, or reverse-engineering analysis.
+- Letting an agent start the capture in the background directly, then run a batch of Codex cases.
 
-## 目录约定
+## Directory Convention
 
-抓包结果推荐统一写到：
+Capture results are recommended to consistently go to:
 
 ```text
 artifacts/codex-dumps/<session-name>/
 ```
 
-这个目录已经被 `.gitignore` 忽略，适合长期把真实样本保存在仓库工作区里而不误提交。
+This directory is already ignored by `.gitignore`, so it's suitable for keeping real samples in the repo working tree long-term without accidentally committing them.
 
-建议每次实验单独建一个 session 目录，例如：
+It's recommended to create a separate session directory per experiment, e.g.:
 
 ```text
 artifacts/codex-dumps/20260417-basic-ok/
@@ -35,20 +35,20 @@ artifacts/codex-dumps/20260417-tool-call-case-a/
 artifacts/codex-dumps/20260417-reasoning-compare-gpt54/
 ```
 
-## 前置条件
+## Prerequisites
 
-1. 本机已安装 `mitmproxy` / `mitmdump`。
-2. mitm CA 文件存在：
+1. `mitmproxy` / `mitmdump` is installed locally.
+2. The mitm CA file exists:
 
 ```text
 $HOME/.mitmproxy/mitmproxy-ca-cert.pem
 ```
 
-3. 如需让 GUI app 也走代理，还需要把 mitm CA 导入并信任到系统钥匙串；但对 CLI 抓包，显式设置 `SSL_CERT_FILE` 通常就够用。
+3. If you also need GUI apps to go through the proxy, you'll additionally need to import and trust the mitm CA in the system keychain; but for CLI capture, explicitly setting `SSL_CERT_FILE` is usually enough.
 
-## 前台启动 mitmdump
+## Starting mitmdump in the Foreground
 
-最直接的前台跑法：
+The most direct foreground way to run it:
 
 ```bash
 mitmdump \
@@ -58,7 +58,7 @@ mitmdump \
   --set codex_dump_dir=artifacts/codex-dumps/session-001
 ```
 
-然后在另一个终端里让 Codex 走这个代理：
+Then, in another terminal, have Codex go through this proxy:
 
 ```bash
 HTTPS_PROXY=http://127.0.0.1:8082 \
@@ -67,30 +67,30 @@ SSL_CERT_FILE=$HOME/.mitmproxy/mitmproxy-ca-cert.pem \
 codex exec --skip-git-repo-check -C /tmp 'reply with one word: ok'
 ```
 
-## 后台启动 mitmdump
+## Starting mitmdump in the Background
 
-如果希望 Agent 或脚本自己在后台拉起抓包，优先直接用仓库内脚本：
+If you want an agent or script to launch the capture in the background itself, prefer using the repo's own script directly:
 
 ```bash
 ./scripts/start-codex-mitm-dump.sh basic-ok
 ```
 
-这个脚本会自动：
+This script will automatically:
 
-- 创建 `artifacts/codex-dumps/<session-name>/`
-- 后台启动 `mitmdump`
-- 写入 `mitmdump.log`
-- 写入 `mitmdump.pid`
-- 生成 `codex-proxy.env`，方便后续 `source`
+- Create `artifacts/codex-dumps/<session-name>/`
+- Start `mitmdump` in the background
+- Write `mitmdump.log`
+- Write `mitmdump.pid`
+- Generate `codex-proxy.env`, for convenient later `source`ing
 
-最常见的后续用法是：
+The most common follow-up usage is:
 
 ```bash
 source artifacts/codex-dumps/basic-ok/codex-proxy.env
 codex exec --skip-git-repo-check -C /tmp 'reply with one word: ok'
 ```
 
-如果你需要完全手工控制，也可以用下面这套等价底层写法：
+If you need full manual control, you can also use the following equivalent low-level approach:
 
 ```bash
 session_dir="artifacts/codex-dumps/$(date +%Y%m%d-%H%M%S)-basic-ok"
@@ -106,21 +106,21 @@ nohup setsid mitmdump \
 echo $! >"$session_dir/mitmdump.pid"
 ```
 
-这套方式有几个优点：
+This approach has several advantages:
 
-- 不依赖交互终端，适合 Agent 直接执行。
-- 日志、PID 和抓包内容都落在同一个 session 目录里。
-- 后续批量跑多个 Codex case 时，不需要重复手工盯着 mitm UI。
+- Doesn't depend on an interactive terminal, so it's suitable for an agent to run directly.
+- The log, PID, and captured content all land in the same session directory.
+- When later batch-running multiple Codex cases, there's no need to keep manually watching the mitm UI.
 
-停止抓包：
+Stop the capture:
 
 ```bash
 kill "$(cat "$session_dir/mitmdump.pid")"
 ```
 
-## 通过代理执行 Codex case
+## Running a Codex Case Through the Proxy
 
-固定写法建议如下：
+The recommended fixed form is:
 
 ```bash
 HTTPS_PROXY=http://127.0.0.1:8082 \
@@ -129,36 +129,36 @@ SSL_CERT_FILE=$HOME/.mitmproxy/mitmproxy-ca-cert.pem \
 codex exec --skip-git-repo-check -C /tmp 'reply with one word: ok'
 ```
 
-如果要跑多组 case，推荐只启动一次 `mitmdump`，然后串行执行多条 Codex 命令，并为每个 case 建独立 session 目录。
+If you need to run multiple cases, it's recommended to start `mitmdump` only once, then run multiple Codex commands serially, creating a separate session directory for each case.
 
-## 主要会抓到什么
+## What Gets Captured Mainly
 
-当前 Codex 主模型调用通常会命中：
+Currently, Codex's main model calls will typically hit:
 
 ```text
 https://chatgpt.com/backend-api/codex/responses
 ```
 
-它不是普通 REST body，而是：
+This isn't a normal REST body; instead:
 
-1. 先发起 `GET /backend-api/codex/responses`
-2. 返回 `101 Switching Protocols`
-3. 后续通过 WebSocket 帧承载：
+1. A `GET /backend-api/codex/responses` request is made first
+2. It returns `101 Switching Protocols`
+3. Subsequent traffic is carried over WebSocket frames:
    - `response.create`
    - `response.created`
    - `response.in_progress`
    - `response.output_text.delta`
    - `response.completed`
 
-辅助流量里还可能看到：
+Supplementary traffic may also include:
 
 - `https://chatgpt.com/backend-api/wham/apps`
 - `https://chatgpt.com/backend-api/plugins/featured`
-- analytics 相关请求
+- analytics-related requests
 
-## 输出结构
+## Output Structure
 
-`scripts/codex_dump.py` 默认会生成：
+By default, `scripts/codex_dump.py` will produce:
 
 ```text
 artifacts/codex-dumps/<session-name>/
@@ -167,106 +167,106 @@ artifacts/codex-dumps/<session-name>/
   local-sessions/
 ```
 
-其中：
+Where:
 
 - `http/*.json`
-  保存匹配到的 HTTP 请求和响应。
+  Saves matched HTTP requests and responses.
 - `websocket/*.jsonl`
-  按事件逐行保存 WebSocket 开始、消息和结束。
+  Saves WebSocket start, message, and end events, one per line.
 - `local-sessions/*.json`
-  从 `~/.codex/sessions/rollout-*.jsonl` 导出的结构化摘要，只保留当前抓包 `session_id` 命中的 user prompt、tool call、tool result 和 final answer。
+  A structured summary exported from `~/.codex/sessions/rollout-*.jsonl`, keeping only the user prompt, tool call, tool result, and final answer that match the current capture's `session_id`.
 - `mitmdump.log`
-  如果用后台方式启动，会包含 mitmdump 自身日志。
+  If started in background mode, contains mitmdump's own log.
 - `mitmdump.pid`
-  如果用后台方式启动，会保存后台进程 PID。
+  If started in background mode, holds the background process PID.
 
-把这三层串起来看，通常就能直接回答：
+Putting these three layers together usually directly answers:
 
 - `websocket/`
-  模型何时决定调用哪个 tool，以及调用参数是什么。
+  When the model decided to call which tool, and what the call arguments were.
 - `local-sessions/`
-  Codex 宿主实际把哪个 `function_call` 分发给了本地 MCP，以及 `function_call_output` 返回了什么。
+  Which `function_call` the Codex host actually dispatched to the local MCP, and what `function_call_output` was returned.
 - `http/`
-  非 websocket 的补充请求，例如 `wham/apps`、plugin/config 初始化等。
+  Supplementary non-websocket requests, e.g. `wham/apps`, plugin/config initialization, etc.
 
-## 脱敏默认值
+## Redaction Defaults
 
-仓库内的 `scripts/codex_dump.py` 默认会对以下内容做脱敏：
+The repo's `scripts/codex_dump.py` redacts the following by default:
 
 - `Authorization`
 - Cookie / Set-Cookie
-- 常见 token / api key 字段
+- common token / api key fields
 
-这能降低误把认证信息直接写盘的风险，但并不意味着抓包结果可以随意外传。样本里仍然可能包含：
+This reduces the risk of accidentally writing authentication info directly to disk, but it doesn't mean capture results can be shared freely. Samples may still contain:
 
-- prompt
-- tool call 参数
-- 模型回复
-- 会话元数据
+- prompts
+- tool call arguments
+- model replies
+- session metadata
 
-因此建议：
+So it's recommended to:
 
-- 优先把抓包结果留在本机。
-- 做 eval 留档时，只共享必要片段或二次脱敏后的摘要。
-- 不要把 `artifacts/codex-dumps/` 从 `.gitignore` 里移除。
+- Keep capture results local first.
+- When archiving for eval, only share the necessary fragments or a further-redacted summary.
+- Not remove `artifacts/codex-dumps/` from `.gitignore`.
 
-## 推荐工作流
+## Recommended Workflow
 
-1. 创建一个明确命名的 session 目录。
-2. 后台启动 `mitmdump`。
-3. 通过 `HTTPS_PROXY` 跑一组 Codex case。
-4. 结束后停止 `mitmdump`。
-5. 重点分析：
-   - `websocket/` 里的 `response.create`
-   - `websocket/` 里的 `response.output_item.done`，尤其是 `item.type=="function_call"`
-   - `local-sessions/` 里的对应 `tool_calls[].output`
+1. Create a clearly named session directory.
+2. Start `mitmdump` in the background.
+3. Run a batch of Codex cases via `HTTPS_PROXY`.
+4. Stop `mitmdump` when done.
+5. Focus analysis on:
+   - `response.create` in `websocket/`
+   - `response.output_item.done` in `websocket/`, especially where `item.type=="function_call"`
+   - the corresponding `tool_calls[].output` in `local-sessions/`
    - `response.output_text.delta`
    - `response.completed`
-6. 把结论、差异和评估结果沉淀到仓库文档，而不是直接提交原始抓包。
+6. Record conclusions, differences, and eval results in the repo docs, rather than committing the raw captures directly.
 
-## 常见问题
+## FAQ
 
-### 1. 只能看到部分请求，看不到主 LLM call
+### 1. Only some requests are visible, and the main LLM call is missing
 
-优先检查：
+Check in priority order:
 
-- 是否真的让 Codex 继承了 `HTTPS_PROXY`
-- 是否设置了 `SSL_CERT_FILE=$HOME/.mitmproxy/mitmproxy-ca-cert.pem`
-- 是否在抓 `chatgpt.com/backend-api/codex/responses`
-- 是否只盯着 HTTP，而没有看 `websocket/*.jsonl`
-- 如果要看本地 tool 结果，是否同时检查了 `local-sessions/*.json`
+- Whether Codex actually inherited `HTTPS_PROXY`
+- Whether `SSL_CERT_FILE=$HOME/.mitmproxy/mitmproxy-ca-cert.pem` was set
+- Whether you're actually capturing `chatgpt.com/backend-api/codex/responses`
+- Whether you only looked at HTTP and not `websocket/*.jsonl`
+- If you need local tool results, whether you also checked `local-sessions/*.json`
 
-### 2. 为什么不直接抓 `api.openai.com`
+### 2. Why not just capture `api.openai.com` directly
 
-当前这台机器上的 Codex 主链路实际走的是 `chatgpt.com/backend-api/codex/responses`，不是传统的 `api.openai.com/v1/...`。
+On this machine, Codex's main path currently actually goes through `chatgpt.com/backend-api/codex/responses`, not the traditional `api.openai.com/v1/...`.
 
-### 3. 为什么默认不建议用 `ALL_PROXY`
+### 3. Why `ALL_PROXY` is not recommended by default
 
-`ALL_PROXY` 可能把本地 `127.0.0.1` 的 MCP 流量也一起代理走，容易干扰本地调试链路。默认只设 `HTTPS_PROXY` 更稳。
+`ALL_PROXY` may also route local `127.0.0.1` MCP traffic through the proxy, which can easily interfere with the local debugging chain. Setting only `HTTPS_PROXY` is more stable by default.
 
-### 4. prompt 里写 `computer-use` 和 `open-computer-use`，为什么调用路径不一样
+### 4. The prompt says `computer-use` vs `open-computer-use` — why does the call path differ
 
-在 2026-04-17 这台机器上的真实样本里，prompt 文案本身会明显影响模型优先尝试的 tool namespace：
+In real samples on this machine as of 2026-04-17, the prompt wording itself noticeably affects which tool namespace the model tries first:
 
-- prompt 直接写 `computer-use`
-  模型会先尝试官方 bundled `mcp__computer_use__*`。
-- prompt 直接写 `open-computer-use`
-  模型会优先尝试仓库插件的 `mcp__open_computer_use__*`。
+- When the prompt directly says `computer-use`
+  the model first tries the official bundled `mcp__computer_use__*`.
+- When the prompt directly says `open-computer-use`
+  the model prefers the repo plugin's `mcp__open_computer_use__*`.
 
-这意味着做 A/B 调试时，prompt 命名本身就是一个变量，不能忽略。想稳定比较两套实现时，建议：
+This means that when doing A/B debugging, the prompt naming itself is a variable that can't be ignored. To compare the two implementations more reliably, it's recommended to:
 
-1. 对两组 case 使用几乎相同的任务语义。
-2. 只替换 tool 名称锚点，例如 `computer-use` vs `open-computer-use`。
-3. 给每次实验加唯一标记，便于从 `websocket/*.jsonl` 和本地日志里精确过滤。
+1. Use nearly identical task semantics for both groups of cases.
+2. Only swap the tool-name anchor, e.g. `computer-use` vs `open-computer-use`.
+3. Add a unique marker per experiment, to make precise filtering from `websocket/*.jsonl` and local logs easier.
 
-### 5. `open-computer-use` 调用失败时，怎么判断是插件宿主取消还是 MCP server 本身坏了
+### 5. When `open-computer-use` calls fail, how to tell whether it's the plugin host cancelling or the MCP server itself being broken
 
-推荐先把问题拆成两层：
+It's recommended to split the problem into two layers first:
 
-1. 用 MITM 或本地日志看 Codex 宿主是否真的发起了 `mcp__open_computer_use__*` 调用。
-2. 直接对插件 launcher 做最小 JSON-RPC 探测，验证 server 本身能否 `initialize`、`tools/list`、`tools/call`。
+1. Use MITM or local logs to see whether the Codex host actually initiated an `mcp__open_computer_use__*` call.
+2. Directly do a minimal JSON-RPC probe against the plugin launcher, to verify whether the server itself can `initialize`, `tools/list`, `tools/call`.
 
-例如：
+For example:
 
 ```bash
 printf '%s\n%s\n%s\n' \
@@ -276,62 +276,62 @@ printf '%s\n%s\n%s\n' \
 | ./plugins/open-computer-use/scripts/launch-open-computer-use.sh
 ```
 
-如果 direct JSON-RPC 能正常返回，而 Codex 会话里仍然显示 tool 被取消或根本没有继续执行，优先怀疑：
+If the direct JSON-RPC returns normally, but the Codex session still shows the tool as cancelled or never actually executed, suspect first:
 
-- Codex host / plugin gate
-- 当前会话对第三方插件的策略
-- 插件缓存或安装态没有同步到最新
+- the Codex host / plugin gate
+- the current session's policy toward third-party plugins
+- the plugin cache or install state not being synced to the latest
 
-不要一开始就假设是 MCP server 逻辑本身坏了。先把“宿主问题”和“server 问题”分开，排查成本会低很多。
+Don't assume from the start that the MCP server's own logic is broken. Separating "host problem" from "server problem" first keeps the troubleshooting cost much lower.
 
-### 6. 做官方 `computer-use` 和 `open-computer-use` A/B 时，建议显式隔离另一个 plugin
+### 6. When A/B testing the official `computer-use` against `open-computer-use`, explicitly isolate the other plugin
 
-如果两套 plugin 同时启用，prompt 里的 tool 名称锚点会显著影响模型路由。做更纯净的 A/B 时，建议在单次 `codex exec` 上临时关闭另一套 plugin，而不是直接共存跑。
+If both plugins are enabled at the same time, the tool-name anchor in the prompt will significantly affect the model's routing. For a cleaner A/B test, it's recommended to temporarily disable the other plugin for a single `codex exec` run, rather than running them side by side.
 
-仓库内已经提供 helper：
+The repo already provides a helper for this:
 
 ```bash
 ./scripts/run-isolated-codex-exec.sh computer-use --skip-git-repo-check -C /tmp \
-  '使用computer-use列出正在运行的前三个应用'
+  'use computer-use to list the top three running apps'
 
 ./scripts/run-isolated-codex-exec.sh open-computer-use --skip-git-repo-check -C /tmp --json \
-  '使用open-computer-use列出正在运行的前三个应用'
+  'use open-computer-use to list the top three running apps'
 ```
 
-它本质上只是给 `codex exec` 增加临时 config override：
+Under the hood, it just adds a temporary config override to `codex exec`:
 
 - `computer-use`
-  会加 `-c 'plugins."open-computer-use@open-computer-use-local".enabled=false'`
+  adds `-c 'plugins."open-computer-use@open-computer-use-local".enabled=false'`
 - `open-computer-use`
-  会加 `-c 'plugins."computer-use@openai-bundled".enabled=false'`
+  adds `-c 'plugins."computer-use@openai-bundled".enabled=false'`
 
-这比直接改 `~/.codex/config.toml` 更安全，因为：
+This is safer than editing `~/.codex/config.toml` directly, because:
 
-- 只影响当前这一条命令。
-- 不需要手工改全局配置后再恢复。
-- 更适合批量 eval 或 Agent 后台脚本。
+- It only affects this single command.
+- There's no need to manually change the global config and restore it afterward.
+- It's better suited to batch eval or agent background scripts.
 
-### 7. 当前这台机器上的隔离验证结论
+### 7. Isolation-verification conclusions on this machine
 
-2026-04-17 的隔离样本已经验证：
+Isolation samples from 2026-04-17 have verified:
 
-1. `-c 'plugins."...".enabled=false'` 这条覆写是生效的。
-2. 只保留官方 `computer-use` 时，`computer-use/list_apps` 可以正常完成。
-3. 只保留 `open-computer-use` 时，`open-computer-use/list_apps` 仍然直接返回 `user cancelled MCP tool call`。
-4. 同时，直接对 `./plugins/open-computer-use/scripts/launch-open-computer-use.sh` 发 JSON-RPC 的 `tools/list` / `tools/call list_apps` 是正常的。
+1. The `-c 'plugins."...".enabled=false'` override is effective.
+2. With only the official `computer-use` kept enabled, `computer-use/list_apps` completes normally.
+3. With only `open-computer-use` kept enabled, `open-computer-use/list_apps` still directly returns `user cancelled MCP tool call`.
+4. Meanwhile, sending JSON-RPC directly to `./plugins/open-computer-use/scripts/launch-open-computer-use.sh` for `tools/list` / `tools/call list_apps` works normally.
 
-这说明在当前环境里：
+This indicates that in the current environment:
 
-- “两套 plugin 互相干扰”不是主要问题。
-- `open-computer-use` MCP server 本身不是这一步的主故障点。
-- 更可能的瓶颈仍然在 Codex host 对第三方 plugin 调用的 gate 或会话策略上。
+- "The two plugins interfering with each other" is not the main issue.
+- The `open-computer-use` MCP server itself is not the main failure point at this stage.
+- The bottleneck is more likely still in the Codex host's gate or session policy for third-party plugin calls.
 
-### 8. 后台 `mitmdump` 显示启动成功，但代理端口很快就没了
+### 8. Background `mitmdump` reports a successful start, but the proxy port disappears quickly
 
-先看 `mitmdump.log`。仓库内 `scripts/start-codex-mitm-dump.sh` 现在会额外检查端口是否真的开始监听，但在某些受控 runner / agent 宿主里，父进程结束时仍然可能把后台子进程一起清掉。
+Check `mitmdump.log` first. The repo's `scripts/start-codex-mitm-dump.sh` now additionally checks whether the port is actually listening, but in some sandboxed runner / agent hosts, the background child process can still get cleaned up when the parent process exits.
 
-如果你遇到这种情况，优先用下面几种更稳的方式：
+If you run into this, prefer one of the following more reliable approaches:
 
-1. 在真实登录 shell、`tmux` 或单独终端里执行 `./scripts/start-codex-mitm-dump.sh`。
-2. 或者直接前台运行 `mitmdump` / `mitmweb`，再在另一个终端执行 `codex exec`。
-3. 不要把“脚本返回了 PID”误当成“代理一定还活着”，先用 `lsof -nP -iTCP:<port> -sTCP:LISTEN` 确认监听状态。
+1. Run `./scripts/start-codex-mitm-dump.sh` in a real login shell, `tmux`, or a separate terminal.
+2. Or run `mitmdump` / `mitmweb` in the foreground directly, and run `codex exec` in another terminal.
+3. Don't mistake "the script returned a PID" for "the proxy must still be alive" — confirm the listening state first with `lsof -nP -iTCP:<port> -sTCP:LISTEN`.

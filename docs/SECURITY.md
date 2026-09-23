@@ -1,60 +1,59 @@
-# 安全默认约束
+# Security Default Constraints
 
-## 当前实现边界
+## Current implementation boundaries
 
-- 对 MCP host 暴露的接口仍是本地 `stdio`；macOS CLI 与 `.app` app agent 之间会使用用户临时目录下的 Unix domain socket，socket 创建后会收紧为当前用户读写，且不对外监听 TCP/HTTP 端口。未设置 `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE` 时继续使用历史 Socket；设置后仅以 namespace 摘要派生私有文件名，不把宿主目录或原始 namespace 写入 Socket 路径。
-- 所有动作都必须显式带 `app` 参数；当前不会在后台自动扫描并控制任意 app。
-- macOS 真实 app 路径依赖 `Open Computer Use.app` 已获得 `Accessibility` 与 `Screen Recording` 权限；终端里的 CLI / Node launcher 会把 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 转发给由 LaunchServices 启动的本地 app agent，避免把权限要求落到 iTerm / Terminal 身上。
-- 实验性 Linux runtime 依赖已登录桌面用户的 AT-SPI2 / D-Bus session；coordinate mouse、drag、keyboard synthesis 只是 best-effort fallback，不应被视为跨 Wayland compositor 的通用后台输入授权。
+- The interface exposed to the MCP host is still local `stdio`; between the macOS CLI and the `.app` app agent, a Unix domain socket under the user's temp directory is used — the socket is tightened to current-user read/write after creation, and no TCP/HTTP port is listened on externally. When `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE` is not set, the legacy socket continues to be used; once set, only a private filename derived from a namespace digest is used, and the host directory or raw namespace is never written into the socket path.
+- Every action must explicitly carry an `app` parameter; there is currently no background auto-scan that controls arbitrary apps.
+- The real macOS app path depends on `Open Computer Use.app` having been granted `Accessibility` and `Screen Recording` permissions; the terminal-side CLI / Node launcher forwards `mcp`, `doctor`, `call`, `snapshot`, and `list-apps` to the local app agent started by LaunchServices, so the permission requirement never falls on iTerm / Terminal itself.
+- The experimental Linux runtime depends on the AT-SPI2 / D-Bus session of the logged-in desktop user; coordinate mouse, drag, and keyboard synthesis are only a best-effort fallback and should not be treated as a general-purpose background input authorization across Wayland compositors.
 
-## 数据处理
+## Data handling
 
-- 普通 app 的 screenshot 默认只在内存中编码成 PNG，并通过 MCP `image` content block 直接回传；默认不长期持久化。
-- Linux runtime 的 screenshot 是 best-effort；如果 GNOME Wayland 返回黑图，bridge 会省略 image block，避免把无效截图误当成真实画面。
-- fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test；当前写入走原子替换，减少测试期间的读写竞争。
-- 当前仓库不引入第三方服务，也不上传截图、AX tree 或输入内容。
+- For ordinary apps, a screenshot is by default only encoded to PNG in memory and returned directly via the MCP `image` content block; it is not persisted long-term by default.
+- The Linux runtime's screenshot is best-effort; if GNOME Wayland returns a black image, the bridge omits the image block, so an invalid screenshot is not mistaken for a real frame.
+- The fixture app's synthetic state is only written to a local temporary JSON file, meant to support deterministic smoke tests; the write currently goes through an atomic replace to reduce read/write contention during tests.
+- This repository currently introduces no third-party services and does not upload screenshots, AX trees, or input content.
 
-## 授权与最小权限
+## Authorization and least privilege
 
-- 当前只保留一层密码管理器 bundle denylist / bundle-id gate：
-  - 会阻止对 1Password、Bitwarden、Dashlane、LastPass、NordPass 和 Proton Pass 做直接 `get_app_state` / action 调用。
-  - 终端类 app、Chrome / Atlas 和系统组件不再属于内置阻止目标。
-  - 对 bundle identifier 直传时返回 safety denial；对 app name 查询时默认不把这些密码管理器暴露成可解析目标。
-- 但当前仍然没有官方闭源实现里的 session approval / 动态 app policy。
-- 这意味着开源版当前的安全边界主要由：
-  - 明确的 tool 调用参数
-  - 内置密码管理器 denylist
-  - `Open Computer Use.app` 的系统权限
-  - 本地使用场景
-  共同提供。
-- `click_method=global` 是显式的系统级指针路径，可能移动真实鼠标、改变前台焦点或命中坐标处的其他窗口。调用参数本身不视为足够授权；macOS 和支持该模式的 Linux runtime 还要求进程环境中设置 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`。未设置时必须在任何可见 cursor 移动或真实输入事件之前拒绝请求。
-- `click_method=app_post`、`sky_click` 与 `accessibility` 不允许静默切换到 `global`。这保证调用方选择的非侵入边界在失败时仍然成立。
-- `click_method=sky_click` 是显式 macOS 私有 SPI 能力，不进入 `auto`。它不移动系统指针、不改变 WindowServer frontmost app，也不 raise 或切换目标窗口；内部只让目标应用短暂进入 synthetic-active 状态，绝不向真实前台应用发送 defocus record，renderer settle 后也只撤销目标的合成状态。点击后的 action-result snapshot 禁止 activate / `AXRaise` 恢复。它仍会向指定 PID/window 注入真实输入语义，因此只允许使用当前 snapshot 的 on-screen、同 PID 窗口，并在窗口身份不匹配、target-focus record 失败或私有符号缺失时 fail closed。第一版仅支持同一 Space 内的左键单击/双击。
-- SkyLight ABI、raw event field 和 Chromium 接收行为都不受 Apple 公共兼容性承诺保护。系统升级后的失败不得触发静默 global fallback；应先重新验证符号和受控目标，再决定是否更新实现。
-- 下一阶段应优先补：
-  - session 级审批
-  - 更清楚的敏感 app / 系统设置防护策略
+- Only one layer of password-manager bundle denylist / bundle-id gate is currently kept:
+  - It blocks direct `get_app_state` / action calls against 1Password, Bitwarden, Dashlane, LastPass, NordPass, and Proton Pass.
+  - Terminal-type apps, Chrome / Atlas, and system components are no longer built-in blocked targets.
+  - Passing a bundle identifier directly returns a safety denial; querying by app name does not, by default, expose these password managers as resolvable targets.
+- However, there is currently still no session approval / dynamic app policy like the official closed-source implementation has.
+- This means the open-source version's current security boundary is jointly provided by:
+  - Explicit tool call parameters
+  - The built-in password-manager denylist
+  - `Open Computer Use.app`'s system permissions
+  - The local usage scenario
+- `click_method=global` is an explicit system-level pointer path that may move the real mouse cursor, change foreground focus, or hit other windows at the given coordinates. The call parameter itself is not treated as sufficient authorization; macOS and the Linux runtimes that support this mode also require `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` to be set in the process environment. When it is not set, the request must be denied before any visible cursor movement or real input event.
+- `click_method=app_post`, `sky_click`, and `accessibility` are not allowed to silently fall back to `global`. This guarantees that the non-invasive boundary the caller chose still holds when it fails.
+- `click_method=sky_click` is an explicit macOS private-SPI capability and never enters `auto`. It does not move the system pointer, does not change the WindowServer frontmost app, and does not raise or switch the target window; internally it only lets the target app briefly enter a synthetic-active state, never sends a defocus record to the real foreground app, and only revokes the target's synthetic state once the renderer has settled. The post-click action-result snapshot is forbidden from doing an activate / `AXRaise` recovery. It still injects real input semantics into the specified PID/window, so it is only allowed to target an on-screen, same-PID window from the current snapshot, and fails closed when window identity does not match, the target-focus record fails, or private symbols are missing. The first version only supports left-click single/double clicks within the same Space.
+- The SkyLight ABI, raw event fields, and Chromium receiving behavior are not protected by any Apple public compatibility promise. A failure after a system upgrade must not trigger a silent global fallback; symbols and controlled targets should be re-verified first before deciding whether to update the implementation.
+- The next phase should prioritize adding:
+  - session-level approval
+  - a clearer protection policy for sensitive apps / system settings
 
-## Lock Guard 与 App-Screen 不变量
+## Lock Guard and the App-Screen Invariant
 
-- `MacSessionGuard` 在每个 tool call 入口检查 `CGSessionCopyCurrentDictionary` 的锁定状态；当字典缺失、为空或解析失败时一律视为已锁（fail-closed），返回 "Lock state unknown" 指示器。
-- 默认策略 `.blockWhileLocked`：锁定时不允许任何 `list_apps` / `get_app_state` / action tool 执行，安全保证与原先一致。
-- 显式 opt-in `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`（`.allowWhileLocked`）：放行锁屏 best-effort 控制。未设置时保持 fail-closed。放行仅改变 guard 是否拦截，不绕过 Accessibility 权限（仍需系统授权）、不落盘截图、也不启用全局 HID event tap（`globalPointerFallbacksEnabled()` 默认仍为 false）。锁定时窗口截图受系统安全限制返回空图。
-- **App-agent 信任边界**：`.app` 模式下有一个持有 TCC 授权的常驻 agent，监听 `$TMPDIR/open-computer-use-agent.sock`（chmod 0600，仅限同一 uid；对端认证见下一条，但它**不能**区分同 uid 攻击者）。锁屏 opt-in 属于安全敏感设置，因此**只通过可信的启动环境**（`NSWorkspace.OpenConfiguration.environment`，由运维方运行的 proxy 从其真实 shell env 传入）在 agent 启动时固定，**不经过 per-call socket 通道**；因此同 uid 的第三方进程**无法**对已运行的 agent 伪造该标志。策略在 agent 生命周期内固定，需从菜单栏退出 agent 后重启才能变更。
-- **per-call environment 的过滤点在 agent 侧**：client 传入的 `environment` 属于不可信输入，因此过滤的**执行点是 agent**，发送侧的 `proxiedEnvironment()` 只是顺带的礼貌性过滤。两侧共用同一个定义 `MacSessionLockPolicy.sanitizePeerEnvironment`，避免两份规则各自漂移——`mcp` 与 `cli` 两个 request kind 曾经因为这种漂移而出现只有 `cli` 剥离锁屏键的情况。规则有两条：只有 `OPEN_COMPUTER_USE_` 前缀的键能过 socket（否则任意键会被 agent 派生的子进程继承），且锁屏 opt-in 永远不能过。**新增 request kind 时必须让它同样走这个函数。**
-- **App-agent socket 对端认证（peer authentication）**：`AppAgentSocketListener.acceptLoop` 在每个连接被处理前调用 `SocketPeerAuthenticator.authenticate(fd:)`：
-  - `getpeereid` 校验对端 euid == agent euid（同 uid），否则拒绝。
-  - 经 `LOCAL_PEERTOKEN` 取对端 audit token（含 pid + pidversion，能精确锁定连接进程实例，规避 PID 复用/连后 exec 的 TOCTOU）→ `SecCodeCopyGuestWithAttributes` 还原对端 `SecCode`，用需求 `anchor apple generic and identifier "<agent bundle id>" and certificate leaf[subject.OU] = "<agent TeamID>"` 校验：对端必须由与 agent **相同开发者（Team Identifier）签名**，且签名 identifier 与 agent 的 bundle identifier 一致（即本 app 自己的可执行文件；同 team 但 identifier 不同的二进制会被拒绝）。agent 非 bundle 运行时退化为仅 team pin。任一校验不满足则拒绝。
-  - **开发回退**：agent 自身未签名/ad-hoc（本地 `swift build`）时无法进行签名校验，退化为仅同 uid（`.allowUnsignedFallback`），并向 stderr 打印一次提示。纯策略逻辑在 `AppAgentPeerAuthPolicy`（可单测）。
-- **对端认证的真实边界（务必如实理解，勿夸大）**：签名校验只证明「连接进程运行的是这份已签名代码」，**不能**区分合法运维方与同 uid 攻击者。同 uid 代码可直接 `exec` 那份合法、同开发者签名的 CLI（位于 app bundle 固定路径，world-readable，见 `plugins/.../launch-open-computer-use.sh`）来中转命令，从而**仍能**复用 agent 的 TCC 授权——锁屏时亦然。因此对端认证只是**抬高门槛**（挡掉外部/未签名/异开发者的二进制直接连接），并**未真正关闭**同 uid confused-deputy。PR#2 记录的残余风险依旧成立。
-- **另需注意**：release 构建现在默认 fail-closed —— 当签名会回退到 ad-hoc/无签名时，`build-open-computer-use-app.sh` 直接报错拒绝构建；如确有意分发 ad-hoc release，须显式设置 `OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1`（此时脚本会打印醒目警告，peer-auth 不生效）。
-- **结论**：对不可信/多租户主机，请使用**独立登录 session**，不要把 peer-auth 或锁屏 opt-in 当作隔离边界。真正更强的隔离需进一步收紧需求（Developer ID marker OID pinning）——见 issue #4。
-- `AppScreenSession` 维护严格的目标屏幕不变量：action call 执行前会比对 pid、target window ID、window bounds（8pt 容差）和截图像素尺寸；任一维度变更时返回 `appScreenStaleStateError`，要求 caller 先重新调用 `get_app_state`。
-- 状态菜单（`ControlStatusMenuController`）的诊断信息只暴露 toolName、app name / bundle id、pid 和连接数，不暴露 element labels、raw action args、截图数据或 AX 文本。
+- `MacSessionGuard` checks the lock state from `CGSessionCopyCurrentDictionary` at every tool call entry point; when the dictionary is missing, empty, or fails to parse, it is always treated as locked (fail-closed), returning a "Lock state unknown" indicator.
+- Default policy `.blockWhileLocked`: while locked, no `list_apps` / `get_app_state` / action tool is allowed to run — the security guarantee is unchanged from before.
+- Explicit opt-in `OPEN_COMPUTER_USE_ALLOW_LOCKED=1` (`.allowWhileLocked`): allows best-effort control while the screen is locked. When not set, it stays fail-closed. Allowing this only changes whether the guard intercepts calls — it does not bypass Accessibility permission (still requires system authorization), does not persist screenshots to disk, and does not enable the global HID event tap (`globalPointerFallbacksEnabled()` still defaults to false). While locked, window screenshots are subject to system security restrictions and return an empty image.
+- **App-agent trust boundary**: in `.app` mode there is a resident agent holding TCC authorization, listening on `$TMPDIR/open-computer-use-agent.sock` (chmod 0600, same uid only; peer authentication is covered in the next item, but it **cannot** distinguish a same-uid attacker). Because the lock-screen opt-in is a security-sensitive setting, it is fixed at agent startup **only through a trusted launch environment** (`NSWorkspace.OpenConfiguration.environment`, passed in by an operator-run proxy from its real shell env), **never through the per-call socket channel**; therefore a third-party process running under the same uid **cannot** forge this flag against an already-running agent. The policy is fixed for the agent's lifetime and can only be changed by quitting the agent from the menu bar and restarting it.
+- **The filtering point for per-call environment is on the agent side**: the `environment` passed in by the client is untrusted input, so the **enforcement point is the agent**; the sender-side `proxiedEnvironment()` is only an incidental courtesy filter. Both sides share the same definition, `MacSessionLockPolicy.sanitizePeerEnvironment`, to avoid the two sets of rules drifting apart independently — the `mcp` and `cli` request kinds once drifted this way, resulting in only `cli` stripping the lock-screen key. There are two rules: only keys with the `OPEN_COMPUTER_USE_` prefix can pass through the socket (otherwise arbitrary keys would be inherited by child processes spawned by the agent), and the lock-screen opt-in can never pass through. **Any newly added request kind must also go through this function.**
+- **App-agent socket peer authentication**: `AppAgentSocketListener.acceptLoop` calls `SocketPeerAuthenticator.authenticate(fd:)` before each connection is handled:
+  - `getpeereid` verifies that the peer's euid matches the agent's euid (same uid), otherwise it is rejected.
+  - It obtains the peer's audit token (including pid + pidversion, which precisely pins the connecting process instance and avoids PID-reuse / exec-after-connect TOCTOU) via `LOCAL_PEERTOKEN` → recovers the peer's `SecCode` via `SecCodeCopyGuestWithAttributes`, and verifies it against the requirement `anchor apple generic and identifier "<agent bundle id>" and certificate leaf[subject.OU] = "<agent TeamID>"`: the peer must be signed by the **same developer (Team Identifier)** as the agent, and the signing identifier must match the agent's own bundle identifier (i.e., this app's own executable; a same-team but different-identifier binary is rejected). When the agent itself is not running as a signed bundle, this degrades to a team-only pin. If any check fails, the connection is rejected.
+  - **Development fallback**: when the agent itself is unsigned/ad-hoc (a local `swift build`), signature verification cannot be performed, so it degrades to same-uid only (`.allowUnsignedFallback`) and prints a one-time notice to stderr. The pure policy logic lives in `AppAgentPeerAuthPolicy` (unit-testable).
+- **The real boundary of peer authentication (understand honestly, do not overstate)**: signature verification only proves "the connecting process is running this signed code" — it **cannot** distinguish a legitimate operator from a same-uid attacker. Same-uid code can directly `exec` that same legitimate, same-developer-signed CLI (located at a fixed, world-readable path inside the app bundle, see `plugins/.../launch-open-computer-use.sh`) to relay commands, and thereby **still** reuse the agent's TCC authorization — even while locked. So peer authentication only **raises the bar** (blocking external/unsigned/different-developer binaries from connecting directly) and does **not actually close** the same-uid confused-deputy issue. The residual risk recorded in PR#2 still holds.
+- **Also note**: release builds now fail closed by default — when signing would fall back to ad-hoc/unsigned, `build-open-computer-use-app.sh` errors out and refuses to build; if you genuinely intend to distribute an ad-hoc release, you must explicitly set `OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1` (in which case the script prints a prominent warning, and peer-auth does not take effect).
+- **Conclusion**: for untrusted/multi-tenant hosts, use a **separate login session**; do not treat peer-auth or the lock-screen opt-in as an isolation boundary. Genuinely stronger isolation requires further tightening the requirement (Developer ID marker OID pinning) — see issue #4.
+- `AppScreenSession` maintains a strict target-screen invariant: before an action call executes, it compares pid, target window ID, window bounds (8pt tolerance), and screenshot pixel dimensions; if any dimension has changed, it returns `appScreenStaleStateError`, requiring the caller to call `get_app_state` again first.
+- The status menu (`ControlStatusMenuController`) diagnostics only expose toolName, app name / bundle id, pid, and connection count — never element labels, raw action args, screenshot data, or AX text.
 
-## Fixture Bridge 约束
+## Fixture Bridge Constraints
 
-- `FixtureBridge` 只用于仓库内测试夹具，不是给第三方 app 的控制平面。
-- 任何面向真实 app 的能力新增，都不应该复用这条测试专用通道。
+- `FixtureBridge` is only used for in-repo test fixtures; it is not a control plane for third-party apps.
+- Any new capability aimed at real apps must not reuse this test-only channel.
 
-仓库级的依赖、SBOM 和 provenance 默认能力，统一写在 `docs/SUPPLY_CHAIN_SECURITY.md`。
+Repo-level dependency, SBOM, and provenance default capabilities are documented together in `docs/SUPPLY_CHAIN_SECURITY.md`.

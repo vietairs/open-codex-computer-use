@@ -1,4 +1,4 @@
-## [2026-04-17 22:15] | Task: 修复 app bundle 显示名和图标
+## [2026-04-17 22:15] | Task: Fix the app bundle display name and icon
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 系统设置的 `Accessibility` 和 `Screen *` 列表里当前显示的是 `OpenComputerUse`，并且没有 logo；需要改成 `Open Computer Use`，而且要有 logo。
+> The System Settings `Accessibility` and `Screen *` lists currently show `OpenComputerUse` with no logo; it needs to become `Open Computer Use`, and it needs a logo.
 
 ### 🛠 Changes Overview
 **Scope:** `scripts/`, `plugins/open-computer-use`, `docs/`
 
 **Key Actions:**
-- **[Bundle Identity]**: 把打包产物从 `OpenComputerUse.app` 切到 `Open Computer Use.app`，让 macOS System Settings 读取到带空格的 bundle 显示名。
-- **[Bundle Icon]**: 新增构建期 icon 渲染脚本，生成 `icns` 并写入 app bundle，再通过 `CFBundleIconFile` 暴露给系统权限面板。
-- **[Packaging and Docs]**: 同步更新插件 launcher、Codex 安装脚本、npm staging 和文档里的 bundle 路径，避免打包链路继续引用旧名字。
+- **[Bundle Identity]**: Switched the build artifact from `OpenComputerUse.app` to `Open Computer Use.app`, so macOS System Settings reads the bundle display name with a space in it.
+- **[Bundle Icon]**: Added a build-time icon rendering script that generates an `icns` and writes it into the app bundle, then exposes it to the system permission panels via `CFBundleIconFile`.
+- **[Packaging and Docs]**: Synced the bundle path across the plugin launcher, Codex install script, npm staging, and docs, so the packaging chain stops referencing the old name.
 
 ### 🧠 Design Intent (Why)
-System Settings 对这两类 TCC 权限列表显示的名字更接近 app bundle 文件名，而不是单独看 `CFBundleDisplayName`。因此只改 `Info.plist` 不够，必须把实际 `.app` 名字改成带空格版本，并且补上真正的 bundle icon 资源，才能同时解决无空格名和空白图标。
+The name System Settings shows in these two TCC permission lists is closer to the app bundle's file name than to `CFBundleDisplayName` alone. So changing just `Info.plist` wasn't enough — the actual `.app` name had to be changed to the spaced version, and a real bundle icon resource added, to fix both the no-space name and the blank icon at the same time.
 
 ### 📁 Files Modified
 - `scripts/build-open-computer-use-app.sh`

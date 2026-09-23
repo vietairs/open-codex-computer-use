@@ -1,12 +1,12 @@
 # Remaining Computer Use Tool Alignment
 
-## 目标
+## Goal
 
-在 `click` 和 `set_value` 已完成官方姿势收口后，逐项逆向并对齐剩余 7 个 Computer Use tools，重点确认它们是否会抢用户真实鼠标或抢前台焦点，并把结论、实现差距、测试和文档状态落到仓库里。
+Now that `click` and `set_value` have finished aligning with official behavior, reverse-engineer and align the remaining 7 Computer Use tools one by one, focused on confirming whether they hijack the user's real mouse or steal foreground focus, and land the conclusions, implementation gaps, tests, and doc status in the repo.
 
-## 范围
+## Scope
 
-- 包含：
+- In scope:
   - `list_apps`
   - `get_app_state`
   - `perform_secondary_action`
@@ -14,22 +14,22 @@
   - `drag`
   - `type_text`
   - `press_key`
-  - 官方 bundled `computer-use` 当前版本的 `tools/list`、静态字符串、导入符号、必要时的反汇编定位。
-  - 每个工具的本地实现差距、行为修正、测试、架构文档和 history。
-- 不包含：
-  - 重新打开已经完成的 `click` / `set_value` 行为修正，除非剩余工具逆向时发现共用底层需要补丁。
-  - 复刻官方闭源 host authorization、私有 IPC、完整 visual cursor choreography。
-  - 用全局物理鼠标事件作为默认兜底来换取表面通过率。
+  - The current version of the official bundled `computer-use`'s `tools/list`, static strings, imported symbols, and disassembly-based localization where needed.
+  - Each tool's local implementation gaps, behavior fixes, tests, architecture docs, and history.
+- Out of scope:
+  - Reopening the already-completed `click` / `set_value` behavior fixes, unless reverse-engineering the remaining tools reveals a shared underlying layer that needs patching.
+  - Reproducing the official closed-source host authorization, private IPC, or the full visual cursor choreography.
+  - Using global physical mouse events as the default fallback just to buy surface-level pass rates.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
   - `docs/ARCHITECTURE.md`
   - `docs/references/codex-computer-use-reverse-engineering/tool-call-samples-2026-04-17.md`
   - `docs/references/codex-computer-use-reverse-engineering/internal-ipc-surface.md`
   - `docs/histories/2026-04/20260421-2120-disable-click-global-pointer-default.md`
   - `docs/histories/2026-04/20260422-1050-align-set-value-settable-boundary.md`
-- 相关代码路径：
+- Related code paths:
   - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ToolDefinitions.swift`
   - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseToolDispatcher.swift`
   - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
@@ -37,66 +37,66 @@
   - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
   - `apps/OpenComputerUseFixture/Sources/OpenComputerUseFixture/main.swift`
   - `apps/OpenComputerUseSmokeSuite/Sources/OpenComputerUseSmokeSuite/main.swift`
-- 已知约束：
-  - 官方 `1.0.755` 的 `tools/list` 里 `scroll.pages` 是 `number`，文案为 `Number of pages to scroll. Fractional values are supported. Defaults to 1`；旧安装根可能仍暴露 `integer` 旧 schema。
-  - 官方 binary 暴露 `MouseEventTarget`、`KeyboardEventTarget`、`EventTap`、`SyntheticAppFocusEnforcer`、`SystemFocusStealPreventer`、`UIElementScrollOperation`、`ScrollAreaUIElement`、`ScrollBarUIElement` 等类型名，说明动作路由不是简单把所有 fallback 发到全局 HID 光标。
-  - 本地 `drag` / `scroll` 已完成默认路径修正：全局 `.cghidEventTap` 仅在 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 时启用，默认改走 AX 或 pid-targeted event；官方私有 `MouseEventTarget` / `UIElementScrollOperation` 只做静态证据确认，不在本轮复刻闭源内部实现。
+- Known constraints:
+  - In the official `1.0.755` `tools/list`, `scroll.pages` is a `number`, with copy reading `Number of pages to scroll. Fractional values are supported. Defaults to 1`; older install roots may still expose the old `integer` schema.
+  - The official binary exposes type names such as `MouseEventTarget`, `KeyboardEventTarget`, `EventTap`, `SyntheticAppFocusEnforcer`, `SystemFocusStealPreventer`, `UIElementScrollOperation`, `ScrollAreaUIElement`, and `ScrollBarUIElement`, which indicates action routing is not simply sending every fallback to a global HID cursor.
+  - Local `drag` / `scroll` have already had their default paths fixed: the global `.cghidEventTap` is now only enabled when `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` is set, defaulting instead to AX or pid-targeted events; the official private `MouseEventTarget` / `UIElementScrollOperation` are only confirmed statically as evidence, and this round does not attempt to reproduce their closed-source internal implementation.
 
-## 风险
+## Risks
 
-- 风险：只对齐 schema，不处理全局事件 fallback，用户仍可能遇到鼠标或焦点被抢。
-  - 缓解方式：每个动作工具都明确写下默认执行路径和 fallback 是否允许；高风险物理指针路径必须显式 opt-in 或替换为更窄的目标路由。
-- 风险：官方行为通过私有 AccessibilitySupport 类型实现，开源版只能近似。
-  - 缓解方式：区分“确认一致”、“确认不同但有安全替代”和“待逆向”；不要把猜测写成结论。
-- 风险：改动 `drag` / `scroll` 可能影响 smoke fixture。
-  - 缓解方式：fixture bridge 保持 deterministic；真实 app 路径另补单元测试覆盖参数解析和 fallback gate。
+- Risk: only aligning the schema without handling the global-event fallback, so users can still have their mouse or focus hijacked.
+  - Mitigation: for every action tool, explicitly write down its default execution path and whether a fallback is allowed; any high-risk physical-pointer path must be an explicit opt-in or replaced with a narrower targeted route.
+- Risk: official behavior is implemented via private AccessibilitySupport types, so the open-source version can only approximate it.
+  - Mitigation: distinguish between "confirmed identical," "confirmed different but with a safe alternative," and "pending reverse engineering"; do not write guesses as conclusions.
+- Risk: changes to `drag` / `scroll` could affect the smoke fixture.
+  - Mitigation: keep the fixture bridge deterministic; add separate unit tests for the real app path covering parameter parsing and fallback gating.
 
-## 工具级 TODO
+## Per-Tool TODO
 
-- [x] `click`: 已对齐 element-targeted AX 优先、`click_count` 重复 AX action、默认禁止全局物理指针 fallback。
-- [x] `set_value`: 已对齐 `AXUIElementIsAttributeSettable(kAXValueAttribute)` 前置检查，非 settable 返回官方风格错误，不退到键盘/剪贴板/未公开文本替换。
-- [x] `list_apps`: 复核官方 `1.0.755` 输出字段、排序和 denylist 影响；确认本地 Spotlight + running app 合并仍一致。
-- [x] `get_app_state`: 复核官方 session/start-state、截图、AX tree rendering、stale-state 错误和不抢前台策略；确认本地不 `activate` 的边界。
-- [x] `perform_secondary_action`: 复核官方 action name 匹配、菜单项/secondary action 错误语义和是否需要 prepare interaction；确认本地 AX action 路径不会抢焦点。
-- [x] `scroll`: 对齐官方 `pages` number schema 和 fractional pages；静态确认 `UIElementScrollOperation` / scroll bar 类型线索，消除默认全局物理事件 fallback。
-- [x] `drag`: 静态确认 `MouseEventTarget` / drag dispatch 类型线索；消除默认全局 mouse event fallback，保留显式 opt-in。
-- [x] `type_text`: 逆向 `KeyboardEventTarget` / keyboard layout 错误语义；确认本地 `postToPid` 不抢焦点，并对齐缺失 text / Unicode 边界。
-- [x] `press_key`: 逆向 xdotool key parser、keyboard layout、modifier 语义和错误文案；确认本地 `postToPid` 不抢焦点。
+- [x] `click`: already aligned to prefer element-targeted AX, repeat AX actions for `click_count`, and default-deny global physical pointer fallback.
+- [x] `set_value`: already aligned to the `AXUIElementIsAttributeSettable(kAXValueAttribute)` precheck, returning an official-style error when not settable instead of falling back to keyboard/clipboard/undocumented text replacement.
+- [x] `list_apps`: reviewed official `1.0.755` output fields, ordering, and denylist effects; confirmed the local Spotlight + running-app merge is still consistent.
+- [x] `get_app_state`: reviewed the official session/start-state, screenshot, AX-tree rendering, stale-state error, and non-foreground-stealing policy; confirmed the local non-`activate` boundary.
+- [x] `perform_secondary_action`: reviewed official action-name matching, menu-item/secondary-action error semantics, and whether a prepare interaction is needed; confirmed the local AX action path does not steal focus.
+- [x] `scroll`: aligned to the official `pages` number schema and fractional pages; statically confirmed `UIElementScrollOperation` / scroll-bar type clues, eliminating the default global physical-event fallback.
+- [x] `drag`: statically confirmed `MouseEventTarget` / drag-dispatch type clues; eliminated the default global mouse-event fallback, kept as an explicit opt-in.
+- [x] `type_text`: reverse-engineered `KeyboardEventTarget` / keyboard-layout error semantics; confirmed the local `postToPid` does not steal focus, and aligned missing-text / Unicode edge cases.
+- [x] `press_key`: reverse-engineered the xdotool key parser, keyboard layout, modifier semantics, and error copy; confirmed the local `postToPid` does not steal focus.
 
-## 里程碑
+## Milestones
 
-1. 确认剩余 7 个工具的官方 `1.0.755` schema、静态字符串、导入符号和当前本地差异。
-2. 完成 `scroll` / `drag` 默认非物理指针路径、fractional scroll、required 参数错误和 secondary action 错误语义收敛。
-3. 完成 `list_apps` / `get_app_state` / `type_text` / `press_key` 的复核结论、测试、文档、history 和最终状态清理。
+1. Confirm the official `1.0.755` schema, static strings, imported symbols, and current local differences for the remaining 7 tools.
+2. Complete convergence on `scroll` / `drag`'s default non-physical-pointer path, fractional scroll, required-parameter errors, and secondary-action error semantics.
+3. Complete the review conclusions, tests, docs, history, and final state cleanup for `list_apps` / `get_app_state` / `type_text` / `press_key`.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
   - `swift test`
   - `swift build --product OpenComputerUse`
   - `COMPUTER_USE_PLUGIN_ROOT="$HOME/.codex/plugins/cache/openai-bundled/computer-use/1.0.755" go run . list-tools --transport app-server`
   - `go run . list-tools --transport direct --server-bin ../../.build/debug/OpenComputerUse`
   - `./scripts/run-tool-smoke-tests.sh`
-- 手工检查：
-  - `tools/list` 与官方 `1.0.755` schema 对齐，尤其 `scroll.pages`。
-  - 每个动作工具都能说明是否使用 AX、pid-targeted event、window-targeted event 或显式 opt-in 物理 pointer fallback。
-  - 不允许在默认路径里调用会移动系统硬件光标的 mouse move / drag 兜底。
-- 观测检查：
-  - 运行真实 app 样本时，用户硬件鼠标位置不应因为默认工具调用改变。
-  - action 后返回仍包含最新 state text 和截图。
+- Manual checks:
+  - `tools/list` matches the official `1.0.755` schema, especially `scroll.pages`.
+  - Every action tool can state whether it uses AX, a pid-targeted event, a window-targeted event, or an explicit opt-in physical pointer fallback.
+  - No mouse-move / drag fallback that moves the system's real hardware cursor is allowed on the default path.
+- Observation checks:
+  - When running against real app samples, the user's hardware mouse position should not change due to a default tool call.
+  - After an action, the response still includes the latest state text and screenshot.
 
-## 进度记录
+## Progress Log
 
-- [x] 确认剩余 7 个工具的官方 `1.0.755` schema、静态字符串、导入符号和当前本地差异。
-- [x] 完成 `scroll` / `drag` 默认非物理指针路径、fractional scroll、required 参数错误和 secondary action 错误语义收敛。
-- [x] 完成 `list_apps` / `get_app_state` / `type_text` / `press_key` 的复核结论、测试、文档、history 和最终状态清理。
+- [x] Confirmed the official `1.0.755` schema, static strings, imported symbols, and current local differences for the remaining 7 tools.
+- [x] Completed convergence on `scroll` / `drag`'s default non-physical-pointer path, fractional scroll, required-parameter errors, and secondary-action error semantics.
+- [x] Completed the review conclusions, tests, docs, history, and final state cleanup for `list_apps` / `get_app_state` / `type_text` / `press_key`.
 
-## 决策记录
+## Decision Log
 
-- 2026-04-22：将剩余 7 个工具拆成独立 checklist；`drag` 和 `scroll` 因存在全局事件 fallback 排在最前，键盘类和只读类随后复核。
-- 2026-04-22：官方 `1.0.755` 的 `scroll.pages` 已确认是 `number` schema；旧插件根返回的 `integer` 视为旧版本基线，不再作为当前对齐目标。
-- 2026-04-22：官方 app-server 对 required string 的空字符串按 missing 处理；本地 dispatcher 统一改成非空 required string，并返回 `Missing required argument: <name>`。
-- 2026-04-22：本地 `scroll` / `drag` 不再默认调用全局 `.cghidEventTap` 和 app activation fallback；未命中 AX scroll action 时先用 `CGEvent.postToPid` 定向发给目标进程，只有显式打开 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 才走物理指针兜底。
-- 2026-04-22：`perform_secondary_action` 保持 AX action 路径，invalid action 错误改为官方字符串形态；fixture 的 `Raise` 不再调用 global pointer prepare。
-- 2026-04-22：官方 binary key table 包含 `BackSpace`、`Page_Up`、`Prior`、`Next`、`F1...F12` 和完整 `KP_0...KP_9/KP_Enter` 等 xdotool 名称；本地 `press_key` parser 补齐这些常用 alias，仍通过 `CGEvent.postToPid` 定向投递。
-- 2026-04-22：`list_apps` / `get_app_state` 本轮没有新增代码路径：当前实现已按官方 surface 输出运行中 + 近 14 天 app，并且 `get_app_state` 不主动 `activate` 目标 app；验证以官方/本地 `tools/list`、smoke suite 和既有 reverse-engineering 样本为准。
+- 2026-04-22: Split the remaining 7 tools into an independent checklist; `drag` and `scroll` are prioritized first because they have global-event fallbacks, with the keyboard-class and read-only-class tools reviewed afterward.
+- 2026-04-22: Confirmed the official `1.0.755` `scroll.pages` is a `number` schema; the `integer` schema returned by older plugin roots is treated as an old-version baseline and is no longer an alignment target.
+- 2026-04-22: Confirmed the official app-server treats an empty string for a required string as missing; the local dispatcher has been unified to treat required strings as non-empty and return `Missing required argument: <name>`.
+- 2026-04-22: Local `scroll` / `drag` no longer call the global `.cghidEventTap` and app-activation fallback by default; when no AX scroll action is matched, they now first target the process directly via `CGEvent.postToPid`, and only fall back to the physical pointer when `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` is explicitly set.
+- 2026-04-22: `perform_secondary_action` keeps the AX action path; the invalid-action error has been changed to the official string form; the fixture's `Raise` no longer calls the global pointer prepare step.
+- 2026-04-22: The official binary's key table includes xdotool names such as `BackSpace`, `Page_Up`, `Prior`, `Next`, `F1...F12`, and the full `KP_0...KP_9/KP_Enter` set; the local `press_key` parser has been filled in with these common aliases, still delivered directionally via `CGEvent.postToPid`.
+- 2026-04-22: `list_apps` / `get_app_state` had no new code paths added this round: the current implementation already outputs running + last-14-day apps per the official surface, and `get_app_state` does not actively `activate` the target app; verification is based on the official/local `tools/list`, the smoke suite, and existing reverse-engineering samples.

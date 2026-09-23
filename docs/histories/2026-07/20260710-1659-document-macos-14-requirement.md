@@ -1,4 +1,4 @@
-## [2026-07-10 16:59] | Task: 补充 macOS 14.0+ 系统要求
+## [2026-07-10 16:59] | Task: Document the macOS 14.0+ system requirement
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex Desktop`
 
 ### 📥 User Query
-> 在 README 和 skill 文档中明确 macOS 运行环境要求 macOS 14.0 或更高版本，并说明低版本无法通过权限授权修复。
+> Make it explicit in the README and skill docs that the macOS runtime requires macOS 14.0 or later, and note that older versions can't be fixed by granting permissions.
 
 ### 🛠 Changes Overview
-**Scope:** `README.md`、`README.zh-CN.md`、`skills/open-computer-use`
+**Scope:** `README.md`, `README.zh-CN.md`, `skills/open-computer-use`
 
 **Key Actions:**
-- **[双语 README]**: 在 Quick Start 中增加独立且醒目的 macOS 14.0+ 系统要求，和权限说明分开展示。
-- **[Skill 工作流]**: 要求 Agent 在调用 CLI 或 `doctor` 前先检查 macOS 版本，避免把二进制不兼容误判为权限问题。
-- **[安装与排障]**: 说明低于 macOS 14.0 时二进制无法启动，权限授权或 `doctor` 无法修复该兼容性错误。
+- **[Bilingual README]**: add a standalone, prominent macOS 14.0+ system requirement in Quick Start, shown separately from the permissions notes.
+- **[Skill workflow]**: require the agent to check the macOS version before invoking the CLI or `doctor`, avoiding misdiagnosing binary incompatibility as a permissions problem.
+- **[Installation and troubleshooting]**: explain that below macOS 14.0 the binary cannot launch at all, and that granting permissions or running `doctor` cannot fix this compatibility error.
 
 ### 🧠 Design Intent (Why)
-让用户和 Agent 在安装及排障入口就能看到真实的最低系统要求，减少低版本 macOS 用户被错误引导到权限授权流程的情况。
+Let users and agents see the real minimum system requirement right at the installation and troubleshooting entry points, reducing cases where users on an older macOS version get misdirected into the permission-granting flow.
 
 ### 📁 Files Modified
 - `README.md`

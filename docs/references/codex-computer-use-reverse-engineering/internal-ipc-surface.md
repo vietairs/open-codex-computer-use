@@ -1,10 +1,10 @@
 # Internal IPC Surface
 
-## 已观察事实
+## Observed Facts
 
-### 1. service 和 client 之间至少存在一套单独的 ComputerUse IPC 协议
+### 1. There is at least one separate ComputerUse IPC protocol between the service and the client
 
-在 `SkyComputerUseService` 和 `SkyComputerUseClient` 两个二进制里，都能稳定看到同一组类型名：
+Across both the `SkyComputerUseService` and `SkyComputerUseClient` binaries, the same set of type names shows up consistently:
 
 - `ComputerUseIPCClient`
 - `ComputerUseIPCServer`
@@ -14,16 +14,16 @@
 - `ComputerUseIPCAppState`
 - `ComputerUseIPCDiscoveredApp`
 
-这说明除了：
+This indicates that, beyond:
 
-- client 对外的 MCP 协议
-- service 对 Codex appserver 的宿主 IPC
+- the client's external MCP protocol
+- the service's host IPC with the Codex appserver
 
-之外，官方实现内部还单独维护了一层 `ComputerUseIPC*` 协议，负责 client 和 service 之间的本地调用。
+the official implementation also independently maintains a separate `ComputerUseIPC*` protocol layer, handling local calls between the client and the service.
 
-### 2. 内部 IPC request 类型已经可以从符号名里拼出一版能力表
+### 2. The internal IPC request types already let us reconstruct a capability table from symbol names
 
-当前在两个二进制里都能看到的 request 类型包括：
+Request types currently visible in both binaries include:
 
 - `ComputerUseIPCListAppsRequest`
 - `ComputerUseIPCAppStartRequest`
@@ -33,23 +33,23 @@
 - `ComputerUseIPCCodexTurnEndedRequest`
 - `ComputerUseIPCAppUsageRequest`
 
-再结合字段名和 MCP tool 行为，当前最稳妥的映射是：
+Combined with field names and observed MCP tool behavior, the most solid mapping currently is:
 
 - `ListAppsRequest`
-  - 对应外部 `list_apps`
+  - corresponds to the external `list_apps`
 - `AppGetSkyshotRequest`
-  - 对应外部 `get_app_state`
-  - `Skyshot` 很像“截图 + AX tree + 结构化状态”的内部表示
+  - corresponds to the external `get_app_state`
+  - `Skyshot` looks like an internal representation of "screenshot + AX tree + structured state"
 - `AppPerformActionRequest`
-  - 对应 `click` / `perform_secondary_action` / `set_value` / `scroll` / `drag` / `press_key` / `type_text`
+  - corresponds to `click` / `perform_secondary_action` / `set_value` / `scroll` / `drag` / `press_key` / `type_text`
 - `AppModifyRequest`
-  - 至少包含 `activate` / `deactivate`
+  - includes at least `activate` / `deactivate`
 - `CodexTurnEndedRequest`
-  - 对应 `turn-ended` 生命周期回调
+  - corresponds to the `turn-ended` lifecycle callback
 
-### 3. `get_app_state` 在内部大概率不是“直接返回 app state”，而是“取一份 skyshot”
+### 3. `get_app_state` is likely, internally, not "directly return app state" but rather "fetch a skyshot"
 
-当前 strings 中同时出现：
+The strings currently show, together:
 
 - `ComputerUseIPCAppState`
 - `ComputerUseIPCSkyshot`
@@ -59,25 +59,25 @@
 - `RefetchableSkyshotAXTree`
 - `SkyshotClassifier`
 
-这说明官方实现内部更像是：
+This suggests the official implementation internally works more like:
 
-1. 先对目标 app 取一份 `Skyshot`
-2. 再从 `Skyshot` 里构建截图、窗口和 AX tree
-3. 最后由 client 组装成对 MCP 层暴露的 `get_app_state` 返回值
+1. First capture a `Skyshot` of the target app
+2. Then build the screenshot, window, and AX tree from that `Skyshot`
+3. Finally have the client assemble the return value exposed to the MCP layer as `get_app_state`
 
-这里的关键点是：
+The key point here:
 
-- 外部 MCP API 叫 `get_app_state`
-- 但内部的核心抽象更接近 `skyshot`
+- the external MCP API is called `get_app_state`
+- but the internal core abstraction is closer to `skyshot`
 
-这对开源版是个重要提示：
+This is an important signal for the open-source version:
 
-- 如果要复刻官方行为，核心内部模型可能不该直接叫 `AppState`
-- 更合理的是“截图采集结果 + AX 树 + 目标 app 元数据”的复合对象
+- if the goal is to replicate official behavior, the core internal model probably shouldn't be named `AppState` directly
+- a composite object of "capture result + AX tree + target app metadata" makes more sense
 
-### 4. action 执行内部统一走 `AppPerformActionRequest`
+### 4. Action execution internally goes uniformly through `AppPerformActionRequest`
 
-当前可见的字段和 coding keys 包括：
+Currently visible fields and coding keys include:
 
 - `ComputerUseIPCAction`
 - `ComputerUseIPCLocationSpecifier`
@@ -91,7 +91,7 @@
 - `PressKeyCodingKeys`
 - `TypeCodingKeys`
 
-同时还能看到字段名：
+Along with the field names:
 
 - `coordinate`
 - `elementID`
@@ -100,19 +100,19 @@
 - `mouseButton`
 - `clickCount`
 
-这说明内部 action 层大概率已经统一成：
+This suggests the internal action layer has likely been unified into:
 
-- 一个 action 枚举
-- 一个 location specifier
-  - 坐标模式
-  - 元素 ID 模式
-- 若干具体 action payload
+- a single action enum
+- a single location specifier
+  - coordinate mode
+  - element ID mode
+- a number of concrete action payloads
 
-也就是说，外部 7 个动作型 tools 在内部未必是一组完全分离的方法，更像是同一条 `performAction` 通道上的不同变体。
+In other words, the 7 external action-type tools are probably not a fully separate set of methods internally, and more likely variants on the same `performAction` channel.
 
-### 5. app 生命周期内部和工具动作是分开的
+### 5. App lifecycle is internally separated from tool actions
 
-当前还能看到：
+Also currently visible:
 
 - `ComputerUseIPCAppStartRequest`
 - `ComputerUseIPCAppModifyRequest`
@@ -123,26 +123,26 @@
 - `currentApp`
 - `isRunning`
 
-这说明官方内部把下面两类操作拆开了：
+This suggests the official implementation splits things into two categories:
 
-- app 级生命周期
-  - 启动
-  - 激活
-  - 取消激活
-- UI action
+- app-level lifecycle
+  - launch
+  - activate
+  - deactivate
+- UI actions
   - click / type / scroll / drag / ...
 
-这和外部 MCP 面不完全一致，因为外部当前没有公开：
+This doesn't fully match the external MCP surface, since it currently doesn't publicly expose:
 
 - `activate_app`
 - `deactivate_app`
 - `start_app`
 
-但 service 内部显然保留了这层能力。
+but the service clearly retains this capability internally.
 
-### 6. sender authorization 是内部 IPC 的显式组成部分
+### 6. Sender authorization is an explicit part of the internal IPC
 
-`SkyComputerUseService` strings 里可见：
+`SkyComputerUseService` strings show:
 
 - `ComputerUseIPCSenderAuthorization`
 - `ProcessIdentity`
@@ -151,21 +151,21 @@
 - `SecurityError`
 - `Sender process is not authenticated`
 
-这说明 client-service 之间的内部 IPC 并不是“谁都能连上的本地 socket 调用”，而是显式校验发送方身份的。
+This indicates the internal IPC between client and service isn't "any local socket call goes through" — it explicitly verifies the sender's identity.
 
-结合前面已确认的事实：
+Combined with what's already been confirmed elsewhere:
 
-- client 本身有 parent launch constraints
-- 外部 `python3` / `node` caller 会被系统 kill
+- the client itself has parent launch constraints
+- an external `python3` / `node` caller gets killed by the system
 
-当前更合理的判断是：
+the more reasonable conclusion now is:
 
-- 发送方认证不仅发生在 macOS launch constraint 层
-- service 自己的内部 IPC 层也有一层 sender authorization / code signature requirement 校验
+- sender authentication doesn't only happen at the macOS launch-constraint layer
+- the service's own internal IPC layer also has a sender authorization / code-signature requirement check
 
-### 7. system permission gating 也是内部 IPC request 的一部分
+### 7. System permission gating is also part of the internal IPC request
 
-`SkyComputerUseService` strings 里还能看到：
+`SkyComputerUseService` strings also show:
 
 - `ComputerUseIPCPermissionResult`
 - `ComputerUseIPCRequestRequiringSystemPermissions`
@@ -173,53 +173,53 @@
 - `Failed to request access to permission: %@`
 - `Failed to open System Settings for permission: %@`
 
-这说明内部 IPC 请求里已经分化出一类：
+This shows that internal IPC requests already have a distinct category:
 
-- 需要系统权限的请求
+- requests requiring system permissions
 
-也就是说，官方实现不是单纯在外层 UI 里判断“有没有 Accessibility / Screen Recording 权限”，而是把权限需求并入了内部 request pipeline。
+In other words, the official implementation isn't just checking "does it have Accessibility / Screen Recording permission" at the outer UI layer — permission requirements are folded into the internal request pipeline.
 
-### 8. service 会跟踪 active IPC client，并在为空时自杀
+### 8. The service tracks active IPC clients, and kills itself when there are none
 
-`SkyComputerUseService` strings 里直接有：
+`SkyComputerUseService` strings directly contain:
 
 - `No active Computer Use IPC client processes; terminating service`
 - `Codex Computer Use idle timeout reached; terminating service`
 
-这说明 service 的生命周期不是长期 daemon，而是至少同时受两类条件控制：
+This indicates the service's lifecycle isn't a long-lived daemon, but is governed by at least two conditions simultaneously:
 
-- 是否还有活跃的 IPC client
-- 是否触发 idle timeout
+- whether there are still active IPC clients
+- whether the idle timeout has been reached
 
-因此官方 service 更像：
+So the official service more closely resembles:
 
-- on-demand 启动
-- 有使用时保活
-- 无人连接或空闲超时后自回收
+- launched on-demand
+- kept alive while in use
+- self-reclaimed after no connections or an idle timeout
 
-### 9. service 和 client 都弱链接了 `libswiftXPC`
+### 9. Both the service and client weakly link `libswiftXPC`
 
-`otool -L` 能看到：
+`otool -L` shows:
 
 - `libswiftXPC.dylib (weak)`
 
-但目前还没有观察到：
+but so far there's no observation of:
 
-- 明确的 mach service 名
-- `launchd` 服务注册名
-- 可直接枚举到的公开 XPC endpoint
+- an explicit mach service name
+- a `launchd` service registration name
+- a directly enumerable public XPC endpoint
 
-所以当前只能确认：
+So currently we can only confirm:
 
-- 两者具备使用 Swift XPC 的依赖条件
+- both binaries have the dependency conditions to use Swift XPC
 
-不能确认：
+We cannot confirm:
 
-- 当前 `ComputerUseIPC*` 是否真的建立在 XPC 之上
+- whether the current `ComputerUseIPC*` layer is actually built on top of XPC
 
-### 10. app 使用行为和审批状态有独立对象
+### 10. App usage behavior and approval state have separate objects
 
-当前还能看到：
+Also currently visible:
 
 - `ComputerUseIPCAppUsageRequest`
 - `AppApprovalStore`
@@ -227,87 +227,87 @@
 - `approvedBundleIdentifiers`
 - `bundleIdentifiersWithDeliveredInstructions`
 
-这说明内部至少区分了三类状态：
+This indicates the internals distinguish at least three kinds of state:
 
-- app 使用记录 / ranking
-- session 级审批
-- instruction 是否已经向某 app 投递过
+- app usage records / ranking
+- session-level approval
+- whether instructions have already been delivered to a given app
 
-这比“全局开一个 computer-use 权限开关”要细很多。
+This is much finer-grained than "a single global computer-use permission toggle."
 
-### 11. 在真实 tool 调用期间，仍然没有看到 client-service 之间的常驻 Unix socket
+### 11. During a real tool call, still no observed persistent Unix socket between client and service
 
-在实际调用一次 `get_app_state(Finder)` 之后，重新查看进程与句柄：
+After actually invoking `get_app_state(Finder)` once, re-inspecting processes and handles:
 
 - `SkyComputerUseService`
-  - 仍然只稳定持有一条 Unix socket
-  - 对端是 `Codex.app` 的 `codex-ipc/ipc-501.sock`
-- 多个存活的 `SkyComputerUseClient mcp`
-  - 可见句柄基本只有：
-    - stdio pipe 或 TTY
+  - still stably holds only one Unix socket
+  - the peer is `Codex.app`'s `codex-ipc/ipc-501.sock`
+- multiple live `SkyComputerUseClient mcp` processes
+  - visible handles are basically only:
+    - a stdio pipe or TTY
     - `Analytics.db`
-    - 少量系统控制句柄
-  - 没有观察到稳定的 client-service Unix socket
+    - a small number of system control handles
+  - no stable client-service Unix socket observed
 
-同时 service 还能看到：
+Meanwhile the service also shows:
 
 - `No active Computer Use IPC client processes; terminating service`
 
-所以当前更稳妥的结论是：
+So the more reliable conclusion right now is:
 
-- service 会跟踪 active IPC client
-- 但这个 client-service transport 至少不是一个容易通过 `lsof -U` 看到的常驻 Unix socket
+- the service does track active IPC clients
+- but this client-service transport is, at minimum, not a persistent Unix socket that's easy to see via `lsof -U`
 
-这进一步支持以下几种可能性之一：
+This further supports one of a few possibilities:
 
 - XPC / NSXPC
-- 每次请求短连、很快关闭的本地通道
-- 其他由系统服务包装、不直接体现在普通 socket 句柄上的 transport
+- a short-lived local channel opened per request and closed quickly
+- some other transport wrapped by a system service that isn't directly visible as an ordinary socket handle
 
-## 当前推断
+## Current Inferences
 
-### 1. 官方内部大概率是“三层协议栈”，而不是单一 MCP server
+### 1. The official implementation is likely a "three-layer protocol stack," not a single MCP server
 
-更符合现有证据的分层是：
+The layering that best fits the current evidence is:
 
 1. Codex appserver IPC
-   - service 和 Codex 宿主的私有 JSON-RPC / thread event 集成
+   - the private JSON-RPC / thread-event integration between the service and the Codex host
 2. ComputerUse IPC
-   - client 和 service 之间的本地受信请求协议
+   - the local trusted request protocol between the client and the service
 3. MCP
-   - client 对外暴露给 Codex agent runtime 的标准工具面
+   - the standard tool surface the client exposes externally to the Codex agent runtime
 
-这解释了为什么：
+This explains why:
 
-- 外部看上去只是一条 `SkyComputerUseClient mcp`
-- 但实际运行里还会出现 parent constraints、sender auth、service idle timeout、thread-ended cleanup
+- externally it looks like just a single `SkyComputerUseClient mcp` process
+- but in practice you also see parent constraints, sender auth, service idle timeout, and thread-ended cleanup
 
-### 2. `get_app_state` 只是外部 API 名称，内部核心对象更像 `Skyshot`
+### 2. `get_app_state` is only the external API name; the internal core object is more like `Skyshot`
 
-开源版如果要追求结构清晰，内部最好也拆成：
+If the open-source version wants a clean structure, it should probably also split internally into:
 
 - app targeting
 - screenshot capture
 - AX tree extraction
 - app state serialization
 
-而不是一上来就把所有逻辑耦合进一个 `get_app_state()` 函数里。
+rather than coupling all the logic into a single `get_app_state()` function from the start.
 
-### 3. 公开 tools 比内部能力更保守
+### 3. The public tools are more conservative than the internal capabilities
 
-当前内部已可见但外部未公开的能力至少包括：
+Capabilities currently visible internally but not exposed externally include at least:
 
 - app start
 - app activate / deactivate
 - app usage tracking
 
-这说明官方公开的 9 个 tools 是一个更保守的产品化裁剪，不等于 service 的全部能力。
+This suggests the official 9 published tools are a more conservative productized cut, not the full extent of the service's capabilities.
 
-## 当前未决问题
+## Current Open Questions
 
-- `ComputerUseIPC*` 这层最终到底走 XPC、NSXPC、私有 socket，还是别的本地 transport？
-- `AppStartRequest` 在什么场景会被真正使用，是否只用于首个 app 会话建立？
-- `AppUsageRequest` 是纯 analytics / ranking，还是也参与审批和安全策略？
-- `Skyshot` 的精确定义是什么，是否包含屏幕截图、窗口元数据、AX 树和 URL 等全部上下文？
-- sender authorization 的 requirement 是否直接绑定到 OpenAI Team ID，还是还有更细的 bundle / code requirement 约束？
-- 如果不是 XPC，client-service 的本地 transport 为什么在真实调用期间仍然几乎不可见？
+- Does the `ComputerUseIPC*` layer ultimately run over XPC, NSXPC, a private socket, or some other local transport?
+- In what scenario is `AppStartRequest` actually used — is it only for establishing the first app session?
+- Is `AppUsageRequest` pure analytics/ranking, or does it also factor into approval and security policy?
+- What is the exact definition of `Skyshot` — does it include the screenshot, window metadata, AX tree, and URLs, among all other context?
+- Is the sender-authorization requirement tied directly to the OpenAI Team ID, or is there a finer-grained bundle / code requirement constraint?
+- If it isn't XPC, why does the client-service local transport remain almost invisible during a real call?

@@ -1,27 +1,27 @@
-## [2026-04-22 12:05] | Task: 修复 0.1.27 release npm publish 失败
+## [2026-04-22 12:05] | Task: Fix the 0.1.27 release npm publish failure
 
-### 背景
+### Background
 
-- `v0.1.27` tag 触发的 GitHub Actions release 在 `package-npm` job 失败。
-- 失败点是 `Publish packages to npm`，registry 对 `open-codex-computer-use-mcp@0.1.27` 的 publish PUT 返回 404；同一 run 的 Cursor Motion DMG job 已成功。
-- npm registry 当前仍能看到三个包的 `0.1.26`，但看不到 `0.1.27`。
+- The GitHub Actions release triggered by the `v0.1.27` tag failed in the `package-npm` job.
+- The failure point was `Publish packages to npm`: the registry's publish PUT for `open-codex-computer-use-mcp@0.1.27` returned 404; the Cursor Motion DMG job in the same run had already succeeded.
+- The npm registry still showed `0.1.26` for all three packages, but not `0.1.27`.
 
-### 变更
+### Changes
 
-- **[Publish Recovery]**: `scripts/npm/publish-packages.mjs` 发布每个 staged package 前先用 `npm view <name>@<version>` 检查同版本是否已经存在；存在时直接跳过。
-- **[Auth Preference]**: GitHub Actions 暴露 OIDC 时优先用 `--provenance` 走 npm trusted publishing，不再因为存在 `NPM_TOKEN` fallback 就强制清掉 OIDC 环境；token 仅作为 fallback。
-- **[Trusted Publishing CLI]**: release workflow 的 npm package job 改用 Node `24`，并在 publish 前检查 npm CLI 至少为 `11.5.1`，满足 npm trusted publishing 的要求。
-- **[Retry]**: npm publish 失败后最多重试 3 次，并在每次失败后再次检查版本是否已经对 registry 可见，用于覆盖 registry 短暂错误或部分发布成功场景。
-- **[Release Guide]**: 在发版指南中补充 npm publish 404 的排查方式，以及 tag 重发时脚本如何处理已存在版本。
+- **[Publish Recovery]**: before publishing each staged package, `scripts/npm/publish-packages.mjs` now checks with `npm view <name>@<version>` whether the same version already exists; if so, it skips it directly.
+- **[Auth Preference]**: when GitHub Actions exposes OIDC, prefer `--provenance` and npm trusted publishing; no longer force-clear the OIDC environment just because an `NPM_TOKEN` fallback exists — the token is now only a fallback.
+- **[Trusted Publishing CLI]**: the release workflow's npm package job now uses Node `24`, and checks the npm CLI is at least `11.5.1` before publishing, to satisfy npm trusted publishing's requirements.
+- **[Retry]**: after an npm publish failure, retry up to 3 times, re-checking after each failure whether the version has since become visible on the registry, to cover transient registry errors or partial-publish scenarios.
+- **[Release Guide]**: added guidance to the release guide on how to troubleshoot npm publish 404s, and how the script handles an already-existing version when a tag is re-pushed.
 
-### 验证
+### Verification
 
-- 通过：`node ./scripts/npm/build-packages.mjs --skip-build --out-dir dist/release/npm-staging-check`，staging package version 为 `0.1.27`
-- 通过：`node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging-check --dry-run`
-- 通过：`node --check scripts/npm/publish-packages.mjs`
-- 通过：`swift test`
+- Passed: `node ./scripts/npm/build-packages.mjs --skip-build --out-dir dist/release/npm-staging-check`, staging package version was `0.1.27`
+- Passed: `node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging-check --dry-run`
+- Passed: `node --check scripts/npm/publish-packages.mjs`
+- Passed: `swift test`
 
-### 影响文件
+### Files Affected
 
 - `scripts/npm/publish-packages.mjs`
 - `docs/releases/RELEASE_GUIDE.md`

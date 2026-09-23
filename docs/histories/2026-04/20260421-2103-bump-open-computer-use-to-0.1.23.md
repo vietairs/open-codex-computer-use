@@ -1,4 +1,4 @@
-## [2026-04-21 21:03] | Task: 发布 0.1.23
+## [2026-04-21 21:03] | Task: Release 0.1.23
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 提交相关改动，bump version 并推送。
+> Commit the related changes, bump the version, and push.
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.23`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.23`，说明本次 patch release 聚焦原生 `open-computer-use call` 和 JSON 数组连续动作编排。
-- **[Release Trigger]**: 基于 `v0.1.22` 之后 main 上的 CLI call 功能提交，准备用 `v0.1.23` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: raised the plugin manifest, Swift/Go version constants, smoke suite init version, test MCP client version, and CLI doc paths together to `0.1.23`.
+- **[Release Notes]**: added `0.1.23` to the user-visible release record, noting that this patch release focuses on native `open-computer-use call` and JSON-array sequential action orchestration.
+- **[Release Trigger]**: based on the CLI call feature commits on main after `v0.1.22`, preparing to push the `v0.1.23` tag to trigger a new GitHub Actions release.
 
 ### 🧠 Design Intent (Why)
-`v0.1.22` 之后 main 已经包含原生 `open-computer-use call` 入口、共享 MCP/CLI dispatcher 和连续动作 JSON 编排能力。发布前需要把 npm manifest、CLI 版本、测试输入和文档中的版本源一起提升，避免 tag 与实际 npm staging 包版本不一致。
+After `v0.1.22`, main already included the native `open-computer-use call` entry point, a shared MCP/CLI dispatcher, and sequential-action JSON orchestration. Before release, the npm manifest, CLI version, test inputs, and version sources in docs all needed to be raised together, to avoid the tag drifting out of sync with the actual npm staging package version.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

@@ -1,4 +1,4 @@
-## [2026-09-01 10:20] | Task: 隔离嵌入式 App Agent Socket
+## [2026-09-01 10:20] | Task: Isolate the embedded App Agent socket
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex desktop`
@@ -6,22 +6,22 @@
 * **Runtime**: `macOS arm64`
 
 ### 📥 User Query
-> 修复 Electron 内置 OCU 在运行期间被其他 OCU App Agent Socket 争用而导致页面动作连接关闭的问题；不得影响用户的全局 OCU。
+> Fix the issue where the Electron-embedded OCU has its page-action connection closed because another OCU's App Agent Socket contends with it at runtime; must not affect the user's global OCU.
 
 ### 🛠 Changes Overview
-**Scope:** macOS App Agent proxy、Socket path contract、单元测试和架构/安全文档。
+**Scope:** macOS App Agent proxy, socket path contract, unit tests, and architecture/security docs.
 
 **Key Actions:**
-- **[Optional namespace]**: 增加 `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE`。未设置或为空时严格沿用 `open-computer-use-agent.sock`。
-- **[Private socket]**: 设置 namespace 时，以 SHA-256 摘要前 16 个十六进制字符派生短 Socket 文件名，不泄露原值。
-- **[Verification]**: 单元测试覆盖默认兼容、确定性和 namespace 间隔离；构建 `OpenComputerUse` 成功。
+- **[Optional namespace]**: Added `OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE`. When unset or empty, it strictly keeps using `open-computer-use-agent.sock`.
+- **[Private socket]**: When a namespace is set, a short socket filename is derived from the first 16 hex characters of its SHA-256 digest, without leaking the raw value.
+- **[Verification]**: Unit tests cover default compatibility, determinism, and isolation between namespaces; `OpenComputerUse` builds successfully.
 
 ### 🧠 Design Intent (Why)
-不同 OCU bundle 过去共享一个固定 Socket；当一个 bundle 发现 Socket 中的 Agent 来自另一个 bundle 时会终止它。可选 namespace 让嵌入式宿主独占自己的 Agent，而不改变未配置 namespace 的现有 CLI、MCP 或全局安装行为。
+Different OCU bundles used to share one fixed socket; when a bundle found the Agent on that socket belonged to another bundle, it would terminate it. The optional namespace lets an embedded host have its own private Agent, without changing the behavior of any existing CLI, MCP, or global install that does not configure a namespace.
 
 ### ✅ Verification
-- `swift test --filter OpenComputerUseKitTests/testAppAgentSocketFileName`：2 tests passed。
-- `swift build --product OpenComputerUse`：passed；仅有既存的 `nonisolated(unsafe)` warning。
+- `swift test --filter OpenComputerUseKitTests/testAppAgentSocketFileName`: 2 tests passed.
+- `swift build --product OpenComputerUse`: passed; only the pre-existing `nonisolated(unsafe)` warning remains.
 
 ### 📁 Files Modified
 - `apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift`

@@ -1,4 +1,4 @@
-## [2026-05-03 17:31] | Task: 修复 macOS 终端权限归属
+## [2026-05-03 17:31] | Task: Fix macOS terminal permission attribution
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -6,23 +6,23 @@
 * **Runtime**: `local macOS workspace`
 
 ### User Query
-> `open-computer-use doctor` 能打开权限页面，但从终端执行时权限似乎要求的是 iTerm/Terminal，而不是 `Open Computer Use.app`；需要保证 iTerm 没有 Accessibility / Screen Recording 权限时，只给 Open Computer Use 授权也能工作。
+> `open-computer-use doctor` can open the permissions page, but when run from the terminal, the permission requested seems to be for iTerm/Terminal instead of `Open Computer Use.app`; we need to make sure that when iTerm has no Accessibility / Screen Recording permission, granting permission to Open Computer Use alone still works.
 
 ### Changes Overview
 **Scope:** `apps/OpenComputerUse`, `packages/OpenComputerUseKit`, `docs`
 
 **Key Actions:**
-- **[App agent proxy]**: 新增隐藏 app-agent 启动模式；终端 CLI 对 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 通过 Unix domain socket 转发到 LaunchServices 启动的 `.app` 进程。
-- **[Onboarding reuse]**: 将权限 onboarding 拆出可复用的 `present()` 路径，让 doctor 可以在 app agent 已运行的 NSApplication 内显示授权窗口，而不是在终端子进程内直接跑 UI。
-- **[Decision tests]**: 将 app-agent 代理选择规则下沉为 Kit 内纯函数，并补单测覆盖 automation 命令代理、非 automation 命令本地执行、LaunchServices 打开 app 不递归代理、禁用开关和缺少 bundle fallback。
-- **[Launch mode guard]**: 对无参数启动区分 LaunchServices 打开的 `.app` 和终端直接执行的 bundle executable，避免双击 app 时留下多余后台 agent，同时让终端入口仍走 app 身份代理。
-- **[Socket permissions]**: app-agent Unix socket 创建后收紧为当前用户读写，维持本地-only 权限边界。
-- **[Permission relaunch]**: app-agent 内完成授权后仍会终止当前 app 进程，确保下一次命令用重新启动后的授权进程执行 ScreenCaptureKit / AX 路径。
-- **[Permission wording]**: 更新权限错误和文档口径，明确 macOS 授权目标是 `Open Computer Use.app`，不是宿主终端。
-- **[Swift 6.2 build fix]**: 适配 Swift 6.2 并发检查，将 cursor reference `NSImage` 静态缓存显式标记为 `nonisolated(unsafe)`，保持当前 AppKit 主线程绘制路径可编译。
+- **[App agent proxy]**: Added a hidden app-agent launch mode; the terminal CLI forwards `mcp`, `doctor`, `call`, `snapshot`, and `list-apps` over a Unix domain socket to the `.app` process launched by LaunchServices.
+- **[Onboarding reuse]**: Split the permission onboarding flow out into a reusable `present()` path, letting doctor display the authorization window inside the already-running app agent's NSApplication instead of running UI directly inside the terminal subprocess.
+- **[Decision tests]**: Moved the app-agent proxy-selection rules down into pure functions inside the Kit, with added unit tests covering proxying automation commands, running non-automation commands locally, not recursively proxying when LaunchServices opens the app, the disable switch, and the missing-bundle fallback.
+- **[Launch mode guard]**: For a no-argument launch, distinguished between the `.app` opened by LaunchServices and the bundle executable run directly from the terminal, avoiding leaving behind an extra background agent when the app is double-clicked, while still routing the terminal entry point through the app-identity proxy.
+- **[Socket permissions]**: Tightened the app-agent Unix socket, after creation, to current-user read/write only, maintaining a local-only permission boundary.
+- **[Permission relaunch]**: After completing authorization inside the app agent, the current app process is still terminated, ensuring the next command uses the freshly restarted, authorized process to run the ScreenCaptureKit / AX paths.
+- **[Permission wording]**: Updated the permission error messages and docs wording to make clear that the macOS authorization target is `Open Computer Use.app`, not the host terminal.
+- **[Swift 6.2 build fix]**: Adapted to Swift 6.2 concurrency checking by explicitly marking the cursor reference `NSImage` static cache as `nonisolated(unsafe)`, keeping the current AppKit main-thread drawing path compilable.
 
 ### Design Intent (Why)
-macOS TCC 对 Accessibility 和 Screen Recording 的责任归属取决于真正调用系统 API 的进程。终端直接启动 native runtime 时，系统可能要求 iTerm/Terminal 获得权限；把真实 automation 放到通过 LaunchServices 启动的 app bundle 进程内，可以让用户只授权 `Open Computer Use.app`，终端负责 stdio/命令代理。
+macOS TCC attributes responsibility for Accessibility and Screen Recording to whichever process actually calls the system API. When the terminal launches the native runtime directly, the system may prompt for iTerm/Terminal to be granted permission; putting the real automation inside an app bundle process launched via LaunchServices lets the user grant permission only to `Open Computer Use.app`, while the terminal is responsible for stdio/command proxying.
 
 ### Files Modified
 - `apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift`

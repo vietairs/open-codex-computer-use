@@ -1,4 +1,4 @@
-## [2026-04-20 14:16] | Task: 为 computer-use-cli 增加顺序调用能力
+## [2026-04-20 14:16] | Task: Add sequential call support to computer-use-cli
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 想自己通过 `scripts/computer-use-cli/` 连官方 bundled `computer-use`，复现哪些 tool 调用会出现 overlay cursor，并直接用 `go run` 测。
+> I want to connect to the official bundled `computer-use` myself via `scripts/computer-use-cli/`, reproduce which tool calls trigger the overlay cursor, and test it directly with `go run`.
 
 ### 🛠 Changes Overview
 **Scope:** `scripts/computer-use-cli`
 
 **Key Actions:**
-- **新增 `call-seq` 子命令**: 允许在同一条 direct MCP 连接或同一条 app-server ephemeral thread 里顺序执行多个 tool call，解决官方 `computer-use` 动作类工具必须先做 `get_app_state` 的前置约束。
-- **补充官方自测样例**: 新增 `examples/textedit-overlay-seq.json`，包含 `get_app_state -> set_value -> scroll -> perform_secondary_action` 的正例序列。
-- **更新说明与测试**: README 补充 `call-seq` 用法与限制说明，单测覆盖顺序调用 JSON 解析。
+- **Added the `call-seq` subcommand**: Allows executing multiple tool calls in sequence within the same direct MCP connection or the same app-server ephemeral thread, addressing the official `computer-use`'s requirement that action-type tools be preceded by a `get_app_state` call.
+- **Added an official self-test sample**: Added `examples/textedit-overlay-seq.json`, containing a positive-case sequence of `get_app_state -> set_value -> scroll -> perform_secondary_action`.
+- **Updated docs and tests**: Added `call-seq` usage and limitation notes to the README, with unit tests covering sequential-call JSON parsing.
 
 ### 🧠 Design Intent (Why)
-官方 bundled `computer-use` 在动作类 tool 前要求同线程内已有对应 app 的最新 state。原来的 `call` 每次都会新建一个 app-server 临时 thread，无法直接用 `go run` 复现这条链路。新增 `call-seq` 后，用户可以用一个 JSON 文件稳定复现实测路径，也更适合后续继续做官方行为对比。
+The official bundled `computer-use` requires that, before an action-type tool call, the same thread already holds the latest state for the corresponding app. The original `call` command created a new app-server ephemeral thread every time, making it impossible to reproduce this chain directly with `go run`. With `call-seq` added, users can reliably reproduce the observed path using a single JSON file, which is also better suited for further comparisons against official behavior going forward.
 
 ### 📁 Files Modified
 - `scripts/computer-use-cli/main.go`
@@ -28,8 +28,12 @@
 
 ### 🔁 Follow-up (2026-04-20 15:07)
 
-- **[9 tool coverage sample]**: 将 `examples/textedit-overlay-seq.json` 扩成一条覆盖官方 9 个 tools 的 `TextEdit` 序列，方便直接用 `go run . call-seq` 手工观察整体效果。
-- **[官方 stale-state 约束留档]**: 样例在每个会改动 app state 的 action 之间显式插入 `get_app_state`，因为官方 bundled `computer-use` 会在 mutation 后返回“先重新 query 最新 state”的约束。
+- **[9-tool coverage sample]**: Expanded `examples/textedit-overlay-seq.json` into a `TextEdit` sequence covering all 9 official tools, making it easy to manually observe the overall effect directly via `go run . call-seq`.
+- **[Documented the official stale-state constraint]**: The sample explicitly inserts a `get_app_state` between every action that changes app state, because the official bundled `computer-use` returns a "re-query the latest state first" constraint after a mutation.
+
+**Follow-up Files:**
+- `scripts/computer-use-cli/README.md`
+- `scripts/computer-use-cli/examples/textedit-overlay-seq.json`
 
 **Follow-up Files:**
 - `scripts/computer-use-cli/README.md`

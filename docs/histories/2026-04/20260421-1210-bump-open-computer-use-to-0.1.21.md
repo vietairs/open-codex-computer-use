@@ -1,4 +1,4 @@
-## [2026-04-21 12:10] | Task: 发布 0.1.21
+## [2026-04-21 12:10] | Task: Release 0.1.21
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 现有的 main bump 一个 version，git tag 发一下，并用 gh 跟踪 action 是否顺利跑完。
+> Bump a version on main, push a git tag, and use gh to track whether the action runs through cleanly.
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.21`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.21`，说明这次 patch release 的核心是 runtime 软件光标视觉和 app icon 边界收口。
-- **[Release Trigger]**: 基于 `v0.1.20` 之后 main 上的软件光标渲染与图标修复提交，准备用 `v0.1.21` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: Raised the plugin manifest, Swift/Go version constants, smoke suite init version, test MCP client version, and CLI doc paths uniformly to `0.1.21`.
+- **[Release Notes]**: Added `0.1.21` to the user-facing release record, noting that the core of this patch release is tightening the runtime software cursor's visual look and the app icon's margins.
+- **[Release Trigger]**: Based on the software cursor rendering and icon fixes committed to main after `v0.1.20`, prepared to push a `v0.1.21` tag to trigger a new GitHub Actions release.
 
 ### 🧠 Design Intent (Why)
-`v0.1.20` 之后 main 已经包含 runtime overlay glyph、初始朝向、绘制方向和 app icon 安全边距修复。发布前需要把 npm manifest、CLI 版本、测试输入和文档中的版本源一起提升，避免 tag 与实际 npm staging 包版本不一致。
+Since `v0.1.20`, main already includes the runtime overlay glyph, initial orientation, draw direction, and app icon safe-margin fixes. Before releasing, the npm manifest, CLI version, test inputs, and every version source in the docs need to be bumped together, to avoid the tag ending up out of sync with the actual npm staging package version.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

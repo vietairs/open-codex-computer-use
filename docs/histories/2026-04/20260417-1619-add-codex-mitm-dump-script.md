@@ -1,4 +1,4 @@
-## [2026-04-17 16:19] | Task: 新增 Codex mitm 抓包脚本
+## [2026-04-17 16:19] | Task: Add Codex mitm capture script
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,21 +6,21 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 帮我写一个 `codex_dump.py`，用于通过 mitmproxy/mitmweb 抓 Codex 的上游 API 与 WebSocket 流量。
+> Write me a `codex_dump.py` to capture Codex's upstream API and WebSocket traffic via mitmproxy/mitmweb.
 
 ### 🛠 Changes Overview
-**Scope:** `scripts`、`README.md`、`.gitignore`、`docs/references`、`docs/histories`
+**Scope:** `scripts`, `README.md`, `.gitignore`, `docs/references`, `docs/histories`
 
 **Key Actions:**
-- **[抓包脚本]**: 新增 `scripts/codex_dump.py`，支持持久化 Codex 相关 HTTP 与 WebSocket 流量。
-- **[后台启动脚本]**: 新增 `scripts/start-codex-mitm-dump.sh`，自动创建 session 目录、后台拉起 mitmdump，并输出可直接 `source` 的代理环境。
-- **[默认脱敏]**: 对 `Authorization`、Cookie 和常见 token 字段做脱敏，避免把登录凭证原样写盘。
-- **[最小文档]**: 在 `README.md` 补充运行 mitmdump/mitmweb 抓 Codex 主链路的基本用法。
-- **[样本忽略]**: 把 `artifacts/codex-dumps/` 加入 `.gitignore`，便于把分析样本留在仓库目录里长期查看。
-- **[复用 runbook]**: 新增 `docs/references/codex-network-capture.md`，明确前台抓包、后台启动、session 目录约定和后续 eval 分析流程。
+- **[Capture script]**: Added `scripts/codex_dump.py` to persist Codex-related HTTP and WebSocket traffic.
+- **[Background launch script]**: Added `scripts/start-codex-mitm-dump.sh`, which auto-creates a session directory, launches mitmdump in the background, and prints a proxy environment that can be `source`d directly.
+- **[Default redaction]**: Redacts `Authorization`, cookies, and common token fields by default, avoiding writing login credentials to disk verbatim.
+- **[Minimal docs]**: Added basic usage for running mitmdump/mitmweb against Codex's main link to `README.md`.
+- **[Sample ignore]**: Added `artifacts/codex-dumps/` to `.gitignore` so analysis samples can stay in the repo directory for long-term viewing.
+- **[Reusable runbook]**: Added `docs/references/codex-network-capture.md`, spelling out foreground capture, background launch, session directory conventions, and the follow-up eval analysis flow.
 
 ### 🧠 Design Intent (Why)
-Codex 当前主模型调用走 `chatgpt.com/backend-api/codex/responses` WebSocket，而不是传统 REST body。仓库里需要一份可直接复用、默认脱敏、且不把真实抓包结果落进仓库的脚本，避免每次都靠聊天上下文临时拼 addon。
+Codex's current main model calls go through the `chatgpt.com/backend-api/codex/responses` WebSocket rather than a traditional REST body. The repo needs a reusable, redacted-by-default script that doesn't commit real capture results into the repo, instead of stitching together an ad hoc addon from chat context each time.
 
 ### 📁 Files Modified
 - `.gitignore`
@@ -31,7 +31,7 @@ Codex 当前主模型调用走 `chatgpt.com/backend-api/codex/responses` WebSock
 - `docs/references/codex-network-capture.md`
 - `docs/histories/2026-04/20260417-1619-add-codex-mitm-dump-script.md`
 
-## [2026-04-17 17:50] | Task: 改进 Codex dump script，补充本地 session 摘要
+## [2026-04-17 17:50] | Task: Improve the Codex dump script, add local session summaries
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -39,20 +39,20 @@ Codex 当前主模型调用走 `chatgpt.com/backend-api/codex/responses` WebSock
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 改进 `codex_dump.py`，让抓包目录里更容易直接看到正常请求、MCP tool 调用和 tool result。
+> Improve `codex_dump.py` so the capture directory makes it easier to see normal requests, MCP tool calls, and tool results directly.
 
 ### 🛠 Changes Overview
-**Scope:** `scripts`、`README.md`、`docs/references`、`docs/histories`
+**Scope:** `scripts`, `README.md`, `docs/references`, `docs/histories`
 
 **Key Actions:**
-- **[本地摘要导出]**: 扩展 `scripts/codex_dump.py`，在保留 HTTP / WebSocket dump 的同时，把当前 websocket `session_id` 对应的 `~/.codex/sessions/rollout-*.jsonl` 导出成 `local-sessions/*.json`。
-- **[结构化结果]**: `local-sessions/*.json` 只保留高信号字段，包括 `user_prompts`、`tool_calls`、`function_call_output` 解析结果和 `final_answer`，避免直接复制原始 session JSONL。
-- **[精确匹配]**: 优先用 websocket 握手头里的 `session_id` 精确关联本地 session，避免把同时间窗口内的旧 session 一起扫进当前 dump 目录。
-- **[启动健壮性]**: `scripts/start-codex-mitm-dump.sh` 现在会确认端口真的开始监听后才返回，并把 mitmdump 的 stdin 重定向到 `/dev/null`。
-- **[文档顺序更新]**: 更新 runbook，明确新的默认排查顺序是 `websocket/` -> `local-sessions/` -> `logs_2.sqlite`。
+- **[Local summary export]**: Extended `scripts/codex_dump.py` to, alongside the HTTP/WebSocket dump, export the `~/.codex/sessions/rollout-*.jsonl` matching the current websocket `session_id` into `local-sessions/*.json`.
+- **[Structured results]**: `local-sessions/*.json` keeps only high-signal fields, including `user_prompts`, `tool_calls`, parsed `function_call_output` results, and `final_answer`, instead of copying the raw session JSONL directly.
+- **[Precise matching]**: Prefers the `session_id` from the websocket handshake header to precisely correlate the local session, avoiding sweeping older sessions from the same time window into the current dump directory.
+- **[Startup robustness]**: `scripts/start-codex-mitm-dump.sh` now confirms the port is actually listening before returning, and redirects mitmdump's stdin to `/dev/null`.
+- **[Doc ordering update]**: Updated the runbook to state the new default triage order: `websocket/` -> `local-sessions/` -> `logs_2.sqlite`.
 
 ### 🧠 Design Intent (Why)
-用户真正要分析的通常不是“模型决定调用了哪个 tool”这一半，而是“宿主最终把什么 `function_call` 下发给本地 MCP、又收到了什么 `function_call_output`”。把这层摘要直接落进同一个 dump 目录，能显著降低来回切换 `mitm` 样本和 `~/.codex/sessions` 的成本，也更适合做长期 eval 留档。
+What the user actually needs to analyze usually isn't the "which tool did the model decide to call" half, but "what `function_call` did the host ultimately dispatch to the local MCP, and what `function_call_output` did it get back." Putting this summary layer directly into the same dump directory significantly lowers the cost of switching back and forth between `mitm` samples and `~/.codex/sessions`, and is also better suited for long-term eval archiving.
 
 ### 📁 Files Modified
 - `scripts/codex_dump.py`

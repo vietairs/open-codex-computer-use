@@ -1,4 +1,4 @@
-## [2026-04-19 13:20] | Task: 深挖官方 cursor motion 静态模型
+## [2026-04-19 13:20] | Task: Deepen the static model of official cursor motion
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,20 +6,20 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 继续分析官方 `Codex Computer Use.app`，重点看 `calculates natural and aesthetic motion paths` 相关算法，尽量从 app 里找到曲线和速度怎么计算。
+> Continue analyzing the official `Codex Computer Use.app`, focusing on the algorithm behind "calculates natural and aesthetic motion paths"; try to work out from the app how the curve and speed are computed.
 
 ### 🛠 Changes Overview
-**Scope:** `docs/references/codex-computer-use-reverse-engineering/`、`docs/histories/`
+**Scope:** `docs/references/codex-computer-use-reverse-engineering/`, `docs/histories/`
 
 **Key Actions:**
-- **[补强静态分析证据]**: 对 `SkyComputerUseService` 的 `__swift5_types` / `__swift5_fieldmd` 做静态恢复，不再只依赖 `strings` 关键词。
-- **[确认 cursor path 类型]**: 文档新增 `ComputerUseCursor`、`Window`、`Style`、`CloseEnoughConfiguration`、`CursorNextInteractionTiming`、`CursorMotionPathMeasurement`、`Segment`、`CursorMotionPath` 的字段级证据。
-- **[确认 timing / spring 类型]**: 文档新增 `BezierAnimation`、`SpringAnimation`、`BezierFunction`、`BezierParameters`、`SpringParameters`、`VelocityVerletSimulation`、`Configuration`、`AnimationDescriptor` 的字段级证据。
-- **[修正旧推断]**: 把此前把 `ARC SIZE` 直接映射到 `arcHeight` 的说法降级，改为更保守地映射到 cursor path 的 `arc` / 控制点偏移。
-- **[明确 next-interaction gate]**: 基于 `CloseEnoughConfiguration(progressThreshold, distanceThreshold)` 和 `CursorNextInteractionTiming(closeEnough, finished)`，补充“动画未完全结束即可进入下一交互”的 timing 机制判断。
+- **[Strengthen static-analysis evidence]**: recovered `SkyComputerUseService`'s `__swift5_types` / `__swift5_fieldmd` statically, no longer relying only on `strings` keyword hits.
+- **[Confirm cursor path types]**: added field-level evidence to the docs for `ComputerUseCursor`, `Window`, `Style`, `CloseEnoughConfiguration`, `CursorNextInteractionTiming`, `CursorMotionPathMeasurement`, `Segment`, and `CursorMotionPath`.
+- **[Confirm timing / spring types]**: added field-level evidence to the docs for `BezierAnimation`, `SpringAnimation`, `BezierFunction`, `BezierParameters`, `SpringParameters`, `VelocityVerletSimulation`, `Configuration`, and `AnimationDescriptor`.
+- **[Correct an earlier inference]**: downgraded the earlier claim that mapped `ARC SIZE` directly to `arcHeight`, replacing it with a more conservative mapping to the cursor path's `arc` / control-point offset.
+- **[Clarify the next-interaction gate]**: based on `CloseEnoughConfiguration(progressThreshold, distanceThreshold)` and `CursorNextInteractionTiming(closeEnough, finished)`, added a judgment on the timing mechanism that lets the next interaction start before the animation has fully finished.
 
 ### 🧠 Design Intent (Why)
-之前 motion model 文档主要停留在“看到哪些字符串，所以推测有哪些层”的阶段。这次把 Swift 元数据也解析出来，是为了把曲线与速度模型从概念推断推进到字段级证据，减少后续开源实现时把官方结构猜错的概率。
+The motion-model docs had previously mostly stayed at the stage of "here are the strings we saw, so here's what layers we infer exist." This round also parses out the Swift metadata, to move the curve and speed model from conceptual inference to field-level evidence, reducing the chance of guessing the official structure wrong in a later open-source implementation.
 
 ### 📁 Files Modified
 - `docs/references/codex-computer-use-reverse-engineering/software-cursor-motion-model.md`

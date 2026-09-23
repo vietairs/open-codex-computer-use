@@ -1,25 +1,25 @@
-# 避免合并计数文本 sibling
+# Avoid merging counter-text siblings
 
-## 用户诉求
+## User request
 
-持续对比 Lark / Electron app 的 `get_app_state` 返回，修正和官方 `computer-use` 不一致的 state rendering 细节。
+Continued comparing `get_app_state` output for Lark / Electron apps against the official `computer-use`, fixing state-rendering details that didn't match.
 
-## 主要改动
+## Main changes
 
-- 调整 `mergeTextOnlySiblings` 规则：当 sibling 文本包含 `数字/数字` 计数形态时，不再把整组文本合并成一行 summary。
-- 增加单元测试覆盖 `["消息", "126/126"]` 不应合并。
+- Adjusted the `mergeTextOnlySiblings` rule: when a sibling's text contains a `number/number` counter shape, no longer merge the whole group of text into a single-line summary.
+- Added a unit test covering `["Messages", "126/126"]` not being merged.
 
-## 设计动机
+## Design intent
 
-官方 Lark 样本会把“消息”和未读/总数计数分别渲染为独立 text 节点。开源版之前输出 `text 消息 126/126`，信息仍在但结构更粗，和官方 tree 形状不一致。这个规则只针对明确的计数 sibling，避免大范围放弃短文本合并带来的节点预算压力。
+The official Lark sample renders "Messages" and the unread/total counter as separate text nodes. The open-source version previously output `text Messages 126/126`; the information was still present, but the structure was coarser and didn't match the official tree shape. This rule only targets clear counter siblings, avoiding the node-budget pressure that would come from broadly abandoning short-text merging.
 
-## 验证
+## Verification
 
-- Lark 本地回归确认输出变为独立的 `text 消息` 和 `text 126/126`。
+- Local Lark regression confirms the output now shows separate `text Messages` and `text 126/126` nodes.
 - `swift test --filter AccessibilityRendererOnlyMergesShortTextOnlySiblingRuns`
 - `./scripts/build-open-computer-use-app.sh debug`
 
-## 受影响文件
+## Affected files
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

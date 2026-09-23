@@ -1,21 +1,21 @@
-## [2026-04-22 10:50] | Task: 对齐官方 `set_value` 的 settable 边界
+## [2026-04-22 10:50] | Task: Align with the official `set_value` settable boundary
 
-### 用户诉求
+### User Request
 
-> 按照官方姿势处理 Sublime 这类 `set_value` 失败路径。
+> Handle the `set_value` failure path for apps like Sublime the "official" way.
 
-### 本次改动
+### This Change
 
-- **收敛 `set_value` 边界**: 真实 app 的 `set_value` 现在先检查 `AXUIElementIsAttributeSettable(kAXValueAttribute)`，只有目标确认为 settable 才调用 `AXUIElementSetAttributeValue`。
-- **官方风格错误**: 对 Sublime 这类可读 `AXValue` 但不可设置的元素，返回 `Cannot set a value for an element that is not settable`，不再裸露 `AXUIElementSetAttributeValue failed with -25200`。
-- **避免语义漂移**: 没有在 `set_value` 内部 fallback 到 `type_text`、剪贴板或未公开的 `AXReplaceRangeWithText`，保持它是“设置 settable accessibility element”的语义。
-- **补充回归测试和架构说明**: 新增 settable gate 的单元测试，并同步 `docs/ARCHITECTURE.md` 的 action tool 边界。
+- **Tighten the `set_value` boundary**: for real apps, `set_value` now first checks `AXUIElementIsAttributeSettable(kAXValueAttribute)`, and only calls `AXUIElementSetAttributeValue` once the target is confirmed settable.
+- **Official-style error**: for elements like Sublime's, where `AXValue` is readable but not settable, return `Cannot set a value for an element that is not settable` instead of exposing the raw `AXUIElementSetAttributeValue failed with -25200`.
+- **Avoid semantic drift**: `set_value` does not fall back internally to `type_text`, the clipboard, or the undocumented `AXReplaceRangeWithText`, keeping its semantics scoped to "set a settable accessibility element".
+- **Add regression tests and architecture notes**: add unit tests for the settable gate, and sync the action-tool boundary in `docs/ARCHITECTURE.md`.
 
-### 设计动机
+### Design Intent
 
-官方 bundled app 的 tool 描述和二进制错误文案都显示 `set_value` 面向 settable accessibility element。Sublime 的正文节点虽然能读到 `AXValue`，但 `AXUIElementIsAttributeSettable(kAXValueAttribute)` 返回 success + false；此时继续强行 `AXUIElementSetAttributeValue` 只会得到底层 `kAXErrorFailure(-25200)`。先做 settable gate 能把失败解释为能力边界，而不是伪装成输入模拟失败。
+The official bundled app's tool description and its binary error text both indicate that `set_value` targets settable accessibility elements. Sublime's body node can have its `AXValue` read, but `AXUIElementIsAttributeSettable(kAXValueAttribute)` returns success + false; forcing `AXUIElementSetAttributeValue` in that case only produces the underlying `kAXErrorFailure(-25200)`. Gating on settability up front lets the failure be explained as a capability boundary, rather than disguised as an input-simulation failure.
 
-### 影响文件
+### Files Affected
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

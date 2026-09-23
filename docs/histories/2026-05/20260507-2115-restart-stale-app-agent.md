@@ -1,29 +1,29 @@
-# 自动替换过期 app-agent
+# Automatically replace a stale app-agent
 
-## 用户诉求
+## User Request
 
-继续优化 `open-computer-use` 与官方工具的一致性，并减少每次构建后需要手动重启隐藏 app-agent 的情况。
+Keep improving `open-computer-use`'s consistency with the official tools, and reduce the need to manually restart the hidden app-agent after every build.
 
-## 主要改动
+## Main Changes
 
-- app-agent socket 新增 `agentInfo` 请求，返回当前 bundle、executable 和 agent 进程启动时间。
-- CLI proxy 连接已有 socket 时，会校验 agent 是否来自当前 bundle，并且启动时间是否晚于当前 executable 修改时间。
-- 如果已有 agent 过期或不支持 `agentInfo`，proxy 会丢弃旧 socket 并拉起新的 Dev app-agent。
-- 新 agent 支持 `terminate` 请求，后续替换时可优雅退出。
+- Added an `agentInfo` request to the app-agent socket, returning the current bundle, executable, and the agent process's start time.
+- When the CLI proxy connects to an existing socket, it validates whether the agent comes from the current bundle and whether its start time is later than the current executable's modification time.
+- If the existing agent is stale or doesn't support `agentInfo`, the proxy discards the old socket and spins up a new Dev app-agent.
+- The new agent supports a `terminate` request, allowing it to exit gracefully on subsequent replacement.
 
-## 设计动机
+## Design Intent
 
-本地 debug 构建会原地替换 `dist/Open Computer Use (Dev).app`，但旧的隐藏 app-agent 可能继续持有旧代码，导致 Codex 重启后仍拿到过期 tool 行为。用 agent 自报信息和 executable mtime 做一次轻量握手，可以让代理在连接前自动发现并替换 stale agent。
+A local debug build replaces `dist/Open Computer Use (Dev).app` in place, but the old hidden app-agent may keep holding onto the old code, causing Codex to still get stale tool behavior after a restart. Using a lightweight handshake based on agent self-reported info and the executable's mtime lets the proxy automatically detect and replace a stale agent before connecting.
 
-## 验证
+## Verification
 
 - `swift test`
 - `./scripts/build-open-computer-use-app.sh debug`
 - `./scripts/run-tool-smoke-tests.sh`
 - `./scripts/check-docs.sh`
 - `git diff --check`
-- 普通代理路径 `call list_apps` 验证可自动拉起新 agent，并输出 `frontmost`
+- The normal proxy path's `call list_apps` verified that a new agent is auto-spun-up, and `frontmost` is output
 
-## 受影响文件
+## Files Affected
 
 - `apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift`

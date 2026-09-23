@@ -1,22 +1,22 @@
-# 发布记录说明
+# Release Notes Guide
 
-`feature-release-notes.md` 用来记录对用户可感知的新功能、体验优化和重要修复。
+`feature-release-notes.md` records user-facing new features, experience improvements, and notable fixes.
 
-`github/vX.Y.Z.md` 是 GitHub Release 的审核版英文正文。每次公开发版必须从 `github/TEMPLATE.md` 新建目标 tag 对应文件，并在打 tag 前运行 release notes 校验。
+`github/vX.Y.Z.md` is the reviewed English copy for the GitHub Release body. Every public release must create the target tag's file from `github/TEMPLATE.md` and run the release-notes check before tagging.
 
-如果任务是“准备发版 / bump 版本 / 打 tag / 查 release 失败”，先读 `RELEASE_GUIDE.md`。
+If the task is "prepare a release / bump version / tag / investigate a release failure," read `RELEASE_GUIDE.md` first.
 
-## 规则
+## Rules
 
-- 按月份分组，格式使用 `## YYYY-MM`
-- 同一个月份里，最新内容插在最上面
-- 先写用户价值，再写变更摘要
-- 不要把纯内部重构和实现噪音塞进来
-- GitHub Release 正文默认使用审核过的英文，不直接使用 PR 标题自动生成
+- Group by month, using the `## YYYY-MM` format.
+- Within the same month, put the newest entry at the top.
+- Lead with user value, then follow with a summary of the change.
+- Do not clutter this file with pure internal refactors or implementation noise.
+- The GitHub Release body defaults to reviewed English text; it is not generated directly from PR titles.
 
-## 建议的列
+## Suggested columns
 
-- 日期
-- 功能域
-- 用户价值
-- 变更摘要
+- Date
+- Feature area
+- User value
+- Change summary

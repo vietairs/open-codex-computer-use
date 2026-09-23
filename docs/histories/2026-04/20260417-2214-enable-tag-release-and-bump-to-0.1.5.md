@@ -1,4 +1,4 @@
-## [2026-04-17 22:14] | Task: 启用 tag 发布并 bump 到 0.1.5
+## [2026-04-17 22:14] | Task: Enable tag-based releases and bump to 0.1.5
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,20 +6,20 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 通过 gh 设置 workflow，后续通过 git tag 来发；搞完就提交相关改动，打个 0.1.5 发，然后观察结果。
+> Set up the workflow via gh so releases are subsequently done via git tag; once that's done, commit the related changes, cut a 0.1.5 release, then watch the results.
 
 ### 🛠 Changes Overview
-**Scope:** `.github/workflows/`、`plugins/`、`packages/`、`apps/`、`scripts/`、`docs/`
+**Scope:** `.github/workflows/`, `plugins/`, `packages/`, `apps/`, `scripts/`, `docs/`
 
 **Key Actions:**
-- **调整 release 触发方式**：让 `release.yml` 在 push `v*` 和 `*.*.*` tag 时自动发布，同时保留手动触发。
-- **保留 Trusted Publishing**：发布步骤继续走 GitHub Actions OIDC，不依赖长期 npm token。
-- **版本 bump**：将插件 manifest、MCP server、自测和 CLI 文档中的版本统一更新到 `0.1.5`。
-- **同步文档**：把 README 和 CI/CD 文档明确改成“打 git tag 自动发 npm”的用法。
-- **修正 GitHub runner**：把 release workflow 从 `macos-14` 调整到 `macos-26`，避免 GitHub Hosted Runner 默认 Xcode 15.4 / Swift 5.10 无法构建 `swift-tools-version: 6.2` 包。
+- **Adjusted the release trigger**: Made `release.yml` auto-publish on push of `v*` and `*.*.*` tags, while keeping manual triggering.
+- **Preserved Trusted Publishing**: The publish step continues to go through GitHub Actions OIDC, without relying on a long-lived npm token.
+- **Version bump**: Uniformly updated the version in the plugin manifest, MCP server, self-tests, and CLI docs to `0.1.5`.
+- **Synced docs**: Updated the README and CI/CD docs to clearly describe the "push a git tag to auto-publish to npm" usage.
+- **Fixed the GitHub runner**: Adjusted the release workflow from `macos-14` to `macos-26`, avoiding the fact that GitHub Hosted Runner's default Xcode 15.4 / Swift 5.10 cannot build a package with `swift-tools-version: 6.2`.
 
 ### 🧠 Design Intent (Why)
-既然 npm 侧已经配置了 Trusted Publishing，最自然的 release 路径就是“commit -> tag -> GitHub Actions 自动发”。这样发布动作能绑定到一个明确的 Git tag，也更符合 npm 包版本和 Git 版本一一对应的维护习惯。
+Since Trusted Publishing is already configured on the npm side, the most natural release path is "commit -> tag -> GitHub Actions auto-publish." This way the publish action is bound to an explicit Git tag, which also better matches the maintenance convention of a one-to-one correspondence between npm package versions and Git versions.
 
 ### 📁 Files Modified
 - `.github/workflows/release.yml`

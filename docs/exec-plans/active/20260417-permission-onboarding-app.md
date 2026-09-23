@@ -1,85 +1,85 @@
 # Permission Onboarding App
 
-## 目标
+## Goal
 
-为 `OpenComputerUse` 增加一套真正可用的 macOS 权限引导体验：把当前纯 CLI 入口扩成可运行的 app 模式，提供权限状态窗口、System Settings 深链和可拖拽的 app 代理视图，让用户更轻松地把 `OpenComputerUse` 加入 `Accessibility` 与 `Screen & System Audio Recording`。
+Add a genuinely usable macOS permission onboarding experience for `OpenComputerUse`: expand the current pure-CLI entry point into a runnable app mode, providing a permission status window, System Settings deep links, and a draggable app proxy view, so users can more easily add `OpenComputerUse` to `Accessibility` and `Screen & System Audio Recording`.
 
-## 范围
+## Scope
 
-- 包含：
-  - 为 `OpenComputerUse` 增加 app 模式入口。
-  - 实现权限状态窗口、轮询更新和按钮状态。
-  - 实现 `Accessibility`、`Screen & System Audio Recording` 的 System Settings 深链。
-  - 实现拖拽 app bundle 的辅助浮窗 / draggable app tile。
-  - 增加 `.app` 打包脚本与本地验证路径。
-  - 同步架构、README、质量评分、history。
-- 不包含：
-  - 当前阶段不复刻官方的所有转场动画、模糊 overlay 和多窗口 choreography。
-  - 当前阶段不接入 notarization、code signing 或发布渠道分发。
+- In scope:
+  - Add an app-mode entry point for `OpenComputerUse`.
+  - Implement the permission status window, polling updates, and button state.
+  - Implement System Settings deep links for `Accessibility` and `Screen & System Audio Recording`.
+  - Implement the draggable app bundle accessory panel / draggable app tile.
+  - Add a `.app` packaging script and a local verification path.
+  - Sync architecture, README, quality scoring, and history.
+- Out of scope:
+  - This phase does not replicate all of the official transition animations, blur overlays, or multi-window choreography.
+  - This phase does not wire up notarization, code signing, or release-channel distribution.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
   - `docs/references/codex-computer-use-reverse-engineering/permission-onboarding.md`
   - `docs/ARCHITECTURE.md`
   - `docs/SECURITY.md`
-- 相关代码路径：
+- Related code paths:
   - `apps/OpenComputerUse/`
   - `packages/OpenComputerUseKit/Permissions.swift`
   - `scripts/`
-- 已知约束：
-  - 只有真正的 `.app` bundle 才能让用户以“拖进列表”的方式授予权限。
-  - 这轮仍然保留 CLI / MCP 模式，不能把现有 `mcp` 入口打断。
-  - `Screen Recording` 的授权状态在某些场景下需要重启 app 后才能稳定生效。
+- Known constraints:
+  - Only a genuine `.app` bundle lets the user grant permission by "dragging it into the list."
+  - This round still keeps the CLI / MCP mode; the existing `mcp` entry point must not be broken.
+  - In some scenarios, `Screen Recording` authorization state only stabilizes after the app is relaunched.
 
-## 风险
+## Risks
 
-- 风险：只做窗口 UI，不做 `.app` 打包，最终无法真的拖进系统设置列表。
-  - 缓解方式：同一轮内补齐最小 `.app` 打包脚本，并以 bundle 模式验证。
-- 风险：System Settings URL 写错或系统版本差异导致跳错页。
-  - 缓解方式：在本机直接验证跳到 `Accessibility` 和 `Screen & System Audio Recording` 两页。
-- 风险：拖拽 pasteboard 内容不对，用户看得到 tile 但拖不进去。
-  - 缓解方式：drag source 直接使用 app bundle `fileURL`，而不是只做视觉复制。
+- Risk: building only the window UI without `.app` packaging, so it can't actually be dragged into the system settings list.
+  - Mitigation: fill in a minimal `.app` packaging script in the same round and verify in bundle mode.
+- Risk: an incorrect System Settings URL or OS version differences send users to the wrong page.
+  - Mitigation: verify locally that it deep-links to the `Accessibility` and `Screen & System Audio Recording` pages.
+- Risk: incorrect drag pasteboard contents mean the user can see the tile but can't actually drag it in.
+  - Mitigation: have the drag source use the app bundle's `fileURL` directly, rather than just a visual copy.
 
-## 里程碑
+## Milestones
 
-1. 入口和包装方案收敛。
-2. 权限窗口与拖拽辅助浮窗实现。
-3. `.app` 打包、本地验证、文档同步。
+1. Converge on the entry point and packaging approach.
+2. Implement the permission window and the drag accessory panel.
+3. `.app` packaging, local verification, docs sync.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
   - `swift build`
   - `swift test`
   - `scripts/build-open-computer-use-app.sh debug`
   - `open dist/OpenComputerUse.app`
-- 手工检查：
-  - app 模式可正常显示权限窗口。
-  - `Allow` 按钮分别跳到 `Accessibility`、`Screen & System Audio Recording`。
-  - 辅助浮窗可展示并可开始拖拽 app tile。
-  - 主窗口在权限已授予后会收敛到 `Done`。
-- 观测检查：
-  - `doctor` 和 app 窗口的权限状态一致。
-  - 授权后窗口状态能自动收敛到 `Done` 或明确提示需要 relaunch。
+- Manual checks:
+  - App mode displays the permission window correctly.
+  - The `Allow` button jumps to `Accessibility` and `Screen & System Audio Recording` respectively.
+  - The accessory panel can be shown and dragging the app tile can be started.
+  - The main window converges to `Done` once permissions are granted.
+- Observational checks:
+  - The `doctor` permission status matches the app window's.
+  - After authorization, the window state automatically converges to `Done` or clearly prompts for a relaunch.
 
-## 进度记录
+## Progress Log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
 
-## 决策记录
+## Decision Log
 
-- 2026-04-17：权限 onboarding 直接做进 `OpenComputerUse` 主 target，而不是另起一个完全独立的 helper app。这样 `mcp` CLI 和 app bundle 可复用同一个可执行文件与 bundle 身份。
-- 2026-04-17：权限状态判定加入对 TCC 持久授权记录的读取，避免 dev 环境里 CLI 子进程与 GUI app 对同一 bundle 权限状态看到不一致的结果。
-- 2026-04-17：drag panel 仍然只在 `System Settings` 前台时显示；水平位置维持窗口右侧内容区居中，垂直位置优先跟随当前权限页的 `+ / -` 控制行，只有拿不到控件几何时才回退到窗口底边，避免在 `Screen & System Audio Recording` 这类长页面里被吸到屏幕最下方。
-- 2026-04-17：app 模式改成 `LSUIElement` + `.accessory` agent-style 运行，保证权限窗口可见，但执行过程中不再额外在 Dock 暴露前台 app 图标。
-- 2026-04-19：accessory panel 的第一次出现改成从主窗口 `Allow` 按钮 source frame 飞入 `System Settings` 内容区下沿，使用 spring + curved frame 过渡；同时 panel 内补显式返回按钮，把中断 guidance 的动作收回到 app 内。
+- 2026-04-17: Build permission onboarding directly into the `OpenComputerUse` main target rather than starting a fully separate helper app. This lets the `mcp` CLI and the app bundle share the same executable and bundle identity.
+- 2026-04-17: Add reading of the TCC persistent authorization record to the permission-state determination, to avoid the CLI subprocess and the GUI app seeing inconsistent results for the same bundle's permission state in dev environments.
+- 2026-04-17: The drag panel is still only shown while `System Settings` is in the foreground; its horizontal position stays centered on the window's right-side content area, and its vertical position preferentially follows the current permission page's `+ / -` control row, falling back to the window's bottom edge only when that control's geometry can't be obtained — avoiding it getting stuck at the very bottom of the screen on long pages like `Screen & System Audio Recording`.
+- 2026-04-17: App mode switched to running `LSUIElement` + `.accessory` agent-style, keeping the permission window visible while no longer exposing an extra foreground app icon in the Dock during execution.
+- 2026-04-19: The accessory panel's first appearance now flies in from the main window's `Allow` button source frame to the bottom edge of the `System Settings` content area, using a spring + curved-frame transition; an explicit back button was also added inside the panel, so the action of interrupting guidance is handled within the app itself.
 
-## 当前结论
+## Current Conclusion
 
-- app 模式、System Settings 深链、drag tile、`.app` 打包和主窗口 `Done` 状态已经可用。
-- accessory panel 现在具备一次性的 source-to-target 入场动画和显式返回按钮，权限切换时不再只能依赖硬切和手动切回主窗口。
-- `swift test`、`./scripts/run-tool-smoke-tests.sh`、`doctor` 和真实 `System Settings snapshot` 都已通过。
-- 官方那种“像嵌入在 `System Settings` 里的 accessory UI” 仍然是后续 UI 收敛项，不作为这轮功能验证阻塞。
+- App mode, System Settings deep links, the drag tile, `.app` packaging, and the main window's `Done` state are all working.
+- The accessory panel now has a one-shot source-to-target entrance animation and an explicit back button, so permission switching no longer relies solely on a hard cut and manually switching back to the main window.
+- `swift test`, `./scripts/run-tool-smoke-tests.sh`, `doctor`, and a real `System Settings` snapshot have all passed.
+- The official "accessory UI that looks embedded inside `System Settings`" experience remains a follow-up UI polish item and does not block this round's functional verification.

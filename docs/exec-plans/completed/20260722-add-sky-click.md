@@ -1,68 +1,68 @@
 # Add macOS SkyLight background click
 
-## 目标
+## Goal
 
-为 `click` 增加显式 `click_method=sky_click`，让 macOS 能够通过 SkyLight 私有 SPI 向当前 snapshot 对应的目标进程和窗口投递 Chromium-compatible 后台左键点击，同时保持真实鼠标、前台 app、窗口层级和既有 `auto` 行为不变。
+Add an explicit `click_method=sky_click` to `click`, so macOS can deliver a Chromium-compatible background left-click to the target process and window of the current snapshot via the SkyLight private SPI, while keeping the real mouse, foreground app, window z-order, and existing `auto` behavior unchanged.
 
-## 范围
+## Scope
 
-- 包含：
-  - macOS SkyLight 符号动态解析、窗口定向事件字段、off-window primer 和真实点击序列。
-  - macOS `click_method` 路由、参数校验、窗口身份校验和诊断错误。
-  - Windows / Linux 公共枚举同步，以及显式 unsupported 结果。
-  - Swift / Go 单元测试、skill usage、架构、安全、可靠性与 history 文档。
-- 不包含：
-  - 修改 `auto` 路由或让现有 `app_post` 自动升级为 SkyLight。
-  - `SLPSSetFrontProcessWithOptions` foreground assist、跨 Space snapshot、隐藏或最小化窗口恢复。
-  - Chromium 网页右键、Canvas / Unity / Blender 等只接受全局 HID 的 surface。
-  - 发布、打 tag、提交或推送远端。
+- In scope:
+  - macOS SkyLight symbol dynamic resolution, window-targeted event fields, off-window primer, and the real click sequence.
+  - macOS `click_method` routing, argument validation, window identity validation, and diagnostic errors.
+  - Syncing the Windows / Linux shared enum, and an explicit unsupported result.
+  - Swift / Go unit tests, skill usage, architecture, security, reliability, and history docs.
+- Out of scope:
+  - Modifying `auto` routing or having the existing `app_post` auto-upgrade to SkyLight.
+  - `SLPSSetFrontProcessWithOptions` foreground assist, cross-Space snapshots, restoring hidden or minimized windows.
+  - Chromium webpage right-click, and surfaces like Canvas / Unity / Blender that only accept global HID.
+  - Publishing, tagging, committing, or pushing to remote.
 
-## 背景
+## Background
 
-- 相关文档：`docs/ARCHITECTURE.md`、`docs/SECURITY.md`、`docs/RELIABILITY.md`、`skills/open-computer-use/references/usage.md`。
-- 相关代码路径：`ComputerUseService.click`、`InputSimulation.clickTargeted`、`AccessibilitySnapshot.AppSnapshot`、三平台 `click_method` parser / schema。
-- 已知约束：显式方法不能静默 fallback；目标窗口必须来自当前 snapshot；私有 SPI 必须通过 `dlopen` / `dlsym` 运行时探测；第一版只承诺同一 Space 内仍为 on-screen 的遮挡窗口。
+- Related docs: `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/RELIABILITY.md`, `skills/open-computer-use/references/usage.md`.
+- Related code paths: `ComputerUseService.click`, `InputSimulation.clickTargeted`, `AccessibilitySnapshot.AppSnapshot`, the `click_method` parser/schema for all three platforms.
+- Known constraints: an explicit method must not silently fall back; the target window must come from the current snapshot; the private SPI must be probed at runtime via `dlopen` / `dlsym`; the first version only commits to occluded windows that remain on-screen within the same Space.
 
-## 风险
+## Risks
 
-- 风险：SkyLight 函数和 raw event field 都是未公开 ABI，可能随 macOS 更新失效或崩溃。
-- 缓解方式：集中封装函数签名和字段、缺符号时 fail closed，并在 macOS 14 / 15 / 26 与签名 app 制品上验证。
-- 风险：SkyLight 与公开 `postToPid` 双投递可能在某些非 Chromium surface 产生重复动作。
-- 缓解方式：`sky_click` 保持显式且不进入 `auto`，用单次计数 fixture 检查重复投递；若出现重复则把内部 post policy 收敛为 SkyLight-only。
-- 风险：过期 snapshot 的 window id 可能已被销毁或复用。
-- 缓解方式：投递前检查 `CGWindowID` 的 owner pid 与 on-screen 状态，不匹配时要求重新执行 `get_app_state`。
-- 风险：primer 坐标或不支持的鼠标类型命中意外目标。
-- 缓解方式：primer 同时使用 off-window screen/local 坐标；第一版只接受左键和 1–2 次点击。
+- Risk: the SkyLight functions and raw event fields are undocumented ABI, and could break or crash after a macOS update.
+- Mitigation: centrally encapsulate the function signatures and fields, fail closed when symbols are missing, and verify on macOS 14 / 15 / 26 with signed app artifacts.
+- Risk: dual delivery via SkyLight and the public `postToPid` could produce duplicate actions on some non-Chromium surfaces.
+- Mitigation: keep `sky_click` explicit and never route through `auto`, check for duplicate delivery using a single-count fixture; if duplication occurs, converge the internal post policy to SkyLight-only.
+- Risk: a stale snapshot's window id may already be destroyed or reused.
+- Mitigation: check the `CGWindowID`'s owner pid and on-screen status before delivery, and require re-running `get_app_state` on a mismatch.
+- Risk: primer coordinates or unsupported mouse types hit an unintended target.
+- Mitigation: the primer uses both off-window screen/local coordinates; the first version only accepts left-click and 1–2 clicks.
 
-## 里程碑
+## Milestones
 
-1. 实现 SkyLight SPI、纯事件 recipe 与 macOS 显式路由。
-2. 同步三平台协议、测试和使用文档。
-3. 运行单元、跨平台、skill、smoke 与本地能力验证，完成 history 后归档计划。
+1. Implement the SkyLight SPI, the pure-event recipe, and macOS explicit routing.
+2. Sync the protocol, tests, and usage docs across the three platforms.
+3. Run unit, cross-platform, skill, smoke, and local capability verification, complete the history entry, and archive the plan.
 
-## 验证方式
+## Verification
 
-- 命令：`swift build`、`swift test`。
-- 命令：`(cd apps/OpenComputerUseWindows && go test ./...)`。
-- 命令：`(cd apps/OpenComputerUseLinux && go test ./...)`。
-- 命令：`npm run package:skill`、`./scripts/run-tool-smoke-tests.sh`。
-- 命令：`OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`（隔离 Chrome profile + 本地页面）。
-- 手工检查：`tools/list` 三平台均暴露 `sky_click`，Windows / Linux 在 snapshot lookup 前返回 unsupported。
-- 观测检查：macOS 缺失 SkyLight capability、错误 window owner、非左键或超出双击范围时不发送事件；成功路径不调用 `.cghidEventTap` 或 app activation。
-- 实机检查：Chrome 按钮在被其他窗口完全遮挡时只触发一次，前台 PID、真实 cursor position 和目标窗口 z-order 不变。
+- Command: `swift build`, `swift test`.
+- Command: `(cd apps/OpenComputerUseWindows && go test ./...)`.
+- Command: `(cd apps/OpenComputerUseLinux && go test ./...)`.
+- Command: `npm run package:skill`, `./scripts/run-tool-smoke-tests.sh`.
+- Command: `OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests` (isolated Chrome profile + local page).
+- Manual check: `tools/list` exposes `sky_click` on all three platforms, with Windows / Linux returning unsupported before the snapshot lookup.
+- Observational check: no event is sent when the SkyLight capability is missing on macOS, the window owner is wrong, it's not a left-click, or it's outside double-click range; the success path never calls `.cghidEventTap` or app activation.
+- Live check: a Chrome button fully occluded by another window fires only once, with the foreground PID, real cursor position, and target window z-order unchanged.
 
-## 进度记录
+## Progress Log
 
-- [x] 完成文章、Cua Driver、yabai 与 OCU 现有输入路径的源码调研。
-- [x] 完成 SkyLight SPI 与 macOS `sky_click` 路由。
-- [x] 完成跨平台协议、测试和文档。
-- [x] 完成自动化验证与受控实机验证。
-- [x] 完成 history 并归档 execution plan。
+- [x] Completed source research into the article, Cua Driver, yabai, and OCU's existing input paths.
+- [x] Completed the SkyLight SPI and macOS `sky_click` routing.
+- [x] Completed the cross-platform protocol, tests, and docs.
+- [x] Completed automated verification and controlled live verification.
+- [x] Completed history and archived the execution plan.
 
-## 决策记录
+## Decision Log
 
-- 2026-07-22：公共参数使用 `click_method=sky_click`，保持显式 macOS-only；Windows / Linux 返回稳定 unsupported。
-- 2026-07-22：第一版不修改 `auto`，也不引入会 raise / 切 Space 的 `SLPSSetFrontProcessWithOptions`。完全遮挡 Chrome 实测证明只用 `SLEventPostToPid` 不足，因此按文章与 yabai pattern 加入可恢复的 `SLPSPostEventRecordTo` AppKit-active 切换。
-- 2026-07-22：事件 recipe 以当前 Cua Driver Chromium 路径为基线，包含 window-local 坐标、PID/window 字段、move primer、off-window primer 和 click-group id。
-- 2026-07-22：`CGEventSetWindowLocation` 的动态函数指针按 Cua Rust bridge 的 `(CGEventRef, double, double)` 标量 ABI 声明，并用无投递的 runtime test 验证字段写入，避免依赖 Swift `CGPoint` 聚合参数推断。
-- 2026-07-22：focus-without-raise begin/restore 各自保留 40ms event-record 间隔，真实 mouse-up 后保留 100ms renderer settle；受控 Chrome 页面验证单次触发、前台 PID、真实 cursor 和 z-order 均不变。
+- 2026-07-22: The public parameter uses `click_method=sky_click`, kept explicitly macOS-only; Windows / Linux return a stable unsupported result.
+- 2026-07-22: The first version does not modify `auto`, nor does it introduce `SLPSSetFrontProcessWithOptions`, which can raise or switch Space. Live testing on a fully occluded Chrome window proved that `SLEventPostToPid` alone is insufficient, so a recoverable `SLPSPostEventRecordTo` AppKit-active switch was added, following the article and the yabai pattern.
+- 2026-07-22: The event recipe is based on the current Cua Driver Chromium path, including window-local coordinates, PID/window fields, move primer, off-window primer, and click-group id.
+- 2026-07-22: The dynamic function pointer for `CGEventSetWindowLocation` is declared per the Cua Rust bridge's `(CGEventRef, double, double)` scalar ABI, and field writes are verified with a delivery-free runtime test, avoiding reliance on Swift's `CGPoint` aggregate-parameter inference.
+- 2026-07-22: The focus-without-raise begin/restore steps each keep a 40ms event-record interval, and a real mouse-up is followed by a 100ms renderer settle delay; controlled Chrome page testing verified single firing, foreground PID, real cursor, and z-order all remain unchanged.

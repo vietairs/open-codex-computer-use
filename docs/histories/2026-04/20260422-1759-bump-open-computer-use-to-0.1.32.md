@@ -12,12 +12,12 @@
 **Scope:** release version sources, feature release notes, task history
 
 **Key Actions:**
-- **[Version bump]**: 将 Open Computer Use 的主版本源和相关测试/文档示例统一从 `0.1.30` bump 到 `0.1.32`。
-- **[Release record repair]**: 补齐 `0.1.31` 的 feature release note，并新增 `0.1.32` 的版本对齐记录。
-- **[Version-line decision]**: 先核实远端已经存在 `v0.1.31` tag 和 GitHub Release，因此这轮不复用 `0.1.31`，直接顺延到 `0.1.32`，避免继续扩大版本源不一致。
+- **[Version bump]**: Unified Open Computer Use's primary version source and related test/doc examples, bumping them from `0.1.30` to `0.1.32`.
+- **[Release record repair]**: Filled in the missing `0.1.31` feature release note, and added a version-alignment record for `0.1.32`.
+- **[Version-line decision]**: First verified that a `v0.1.31` tag and GitHub Release already exist remotely, so this round does not reuse `0.1.31` and instead moves straight on to `0.1.32`, avoiding further widening the version-source inconsistency.
 
 ### Design Intent
-这轮的关键不是再发明新的版本规则，而是把仓库重新拉回“单一版本源”状态。当前 `HEAD` 已经对应远端 `v0.1.31`，但仓库里的 manifest 和版本常量仍停在 `0.1.30`；如果继续沿用 `0.1.31`，后续 tag、staging 产物和用户看到的版本号仍然容易打架。顺延到 `0.1.32` 可以在不改写既有 release 的前提下，把当前主线重新收口到一致的版本线。
+The key point of this round is not to invent yet another new versioning rule, but to pull the repository back into a "single source of version truth" state. The current `HEAD` already corresponds to the remote `v0.1.31`, but the manifest and version constants in the repository are still stuck at `0.1.30`; if `0.1.31` continued to be reused, subsequent tags, staging artifacts, and the version number users see would still easily clash. Moving on to `0.1.32` closes the current main line back onto a consistent version line without rewriting the existing release.
 
 ### Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

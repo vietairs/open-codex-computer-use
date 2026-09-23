@@ -6,7 +6,7 @@
 * **Runtime**: `Codex CLI`
 
 ### User Query
-> 统一用 `open-computer-use call` 调用 9 个 tool，并支持 JSON 数组编排连续动作。
+> Unify calling the 9 tools through `open-computer-use call`, and support orchestrating a sequence of actions via a JSON array.
 
 ### Changes Overview
 **Scope:** Swift CLI, MCP tool dispatch, docs, npm package help

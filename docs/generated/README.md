@@ -1,5 +1,5 @@
-# 自动生成文档
+# Generated Documentation
 
-这个目录用于存放自动生成的仓库知识，比如 schema 快照、API 索引、依赖清单等。
+This directory is for auto-generated repository knowledge, such as schema snapshots, API indexes, dependency manifests, and similar.
 
-所有生成产物都应该能追溯到对应命令或脚本，并且最好是可重复生成的。
+Every generated artifact should be traceable back to the command or script that produced it, and ideally be reproducible.

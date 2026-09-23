@@ -1,4 +1,4 @@
-## [2026-04-21 16:11] | Task: 发布 0.1.22
+## [2026-04-21 16:11] | Task: Release 0.1.22
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> bump version 小版本发
+> bump version and ship a minor release
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.22`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.22`，说明本次 patch release 聚焦 runtime 软件光标朝向与坐标系转换修复。
-- **[Release Trigger]**: 基于 `v0.1.21` 之后 main 上的 runtime visual cursor heading 修复，准备用 `v0.1.22` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: unified the plugin manifest, Swift/Go version constants, smoke-suite init version, test MCP client version, and CLI doc paths all up to `0.1.22`.
+- **[Release Notes]**: added `0.1.22` to the user-visible release notes, noting that this patch release focuses on fixing the runtime software cursor's heading and coordinate-system conversion.
+- **[Release Trigger]**: prepared to push a `v0.1.22` tag to trigger a new GitHub Actions release, based on the runtime visual cursor heading fix that landed on main after `v0.1.21`.
 
 ### 🧠 Design Intent (Why)
-`v0.1.21` 之后 main 已经包含 runtime overlay 在 AppKit 全局坐标与 Cursor Motion y-down screen state 之间的速度/朝向转换修复。发布前需要把 npm manifest、CLI 版本、测试输入和文档中的版本源一起提升，避免 tag 与实际 npm staging 包版本不一致。
+After `v0.1.21`, main already contained a fix for the velocity/heading conversion between the runtime overlay's AppKit global coordinates and Cursor Motion's y-down screen state. Before releasing, the version sources across the npm manifest, CLI version, test inputs, and docs needed to be bumped together, to avoid a mismatch between the tag and the actual npm staging package version.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

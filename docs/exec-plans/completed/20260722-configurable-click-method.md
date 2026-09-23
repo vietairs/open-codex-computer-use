@@ -1,61 +1,61 @@
 # Configurable click method
 
-## 目标
+## Goal
 
-为 `click` 增加向后兼容的 `click_method` 参数，让调用方可以显式选择 accessibility、app-posted mouse event 或 global pointer event，同时保证未传参数时的 `auto` 行为与当前版本一致。
+Add a backward-compatible `click_method` parameter to `click`, letting callers explicitly choose between accessibility, app-posted mouse events, or global pointer events, while keeping the `auto` behavior unchanged when the parameter is omitted.
 
-## 范围
+## Scope
 
-- 包含：
-  - macOS `click` dispatcher、tool schema、service 路由和输入模拟安全边界。
-  - Windows / Linux 同名协议参数、已有能力映射和 unsupported 错误。
-  - Swift / Go 单元测试、架构、安全、skill usage 和 history 文档。
-- 不包含：
-  - 修改 `auto` 下的 AX 后代候选扫描策略。
-  - 为 Windows 新增全局 `SendInput`，或为 Linux 新增进程定向鼠标后端。
-  - 发布、打 tag 或推送远端。
+- Included:
+  - macOS `click` dispatcher, tool schema, service routing, and input-simulation safety boundaries.
+  - The same protocol parameter on Windows / Linux, mapped to existing capabilities, with unsupported errors where needed.
+  - Swift / Go unit tests, architecture, security, skill usage, and history docs.
+- Not included:
+  - Changing the AX descendant candidate-scanning strategy under `auto`.
+  - Adding global `SendInput` for Windows, or a process-targeted mouse backend for Linux.
+  - Publishing, tagging, or pushing to remote.
 
-## 背景
+## Background
 
-- 相关文档：`docs/ARCHITECTURE.md`、`docs/SECURITY.md`、`skills/open-computer-use/references/usage.md`。
-- 相关代码路径：`ComputerUseService.click`、`InputSimulation.clickTargeted` / `clickGlobally`、`MacOSAppAgentProxy`、Windows UIA / `PostMessage` bridge、Linux AT-SPI bridge。
-- 已知约束：默认行为不能变化；强制模式不能静默 fallback；全局指针仍需 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`。
+- Related docs: `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `skills/open-computer-use/references/usage.md`.
+- Related code paths: `ComputerUseService.click`, `InputSimulation.clickTargeted` / `clickGlobally`, `MacOSAppAgentProxy`, the Windows UIA / `PostMessage` bridge, the Linux AT-SPI bridge.
+- Known constraints: the default behavior must not change; forced modes must not silently fall back; the global pointer still requires `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`.
 
-## 风险
+## Risks
 
-- 风险：全局指针事件会移动真实鼠标、改变前台焦点或命中非目标窗口。
-- 缓解方式：要求调用参数和环境变量双重显式授权，并在执行前拒绝未授权请求。
-- 风险：跨平台底层能力不对称。
-- 缓解方式：保持公共枚举一致，对平台不支持的模式返回稳定错误，不伪装成功或回退到其他实现。
-- 风险：重构 `auto` 路径引入行为漂移。
-- 缓解方式：保留现有分支和 fallback 函数，只在外围增加显式路由。
+- Risk: global pointer events move the real mouse, change foreground focus, or hit an unintended window.
+- Mitigation: require explicit dual authorization via both the call parameter and the environment variable, and reject unauthorized requests before execution.
+- Risk: asymmetric underlying capabilities across platforms.
+- Mitigation: keep the public enum consistent, return a stable error for unsupported modes on a given platform, without faking success or silently falling back to another implementation.
+- Risk: refactoring the `auto` path introduces behavioral drift.
+- Mitigation: keep the existing branches and fallback functions, only adding explicit routing around them.
 
-## 里程碑
+## Milestones
 
-1. 增加公共参数、解析与安全校验。
-2. 接入三平台已有实现并补测试。
-3. 更新文档、完成验证并记录 history。
+1. Add the public parameter, parsing, and safety validation.
+2. Wire it into the existing implementations on all three platforms and add tests.
+3. Update docs, complete verification, and record history.
 
-## 验证方式
+## Verification
 
-- 命令：`swift test`。
-- 命令：`(cd apps/OpenComputerUseWindows && go test ./...)`。
-- 命令：`(cd apps/OpenComputerUseLinux && go test ./...)`。
-- 命令：`npm run package:skill`。
-- 手工检查：确认 `tools/list` 暴露四个枚举值，默认仍为 `auto`。
-- 观测检查：显式 `app_post` 不进入 AX 路由，显式 `global` 未授权时不产生鼠标事件。
+- Command: `swift test`.
+- Command: `(cd apps/OpenComputerUseWindows && go test ./...)`.
+- Command: `(cd apps/OpenComputerUseLinux && go test ./...)`.
+- Command: `npm run package:skill`.
+- Manual check: confirm `tools/list` exposes the four enum values, still defaulting to `auto`.
+- Observability check: explicit `app_post` does not enter the AX route; explicit `global` without authorization produces no mouse event.
 
-## 进度记录
+## Progress Log
 
-- [x] 确认范围、现有三平台实现和安全边界。
-- [x] 完成协议与实现。
-- [x] 完成测试与文档。
-- [x] 完成验证并归档计划。
+- [x] Confirmed scope, the existing implementations on all three platforms, and the safety boundaries.
+- [x] Completed the protocol and implementation.
+- [x] Completed tests and docs.
+- [x] Completed verification and archived the plan.
 
-## 决策记录
+## Decision Log
 
-- 2026-07-22：公共参数命名为 `click_method`，枚举为 `auto`、`accessibility`、`app_post`、`global`；`app_post` 表示向目标 app/window 投递事件，在 macOS 映射到 `postToPid`，在 Windows 映射到 HWND `PostMessage`。
-- 2026-07-22：`accessibility` 要求 `element_index`；`app_post` / `global` 可使用 `element_index` 或 `x/y`。
-- 2026-07-22：Windows 第一版不支持 `global`，Linux 第一版不支持 `app_post`，均返回显式错误。
-- 2026-07-22：macOS CLI 与 MCP proxy 都随请求转发 `OPEN_COMPUTER_USE_*` 环境变量，确保真正执行输入的 app agent 能看到全局指针授权。
-- 2026-07-22：`swift test`、Windows / Linux `go test ./...`、skill 打包、标准 9-tool smoke 和 visual cursor idle smoke 全部通过；未自动执行会移动真实鼠标的 live global click。
+- 2026-07-22: The public parameter is named `click_method`, with enum values `auto`, `accessibility`, `app_post`, `global`; `app_post` means delivering the event to the target app/window, mapped to `postToPid` on macOS and to HWND `PostMessage` on Windows.
+- 2026-07-22: `accessibility` requires `element_index`; `app_post` / `global` can use either `element_index` or `x/y`.
+- 2026-07-22: The first Windows version does not support `global`, and the first Linux version does not support `app_post`; both return explicit errors.
+- 2026-07-22: Both the macOS CLI and the MCP proxy forward `OPEN_COMPUTER_USE_*` environment variables with the request, ensuring the app agent that actually performs the input can see the global-pointer authorization.
+- 2026-07-22: `swift test`, Windows / Linux `go test ./...`, skill packaging, the standard 9-tool smoke test, and the visual-cursor idle smoke test all passed; the live global click, which would move the real mouse, was not auto-executed.

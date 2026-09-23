@@ -1,77 +1,77 @@
-# 主线 visual cursor 姿态动力学重构
+# Mainline visual cursor pose dynamics refactor
 
-## 目标
+## Goal
 
-把主线 `SoftwareCursorOverlay` 从“path sample 直接驱动 tip + tangent 直接驱动角度”的单层模型，重构成更接近官方结构的双层模型：路径层只负责给出 `currentInterpolatedOrigin` 风格的运动目标，真正显示出来的 tip/velocity/angle/fog 由独立的 visual dynamics 状态持续推进。
+Refactor the mainline `SoftwareCursorOverlay` from a single-layer model — "path sample directly drives tip + tangent directly drives angle" — into a two-layer model closer to the official structure: the path layer only supplies an `currentInterpolatedOrigin`-style motion target, and the actually displayed tip/velocity/angle/fog are continuously advanced by independent visual dynamics state.
 
-## 范围
+## Scope
 
-- 包含：
-  - 在 `OpenComputerUseKit` 中引入可复用的 visual cursor dynamics 内核。
-  - 删除当前临时补丁式的 `terminal settle`，改成贯穿 move / pulse / idle 的统一 2D 状态。
-  - 调整 `SoftwareCursorView` 的渲染输入，增加 velocity-driven 的姿态与 fog/offset 表现。
-  - 补单元测试、架构文档和 history。
-- 不包含：
-  - 不修改 `experiments/CursorMotion/`。
-  - 不宣称已经精确恢复官方 `FogCursorViewModel` 的全部字段公式。
-  - 不把这次改动扩展到完整 host choreography 或加载态 token。
+- Includes:
+  - Introducing a reusable visual cursor dynamics kernel into `OpenComputerUseKit`.
+  - Removing the current ad-hoc, patch-style `terminal settle` and replacing it with a unified 2D state that spans move / pulse / idle.
+  - Adjusting `SoftwareCursorView`'s render inputs to add velocity-driven pose and fog/offset presentation.
+  - Adding unit tests, architecture docs, and a history entry.
+- Excludes:
+  - No changes to `experiments/CursorMotion/`.
+  - No claim of having precisely restored the full field formulas of the official `FogCursorViewModel`.
+  - Not extending this change to full host choreography or loading-state tokens.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
   - `docs/references/codex-computer-use-reverse-engineering/software-cursor-motion-model.md`
   - `docs/references/codex-computer-use-reverse-engineering/software-cursor-motion-reconstruction.md`
   - `docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md`
-- 相关代码路径：
+- Related code paths:
   - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift`
   - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift`
-- 已知约束：
-  - 另一条 session 仍在推进 `CursorMotion`，这次不能去碰实验 target。
-  - `CursorMotionPath.sample(progress)` 的 endpoint clamp 已经 binary-confirmed。
-  - `Style.velocityX / velocityY / angle`、`currentInterpolatedOrigin`、`FogCursorViewModel._velocityX / _velocityY / _angle`、`CursorView._animatedAngleOffsetDegrees` 这些状态存在，但还没有完整公式级 lift。
+- Known constraints:
+  - Another session is still advancing `CursorMotion`, so this change must not touch the experimental target.
+  - The endpoint clamp of `CursorMotionPath.sample(progress)` has already been binary-confirmed.
+  - States such as `Style.velocityX / velocityY / angle`, `currentInterpolatedOrigin`, `FogCursorViewModel._velocityX / _velocityY / _angle`, and `CursorView._animatedAngleOffsetDegrees` exist, but have not yet been fully lifted at the formula level.
 
-## 风险
+## Risks
 
-- 风险：这次改动会碰 overlay 的核心更新循环，容易把 click/pulse/idle 串联关系打断。
-- 缓解方式：把 visual dynamics 做成纯 Swift 内核，优先用单元测试覆盖“跟随、过冲、角度滞后、静止回稳”。
+- Risk: this change touches the overlay's core update loop and could easily break the click/pulse/idle chaining relationship.
+- Mitigation: build the visual dynamics as a pure-Swift kernel, and prioritize unit test coverage for "follow, overshoot, angle lag, settle to rest."
 
-- 风险：如果 visual tip 的独立动力学参数过强，真实点击点和视觉 cursor 会偏太远。
-- 缓解方式：约束 tip lag/fog offset 上限，把 click/pulse 期间的目标位置固定在真实点击点周围。
+- Risk: if the independent dynamics parameters of the visual tip are too strong, the real click point and the visual cursor could drift too far apart.
+- Mitigation: cap the tip lag/fog offset upper bounds, and pin the target position during click/pulse to stay around the real click point.
 
-- 风险：当前 reverse-engineering 还没恢复官方所有 render anchor 公式。
-- 缓解方式：这次只引入有明确证据支撑的状态分层，不伪装成 exact 复刻；未知部分保留为仓库内可调但有测试保护的近似实现。
+- Risk: the current reverse-engineering effort has not yet recovered all of the official render-anchor formulas.
+- Mitigation: for this change, only introduce state layering backed by clear evidence, without pretending it's an exact replica; keep unknown parts as tunable-but-test-protected approximations within the repo.
 
-## 里程碑
+## Milestones
 
-1. 确定主线要拆出来的 visual dynamics 状态与渲染输入。
-2. 在 `OpenComputerUseKit` 中完成重构并替换 `terminal settle`。
-3. 补测试、文档、history，并完成验证。
+1. Determine which visual dynamics state and render inputs need to be split out of the mainline.
+2. Complete the refactor in `OpenComputerUseKit` and replace `terminal settle`.
+3. Add tests, docs, and a history entry, and complete verification.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
   - `swift test`
-- 手工检查：
-  - move 结束后不再出现明显 endpoint-pivot 翻转。
-  - 横向或斜向进入终点时，visible tip 能出现自然的小幅前冲/回弧。
-  - pulse / idle 能继承同一套姿态状态，而不是重新归零。
-- 观测检查：
-  - 主线代码里不再依赖临时 `terminal settle` 补丁驱动收尾。
+- Manual checks:
+  - No noticeable endpoint-pivot flip after a move ends.
+  - When entering the endpoint horizontally or diagonally, the visible tip shows a natural small forward overshoot/settle-back arc.
+  - pulse / idle inherit the same pose state rather than resetting to zero.
+- Observation checks:
+  - The mainline code no longer relies on the ad-hoc `terminal settle` patch to drive the wrap-up.
 
-## 进度记录
+## Progress log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
 
-## 决策记录
+## Decision log
 
-- 2026-04-19：这次不继续强化 endpoint 附近的特判补丁，而是直接切到“路径目标 + 独立 visual dynamics”双层模型，原因是当前问题已经来自状态分层缺失，不再是单条路径候选选择错误。
-- 2026-04-19：主线 visual cursor 这次不伪装成 exact 复刻 `FogCursorViewModel` 公式，而是先把已经有二进制证据支撑的状态分层落到主 runtime：`currentInterpolatedOrigin` 风格目标点、独立 `velocity/angle`、以及 velocity-driven fog/body lag。
+- 2026-04-19: Instead of continuing to reinforce the special-case patch near the endpoint, we switched directly to the "path target + independent visual dynamics" two-layer model, because the current problem stems from missing state layering, not from picking the wrong single path candidate.
+- 2026-04-19: The mainline visual cursor does not pretend to be an exact replica of the `FogCursorViewModel` formulas this time; instead, it lands the state layering already backed by binary evidence into the main runtime first: a `currentInterpolatedOrigin`-style target point, independent `velocity/angle`, and velocity-driven fog/body lag.
 
-## 结果记录
+## Outcome log
 
-- 已在 `OpenComputerUseKit` 中新增 `CursorVisualDynamicsConfiguration`、`CursorVisualDynamicsState`、`CursorVisualRenderState` 和 `CursorVisualDynamicsAnimator`，作为主线 overlay 的可复用 visual dynamics 内核。
-- 已删除主线 overlay 的临时 `terminal settle` 路径，`move`、`pulse`、`idle` 现在统一改为持续推进同一套 2D visual dynamics 状态。
-- 已把 `SoftwareCursorView` 的输入从单一 `rotation` 扩展到 `rotation + cursorBodyOffset + fogOffset + fogScale`，让速度滞后和 fog 能体现在主 runtime 画面上。
-- 已补充 visual dynamics 的回归测试，并执行 `swift test` 通过。
+- Added `CursorVisualDynamicsConfiguration`, `CursorVisualDynamicsState`, `CursorVisualRenderState`, and `CursorVisualDynamicsAnimator` to `OpenComputerUseKit` as a reusable visual dynamics kernel for the mainline overlay.
+- Removed the mainline overlay's ad-hoc `terminal settle` path; `move`, `pulse`, and `idle` now uniformly advance the same 2D visual dynamics state continuously.
+- Expanded `SoftwareCursorView`'s input from a single `rotation` to `rotation + cursorBodyOffset + fogOffset + fogScale`, so velocity lag and fog now show up in the mainline runtime rendering.
+- Added regression tests for the visual dynamics and ran `swift test`, which passed.

@@ -1,7 +1,7 @@
-# 技术债追踪
+# Tech Debt Tracker
 
-这里记录那些暂时不阻塞当前任务、但已经值得留档的技术债。
+This records tech debt that doesn't currently block work, but is worth keeping on record.
 
-| 日期 | 区域 | 债务描述 | 为什么会存在 | 计划中的后续动作 |
+| Date | Area | Debt Description | Why It Exists | Planned Follow-up |
 | --- | --- | --- | --- | --- |
-| 2026-04-17 | 普通 app AX snapshot | Finder 路径已经能拿到前台窗口子树并输出 window-relative frame，但当前还缺更多真实 app 回归样本，无法证明这套 rooting / traversal 对复杂 app 都稳定。 | 这一轮先把 Finder 这类真实 app 的坐标换算和窗口子树收敛好，再把 deterministic 回归继续留给 fixture。 | 增加 Safari / System Settings / Activity Monitor 等真实 app 样本验证，并继续收敛 `kAXMainWindowAttribute`、focused element parent chain 和多窗口回退策略。 |
+| 2026-04-17 | Generic app AX snapshot | The Finder path can already get the foreground window's subtree and output a window-relative frame, but more real-app regression samples are still needed to prove this rooting/traversal is stable across complex apps. | This round focused on converging coordinate conversion and window subtree handling for real apps like Finder first, leaving deterministic regression coverage to fixtures for later. | Add real-app samples such as Safari / System Settings / Activity Monitor for verification, and keep converging `kAXMainWindowAttribute`, the focused-element parent chain, and multi-window fallback strategy. |

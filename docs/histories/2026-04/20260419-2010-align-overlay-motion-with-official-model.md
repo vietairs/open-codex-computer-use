@@ -1,4 +1,4 @@
-## [2026-04-19 20:10] | Task: 主线 overlay 对齐官方 cursor motion
+## [2026-04-19 20:10] | Task: Align the mainline overlay with the official cursor motion
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,20 +6,20 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 基于已有的逆向分析，调整当前主实现，让 visual cursor 的路径和速度表现尽量接近官方效果。
+> Based on the existing reverse-engineering analysis, adjust the current mainline implementation so the visual cursor's path and speed behavior get as close as possible to the official look.
 
 ### 🛠 Changes Overview
-**Scope:** `packages/OpenComputerUseKit/`、`docs/exec-plans/`、`docs/ARCHITECTURE.md`、`docs/histories/`
+**Scope:** `packages/OpenComputerUseKit/`, `docs/exec-plans/`, `docs/ARCHITECTURE.md`, `docs/histories/`
 
 **Key Actions:**
-- **[新增主线 motion 内核]**: 在 `OpenComputerUseKit` 中新增独立 `CursorMotionModel.swift`，把已确认的 `CursorMotionPath`、`CursorMotionPathMeasurement`、`20` 条官方候选、score 选择和 `VelocityVerlet` spring progress 正式接入主线 package。
-- **[替换 overlay move 实现]**: 把 `SoftwareCursorOverlay` 的移动逻辑从旧的单段 cubic + `easeInOut` 切到官方候选池 + spring progress；同时保留现有 target-window 命中策略，但仅作为官方候选集合上的 tie-break。
-- **[重构 visual dynamics 层]**: 删除补丁式 `terminal settle`，把主线 overlay 改成“路径层给目标点、visual dynamics 持续推进 visible tip / angle / fog”的双层模型，并让 move / pulse / idle 共用同一套状态。
-- **[补齐验证与文档]**: 新增主线单元测试覆盖候选总数、参考样例 best candidate、`closeEnoughTime`，以及 visual dynamics 的“目标停止后 visible tip 继续过冲、角度短暂保留惯性后回稳”行为，并同步更新架构文档与 execution plan 状态。
-- **[修正 heading/offset 分层]**: 后续又根据二进制里 `SoftwareCursorStyle.angle` 和 `CursorView._animatedAngleOffsetDegrees` 的分层证据，修正了主线和 standalone lab 的姿态模型，不再把主 heading 跟随错误压成只剩小幅 wiggle。
+- **[New mainline motion core]**: Added an independent `CursorMotionModel.swift` in `OpenComputerUseKit`, formally wiring the already-confirmed `CursorMotionPath`, `CursorMotionPathMeasurement`, the 20 official candidates, score selection, and `VelocityVerlet` spring progress into the mainline package.
+- **[Replace overlay move implementation]**: Switched `SoftwareCursorOverlay`'s move logic from the old single-segment cubic + `easeInOut` to the official candidate pool + spring progress; kept the existing target-window hit strategy, but now only as a tie-break on top of the official candidate set.
+- **[Refactor the visual dynamics layer]**: Removed the patch-style `terminal settle`, and turned the mainline overlay into a two-layer model — "the path layer supplies the target point, and visual dynamics continuously advances the visible tip / angle / fog" — with move / pulse / idle sharing the same state.
+- **[Add tests and docs]**: Added mainline unit tests covering the total candidate count, the best candidate for a reference sample, `closeEnoughTime`, and the visual dynamics behavior where "the visible tip keeps overshooting after the target stops, and the angle briefly retains inertia before settling"; updated the architecture doc and execution plan status to match.
+- **[Fix heading/offset layering]**: Later, based on binary evidence for the layering of `SoftwareCursorStyle.angle` and `CursorView._animatedAngleOffsetDegrees`, fixed the pose model in both the mainline and the standalone lab so the main heading tracking no longer collapses into just a small wiggle by mistake.
 
 ### 🧠 Design Intent (Why)
-这次不是继续做实验 demo，而是把已经 binary-confirmed 的几何与 spring 形状真正落到主 runtime 里，缩小和官方视觉行为的偏差。后续又发现主线差异已经不再主要来自路径候选，而是来自缺少独立的姿态/渲染状态层，所以实现从“末端特判补丁”进一步升级成“路径目标 + visual dynamics”双层模型。另一方面，官方 transaction-level 的真实时长映射还没完全恢复，所以最终 wall-clock duration 继续保留本地校准，避免把动画直接拉慢到失真。
+This isn't another experimental demo — it's landing the already binary-confirmed geometry and spring shape into the actual runtime, to shrink the gap with the official visual behavior. It later turned out the mainline discrepancy no longer mainly came from path candidates, but from lacking an independent pose/render state layer, so the implementation was upgraded from an "end-of-path special-case patch" to a "path target + visual dynamics" two-layer model. Separately, the official transaction-level real duration mapping still isn't fully recovered, so the final wall-clock duration still relies on local calibration, to avoid making the animation look distorted by slowing it down directly.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift`

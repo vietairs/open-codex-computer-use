@@ -1,4 +1,4 @@
-## [2026-04-20 17:58] | Task: 接通 Cursor Motion 的 Developer ID 签名与 notarization
+## [2026-04-20 17:58] | Task: Wire up Developer ID signing and notarization for Cursor Motion
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> gh 已经有权限的，你可以配置，还需要我提供什么 secret 么？还是你都可以拿到
+> You already have gh permissions, so you can configure it — do you need me to provide any more secrets, or can you get them all yourself?
 
 ### 🛠 Changes Overview
-**Scope:** `.github/workflows/`、`docs/`、`scripts/`
+**Scope:** `.github/workflows/`, `docs/`, `scripts/`
 
 **Key Actions:**
-- **[Repo Secrets Installed]**: 将 `Developer ID Application` 证书 `.p12`、密码、identity，以及 notarization 需要的 Team API key、Key ID、Issuer ID、Team ID 写入 GitHub repo secrets。
-- **[Cursor Motion Signing]**: `scripts/build-cursor-motion-dmg.sh` 新增 `CURSOR_MOTION_CODESIGN_*` 环境变量支持，允许在构建 `Cursor Motion.app` 时用 `Developer ID Application` 证书签名，而不是固定 ad-hoc。
-- **[Cursor Motion Notarization]**: release workflow 的 `release-cursor-motion-dmg` job 现在会在检测到 `APPLE_NOTARY_*` secrets 后，使用 `xcrun notarytool submit --wait` 对生成的 `.dmg` 执行 notarization，并在成功后 `stapler staple`。
-- **[Fallback Safety]**: 缺失 signing 或 notary secrets 时，workflow 会明确打印降级原因，但不会阻塞 release。
+- **[Repo secrets installed]**: Added the `Developer ID Application` certificate `.p12`, its password, the identity, and the Team API key, Key ID, Issuer ID, and Team ID needed for notarization to the GitHub repo secrets.
+- **[Cursor Motion signing]**: `scripts/build-cursor-motion-dmg.sh` now supports `CURSOR_MOTION_CODESIGN_*` environment variables, allowing `Cursor Motion.app` to be signed with the `Developer ID Application` certificate during builds instead of the fixed ad-hoc signature.
+- **[Cursor Motion notarization]**: The release workflow's `release-cursor-motion-dmg` job now runs `xcrun notarytool submit --wait` against the generated `.dmg` once it detects the `APPLE_NOTARY_*` secrets, and runs `stapler staple` after success.
+- **[Fallback safety]**: When signing or notary secrets are missing, the workflow clearly prints the reason for the degraded path, but does not block the release.
 
 ### 🧠 Design Intent (Why)
-在 `Developer ID Application` 证书与 App Store Connect Team API key 都已齐备的情况下，仅仅把 secret 存进 GitHub 还不够；真正影响用户体验的是 `Cursor Motion` 下载物本身是否已经过 `Developer ID` 签名和 Apple notarization。把这条链路放进 workflow 后，tag release 才能稳定产出更接近标准 macOS 分发体验的 `.dmg`。
+Now that the `Developer ID Application` certificate and the App Store Connect Team API key are both in place, simply storing the secrets in GitHub isn't enough — what actually affects the user experience is whether the `Cursor Motion` download itself has gone through `Developer ID` signing and Apple notarization. With this chain wired into the workflow, tagged releases can now reliably produce a `.dmg` closer to the standard macOS distribution experience.
 
 ### 📁 Files Modified
 - `scripts/build-cursor-motion-dmg.sh`

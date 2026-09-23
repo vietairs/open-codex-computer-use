@@ -1,4 +1,4 @@
-## [2026-04-17 23:10] | Task: 增加 Claude MCP 安装命令
+## [2026-04-17 23:10] | Task: Add the Claude MCP install command
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 再增加一个 `open-computer-use install-clauce-mcp`，安装到 `~/.claude.json`，参考 Claude 官方 MCP 文档，也要幂等。
+> Add another command, `open-computer-use install-clauce-mcp`, that installs into `~/.claude.json`, following the official Claude MCP docs, and it should also be idempotent.
 
 ### 🛠 Changes Overview
 **Scope:** `scripts/`, `scripts/npm/build-packages.mjs`, `README.md`
 
 **Key Actions:**
-- **新增 Claude 安装脚本**：增加 `scripts/install-claude-mcp.sh`，按 Claude 官方 MCP 文档的 local scope 结构写入当前项目的 `~/.claude.json`。
-- **加入 JSON 幂等检测**：写入前先解析现有 `~/.claude.json`，若当前项目下的同名 MCP 配置已存在且内容一致，则直接 no-op。
-- **接入双命令别名**：npm CLI 同时支持 `install-claude-mcp` 和用户请求里的 `install-clauce-mcp`，都指向同一实现。
+- **Added a Claude install script**: Added `scripts/install-claude-mcp.sh`, which writes into the current project's `~/.claude.json` following the local-scope structure from the official Claude MCP docs.
+- **Added JSON idempotency detection**: Before writing, it first parses the existing `~/.claude.json`; if an MCP config with the same name already exists under the current project and its contents match, it is a no-op.
+- **Wired up a dual command alias**: The npm CLI supports both `install-claude-mcp` and the `install-clauce-mcp` name from the user's request, both pointing to the same implementation.
 
 ### 🧠 Design Intent (Why)
-Claude Code 的 `~/.claude.json` 不是一个只放 MCP 的单用途文件，而是用户状态与项目配置的混合 JSON。这里如果像 TOML 那样用简单字符串拼接很容易破坏现有内容，所以更稳妥的方式是按官方文档先做 JSON 解析，再只更新当前项目路径下的 `mcpServers`。这样既能保证幂等，也能避免把 server 错误装成跨所有项目生效的 user-scope 配置。
+Claude Code's `~/.claude.json` is not a single-purpose file that only holds MCP config — it's a mixed JSON file combining user state and project config. Simple string concatenation (as with TOML) would easily corrupt existing content here, so the safer approach, following the official docs, is to first parse the JSON and then only update the `mcpServers` entry under the current project's path. This guarantees idempotency while avoiding accidentally installing the server as a user-scope config that applies across all projects.
 
 ### 📁 Files Modified
 - `scripts/install-claude-mcp.sh`

@@ -1,20 +1,20 @@
-# Dev 权限引导刷新
+# Refresh Dev Permission Onboarding
 
-## 用户诉求
+## User Request
 
-Dev 版在系统设置里已经授权后，权限引导窗口仍停留在 `Allow`，看起来像授权没有生效。
+After the Dev build is already authorized in System Settings, the permission onboarding window still shows `Allow`, making it look like the authorization didn't take effect.
 
-## 主要改动
+## Main Changes
 
-- 权限引导标题和说明改为使用当前 bundle 名称，Dev 版显示 `Open Computer Use (Dev)`。
-- 用户点击 `Allow` 后，如果当前进程仍未看到权限刷新，短暂等待后将对应卡片切换为 `Restart`。
-- 点击 `Restart` 会重新拉起当前 app bundle，让 macOS 对新进程刷新 Accessibility / Screen Recording 权限状态。
+- The permission onboarding title and description now use the current bundle name; the Dev build shows `Open Computer Use (Dev)`.
+- After the user clicks `Allow`, if the current process still hasn't seen the permission refresh, the corresponding card switches to `Restart` after a brief wait.
+- Clicking `Restart` relaunches the current app bundle, so macOS refreshes the Accessibility / Screen Recording permission status for the new process.
 
-## 设计动机
+## Design Intent
 
-macOS 对已经运行的 app agent 不一定会即时刷新新授予的 TCC 权限。系统设置里已经授权时，继续显示 `Allow` 会误导用户反复操作。显式切换到 `Restart` 更符合实际状态，也避免需要手动找进程并重启。
+macOS doesn't always immediately refresh newly granted TCC permissions for an already-running app agent. When System Settings already shows the permission granted, continuing to show `Allow` misleads the user into retrying repeatedly. Explicitly switching to `Restart` better matches actual state, and also avoids requiring the user to manually find the process and restart it.
 
-## 验证
+## Validation
 
 - `swift test`
 - `./scripts/build-open-computer-use-app.sh debug`
@@ -22,7 +22,7 @@ macOS 对已经运行的 app agent 不一定会即时刷新新授予的 TCC 权�
 - `./scripts/check-docs.sh`
 - `git diff --check`
 
-## 受影响文件
+## Files Affected
 
 - `apps/OpenComputerUse/Sources/OpenComputerUse/PermissionOnboardingApp.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/Permissions.swift`

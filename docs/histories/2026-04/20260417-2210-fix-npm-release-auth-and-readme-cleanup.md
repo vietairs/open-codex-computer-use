@@ -1,20 +1,20 @@
-## [2026-04-17 22:10] | Task: 修复 npm release 认证并清理 npm README
+## [2026-04-17 22:10] | Task: Fix npm release auth and clean up npm README
 
 ### 📥 User Request
 
-> npm 包页里把 `If you want the server without the visual cursor overlay:` 和下面那段 code block 删掉；发布这件事要一路干到能从 git tag 真正发出去，期间需要的话可以自己继续调版本或重发。
+> Remove `If you want the server without the visual cursor overlay:` and the code block below it from the npm package page; see the release all the way through to where it can actually be published from a git tag, bumping the version or re-publishing again along the way if needed.
 
 ### 🔧 What Changed
 
-- **清理 npm README 模板**：删除生成包 README 时那段“关闭 visual cursor overlay”的额外 MCP 配置示例，只保留默认安装与 MCP 配置说明。
-- **补 npm 发布兜底链路**：在 `release.yml` 里新增 `Configure npm token fallback` 步骤；如果仓库配置了 `NPM_TOKEN` secret，就写入 `NODE_AUTH_TOKEN` 供 `npm publish` 使用。
-- **同步仓库文档**：把根 README 和 `docs/CICD.md` 的发布说明改成“优先兼容 Trusted Publishing，同时支持 `NPM_TOKEN` secret 兜底”。
+- **Clean up the npm README template**: removed the extra "disable visual cursor overlay" MCP config example from the generated package README, keeping only the default install and MCP config instructions.
+- **Add an npm publish auth fallback**: added a `Configure npm token fallback` step to `release.yml`; if the repo has an `NPM_TOKEN` secret configured, it's written to `NODE_AUTH_TOKEN` for `npm publish` to use.
+- **Sync repo docs**: updated the release instructions in the root README and `docs/CICD.md` to say "prefer compatibility with Trusted Publishing, while also supporting an `NPM_TOKEN` secret fallback."
 
 ### 🧠 Design Intent (Why)
 
-实际联调发现，GitHub Actions 构建已经能跑通，但 npm 发布会因为某些包没有单独配好 Trusted Publisher 而在 publish 阶段失败。对这个仓库来说，最稳妥的目标不是执着于单一路径，而是保证 `git tag` 这条 release 主路径真的能稳定把三份包发出去。
+Hands-on testing found that the GitHub Actions build already runs cleanly, but npm publish would fail at the publish step for packages that didn't have a Trusted Publisher individually configured. For this repo, the safest goal isn't to insist on a single path, but to guarantee that the `git tag` release main path can reliably publish all three packages.
 
-与此同时，npm 包页面对的是最终安装用户，README 应该尽量只保留默认成功路径，不额外堆可选环境变量分支，避免新用户以为还需要额外改 overlay 配置。
+At the same time, the npm package page is aimed at end installers, so the README should stick to the default success path as much as possible, without piling on extra optional env-var branches that might make new users think they still need to change the overlay config.
 
 ### 📌 Key Files
 

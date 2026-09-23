@@ -1,32 +1,32 @@
 # Standalone Cursor
 
-这个目录承载一条新的独立 cursor demo 线路，目标不是继续堆调参 UI，而是直接把 `scripts/cursor-motion-re/official_cursor_motion.py` 里已经收敛出来的重建结果搬成一个可运行的 Swift app。
+This directory carries a new standalone-cursor demo track. The goal is not to keep piling on a parameter-tuning UI, but to port the reconstruction results already converged on in `scripts/cursor-motion-re/official_cursor_motion.py` directly into a runnable Swift app.
 
-## 目标边界
+## Scope boundaries
 
-- 直接复用 Python 脚本里已经确认的几何和 timing 核心：
-  - `2` 条 base candidate + `3 x 3 x 2` arched candidate
-  - `sample(progress)` 与 `measure(...)`
+- Directly reuse the geometry and timing core already confirmed in the Python script:
+  - `2` base candidates + `3 x 3 x 2` arched candidates
+  - `sample(progress)` and `measure(...)`
   - `prefer in-bounds, then lowest score`
-  - `response=1.4`、`dampingFraction=0.9`、`dt=1/240` 的 raw spring timeline
-- 刻意不引入当前还没恢复出来的 wall-clock duration 映射。
-- 刻意不复用 `CursorMotion` 那套更偏实验性的 visual dynamics / knob 调参结构。
+  - the raw spring timeline with `response=1.4`, `dampingFraction=0.9`, `dt=1/240`
+- Deliberately does not introduce the wall-clock duration mapping that hasn't been recovered yet.
+- Deliberately does not reuse the more experimental visual dynamics / knob-tuning structure from `CursorMotion`.
 
-## 运行方式
+## How to run
 
 ```bash
 swift run StandaloneCursor
 ```
 
-## 当前交互
+## Current interaction
 
-- 拖动 `START` / `END` handle，实时重算 `20` 条候选路径。
-- 右侧面板会列出全部 candidates、score、length、turn 和 in-bounds 状态。
-- 默认按 Python 脚本同一套策略自动选路，也可以手动锁定某一条 candidate。
-- `Replay` 会按 raw spring timeline 重放当前选中路径。
+- Drag the `START` / `END` handles to recompute the `20` candidate paths in real time.
+- The right-hand panel lists every candidate along with score, length, turn count, and in-bounds status.
+- By default it auto-selects a path using the same strategy as the Python script; you can also manually lock in a specific candidate.
+- `Replay` replays the currently selected path along the raw spring timeline.
 
-## 适用场景
+## Use cases
 
-- 想看 Python 重建逻辑换成 Swift 之后的实际轨迹和时序表现。
-- 想快速核对候选路径池、score 和 endpoint lock / close-enough 时间，而不是继续调视觉手感。
-- 想和 `CursorMotion` 做对照，区分“脚本级 binary lift”与“更自由的实验 demo”。
+- Seeing how the actual trajectory and timing behave once the Python reconstruction logic is ported to Swift.
+- Quickly checking the candidate-path pool, scores, and endpoint lock / close-enough timing, without continuing to tune visual feel.
+- Comparing against `CursorMotion` to distinguish a "script-level binary lift" from a "freer experimental demo."

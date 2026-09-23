@@ -1,18 +1,18 @@
 # Software Cursor Motion Model
 
-这个文档聚焦软件 cursor 的“运动模型”本身，不再只讨论 overlay window 是否存在，而是回答另一个更具体的问题：官方演示里那条自然、可调、带一点弹性的鼠标曲线，当前已经能从哪些证据反推出结构。
+This document focuses on the software cursor's "motion model" itself — no longer just whether an overlay window exists, but a more specific question: given what we currently have from reverse-engineering, what structure can we infer for that natural, tunable, slightly springy mouse curve seen in the official demos?
 
-结论先写在前面：结合视频、`SkyComputerUseService` 字符串，以及这次直接从 `__swift5_types` / `__swift5_fieldmd` 恢复出的类型和字段，可以比较有把握地判断官方不是只做了一条固定 cubic Bezier，而是做了一层独立的 motion engine，至少包含 3 层：
+The conclusion up front: combining the video, the `SkyComputerUseService` strings, and the types and fields recovered this time directly from `__swift5_types` / `__swift5_fieldmd`, we can say with reasonable confidence that the official implementation isn't just a single fixed cubic Bezier, but a dedicated motion engine with at least 3 layers:
 
-- 一层路径几何模型：`CursorMotionPath` + `Segment`。
-- 一层逐帧动画/物理推进：`BezierAnimation` + `SpringAnimation` + `VelocityVerletSimulation`。
-- 一层“下一次交互何时允许开始”的 timing gate：`CloseEnoughConfiguration` + `CursorNextInteractionTiming`。
+- A path geometry layer: `CursorMotionPath` + `Segment`.
+- A per-frame animation/physics advancement layer: `BezierAnimation` + `SpringAnimation` + `VelocityVerletSimulation`.
+- A "when is the next interaction allowed to start" timing gate layer: `CloseEnoughConfiguration` + `CursorNextInteractionTiming`.
 
-## 已观察事实
+## Observed Facts
 
-### 1. 视频里有显式的调参 UI
+### 1. The video has an explicit tuning UI
 
-用户提供的 X 视频里，左上角能稳定看到 5 个 slider：
+In the X video the user provided, 5 sliders are consistently visible in the top-left corner:
 
 - `START HANDLE`
 - `END HANDLE`
@@ -20,30 +20,30 @@
 - `ARC FLOW`
 - `SPRING`
 
-右上角能看到 3 个 toggle：
+3 toggles are visible in the top-right corner:
 
 - `DEBUG`
 - `MAIL`
 - `CLICK`
 
-这说明至少在官方内部调试构建里，cursor motion 不是黑盒常量，而是一组可实时调的参数。
+This shows that, at least in the official internal debug build, cursor motion isn't a black-box constant, but a set of parameters that can be tuned live.
 
-需要补一条边界：当前本机 shipping bundle
+One caveat needs adding: a full-package phrase scan of the currently shipping local bundle
 `~/.codex/plugins/cache/openai-bundled/computer-use/1.0.750/Codex Computer Use.app`
-做整包 phrase scan 后，并没有命中 `START HANDLE`、`END HANDLE`、`ARC SIZE`、`ARC FLOW` 这些完整 label。也就是说，视频里的 slider UI 仍然是有效证据，但更像内部调试构建或未发布调试面板，而不是当前 release app 里可直接字符串恢复出来的现成界面。
+did not hit the full labels `START HANDLE`, `END HANDLE`, `ARC SIZE`, `ARC FLOW`. In other words, the slider UI in the video remains valid evidence, but it looks more like an internal debug build or an unreleased debug panel, rather than a ready-made UI that can be directly recovered from strings in the current release app.
 
-### 2. `SkyComputerUseService` 里不仅有字符串，还有可恢复的 Swift motion 类型
+### 2. `SkyComputerUseService` has not just strings, but recoverable Swift motion types
 
-这次除了 `strings`，还额外做了两步：
+This time, beyond `strings`, two additional steps were taken:
 
-- 用 `otool -l` 确认 `__swift5_typeref`、`__swift5_reflstr`、`__swift5_fieldmd`、`__swift5_types` 这些 section 的位置。
-- 解析 `__swift5_types` 中的 type descriptor，再反查 `__swift5_fieldmd`，把 field descriptor 归回具体类型名。
+- Used `otool -l` to confirm the location of the `__swift5_typeref`, `__swift5_reflstr`, `__swift5_fieldmd`, and `__swift5_types` sections.
+- Parsed the type descriptors in `__swift5_types`, then cross-referenced `__swift5_fieldmd` to map field descriptors back to specific type names.
 
-这样拿到的不再只是零散关键词，而是“哪个类型拥有哪些字段”的证据。
+This yields not just scattered keywords, but evidence of "which type owns which fields."
 
-#### Cursor 路径与状态相关类型
+#### Cursor path and state related types
 
-从 `SkyComputerUseService` 静态恢复出的核心类型和字段如下：
+The core types and fields statically recovered from `SkyComputerUseService`:
 
 ```text
 ComputerUseCursor
@@ -112,16 +112,16 @@ CursorMotionPath
   segments
 ```
 
-这批字段把几件事基本坐实了：
+This batch of fields largely confirms several things:
 
-- 官方 cursor path 不是一个写死的单段 cubic，而是一个 `CursorMotionPath`，里面显式保存 `segments`。
-- 每个 `Segment` 自己再带 `control1` / `control2` / `end`，说明底层仍是 cubic Bezier，但高层路径可以由多段组成。
-- path 旁边还有一份 `CursorMotionPathMeasurement`，字段不是只有长度，而是 `angleChangeEnergy`、`maxAngleChange`、`totalTurn` 和 `staysInBounds`。这强烈说明官方会对候选路径做几何质量评分，而不是简单取一条。
-- `CloseEnoughConfiguration(progressThreshold, distanceThreshold)` 加上 `CursorNextInteractionTiming(closeEnough, finished)`，说明官方明确建模了“动画还没完全结束，但已经够接近，可以允许下一次交互”的状态。
+- The official cursor path is not a hardcoded single-segment cubic, but a `CursorMotionPath` that explicitly stores `segments`.
+- Each `Segment` itself carries `control1` / `control2` / `end`, showing the underlying primitive is still a cubic Bezier, but the higher-level path can be composed of multiple segments.
+- Alongside the path is a `CursorMotionPathMeasurement`, whose fields aren't just length — they also include `angleChangeEnergy`, `maxAngleChange`, `totalTurn`, and `staysInBounds`. This strongly suggests the official implementation scores candidate paths for geometric quality, rather than simply taking one.
+- `CloseEnoughConfiguration(progressThreshold, distanceThreshold)` together with `CursorNextInteractionTiming(closeEnough, finished)` shows the official implementation explicitly models a state of "the animation isn't fully finished yet, but is already close enough to allow the next interaction."
 
-#### 动画与速度推进相关类型
+#### Animation and velocity-advancement related types
 
-`SkyComputerUseService` 同时还带着一套独立的动画模块：
+`SkyComputerUseService` also carries an independent animation module:
 
 ```text
 BezierAnimation
@@ -181,16 +181,16 @@ AnimationDescriptor
   spring
 ```
 
-这里最关键的不是名字本身，而是字段组合：
+The key thing here isn't the names themselves, but the field combinations:
 
-- `BezierParameters(curve, duration)` 说明 time progression 确实有一层显式的 Bezier timing，而不是只靠系统默认 easing。
-- `BezierFunction(x1, x2, y1, y2, cx, cy, bx, by, ax, ay)` 说明这层 Bezier 不是抽象关键词，而是实际把 cubic 多项式系数预展开了。
-- `SpringParameters(response, dampingFraction)` 是用户可调或上层可配置的 spring 输入。
-- `VelocityVerletSimulation(configuration, time, velocity, force)` 和 `Configuration(response, stiffness, drag, dt, idleVelocityThreshold)` 则几乎可以确认底层不是一次性解析函数，而是 display-link 驱动的逐帧物理模拟。
+- `BezierParameters(curve, duration)` shows time progression really does have an explicit Bezier-timing layer, rather than relying solely on system default easing.
+- `BezierFunction(x1, x2, y1, y2, cx, cy, bx, by, ax, ay)` shows this Bezier layer isn't an abstract keyword — the cubic polynomial coefficients have actually been pre-expanded.
+- `SpringParameters(response, dampingFraction)` is a spring input that's user-tunable or configurable at a higher level.
+- `VelocityVerletSimulation(configuration, time, velocity, force)` and `Configuration(response, stiffness, drag, dt, idleVelocityThreshold)` make it nearly certain that the underlying mechanism isn't a one-shot closed-form function, but a display-link-driven, per-frame physics simulation.
 
-### 3. `Fog` / `wiggle` 也不是口头说法，而是独立 view model
+### 3. `Fog` / `wiggle` are also not just figures of speech, but independent view models
 
-这次还能直接看到一组和“思考时轻微摇摆”“fog 光晕”对应的类型：
+This time we can also see a set of types directly corresponding to "slight wiggle while thinking" and "fog glow":
 
 ```text
 FogCursorViewModel
@@ -211,41 +211,41 @@ CursorView
   fogScaleAnchorPoint
 ```
 
-这说明：
+This shows:
 
-- 光标朝向确实是速度驱动的，不是纯位置插值。
-- “thinking wiggle” 至少在渲染层有专门的 `_animatedAngleOffsetDegrees` 和 `_loadingAnimationToken`。
-- fog 也不是简单阴影，而是单独建模了 `fogRadius` 和对应的 scale anchor。
+- The cursor's heading really is velocity-driven, not pure positional interpolation.
+- The "thinking wiggle" has at least a dedicated `_animatedAngleOffsetDegrees` and `_loadingAnimationToken` at the render layer.
+- The fog isn't a simple shadow either — it has `fogRadius` and a corresponding scale anchor modeled independently.
 
-### 4. 当前开源仓库已有一版较简化的近似实现
+### 4. The current open-source repo already has a simplified approximate implementation
 
-`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift` 当前已经具备：
+`packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift` currently already has:
 
-- 基于起终点生成多组 cubic Bezier 候选。
-- 按目标 `windowID` 做采样命中，筛掉明显飘出目标窗口的路径。
-- 路径切线驱动的 cursor 旋转。
-- click pulse 与 idle sway。
+- Multiple cubic Bezier candidates generated from the start and end points.
+- Sample-based hit testing against the target `windowID`, filtering out paths that obviously drift outside the target window.
+- Cursor rotation driven by the path tangent.
+- Click pulse and idle sway.
 
-但它还没有显式建模这些官方证据里已出现的参数：
+But it does not yet explicitly model the parameters that appear in this official evidence:
 
 - `start handle`
 - `end handle`
-- path 分段与 turn-energy 评分
+- path segmentation and turn-energy scoring
 - `arc flow`
 - `spring`
 
-也没有“带速度状态的 spring settle”和“下一交互 timing gate”。
+Nor does it have a "velocity-state spring settle" or a "next-interaction timing gate."
 
-## 现在可以比较确定的结构判断
+## Structural conclusions we can now be fairly confident about
 
-下面这部分仍然带推断成分，但已经不是“纯猜”，而是基于上面的静态类型证据。
+The following still involves some inference, but it's no longer "pure guessing" — it's based on the static type evidence above.
 
-### 1. 曲线怎么计算
+### 1. How the curve is computed
 
-目前最合理的结构是：
+The most plausible structure right now is:
 
-1. 先构造一个高层 `CursorMotionPath`。
-2. 这个 path 至少包含：
+1. First build a high-level `CursorMotionPath`.
+2. This path contains at least:
    - `start`
    - `end`
    - `startControl`
@@ -254,96 +254,96 @@ CursorView
    - `arcIn`
    - `arcOut`
    - `segments`
-3. 再把 path 展开成一组具体 `Segment`。
-4. 每个 `Segment` 再用 `control1` / `control2` / `end` 生成实际 cubic Bezier。
-5. 然后对整条 path 计算 `CursorMotionPathMeasurement`：
+3. Then expand the path into a set of concrete `Segment`s.
+4. Each `Segment` uses `control1` / `control2` / `end` to generate the actual cubic Bezier.
+5. Then compute a `CursorMotionPathMeasurement` for the whole path:
    - `length`
    - `angleChangeEnergy`
    - `maxAngleChange`
    - `totalTurn`
    - `staysInBounds`
-6. 只有满足质量和 window 命中约束的路径，才会被接受并开播。
+6. Only paths that satisfy the quality and window-hit constraints get accepted and played.
 
-这比“从起点到终点直接拉一条单段 cubic”要复杂得多，也更接近团队成员说的 `calculates natural and aesthetic motion paths`。
+This is considerably more complex than "just draw a single cubic straight from start to end," and is much closer to what a team member described as "calculates natural and aesthetic motion paths."
 
-### 2. 速度怎么推进
+### 2. How velocity is advanced
 
-从类型和字段看，速度推进大概率不是“沿 Bezier 参数 `t` 匀速跑”，而是：
+Based on the types and fields, velocity advancement is likely not "run at a constant rate along the Bezier parameter `t`," but instead:
 
-1. 用 `BezierAnimation` / `BezierParameters(curve, duration)` 控制一段基础进度。
-2. 在需要弹性和停驻手感的阶段，再叠 `SpringAnimation`。
-3. spring 本体通过 `VelocityVerletSimulation` 按帧迭代：
-   - 维护 `time`
-   - 维护当前 `velocity`
-   - 维护当前 `force`
-   - 按 `Configuration(response, stiffness, drag, dt, idleVelocityThreshold)` 推进
-4. `DisplayLinkAnimationDriver(displayLink)` 负责逐帧驱动。
+1. Use `BezierAnimation` / `BezierParameters(curve, duration)` to drive a base progress.
+2. In phases that need springiness and a settled feel, layer on `SpringAnimation`.
+3. The spring itself iterates frame by frame via `VelocityVerletSimulation`:
+   - maintains `time`
+   - maintains current `velocity`
+   - maintains current `force`
+   - advances according to `Configuration(response, stiffness, drag, dt, idleVelocityThreshold)`
+4. `DisplayLinkAnimationDriver(displayLink)` drives the per-frame advancement.
 
-`VelocityVerletSimulation` 这个名字尤其关键，因为它已经把“用什么数值方法跑 spring”暴露出来了。就现有证据看，官方更像是在做逐帧积分，而不是单纯调用一个现成的 `CASpringAnimation` 然后交给系统黑盒求值。
+The name `VelocityVerletSimulation` is especially telling, since it already exposes "what numerical method drives the spring." From current evidence, the official implementation looks more like it's doing per-frame integration, rather than simply calling an off-the-shelf `CASpringAnimation` and letting the system evaluate it as a black box.
 
-当前已经恢复出的 shipping 默认 progress spring 为 `response=1.4`、`dampingFraction=0.9`、`dt=1/240`。按 `CloseEnoughConfiguration(progressThreshold=1.0, distanceThreshold=0.01)` 计算，endpoint-lock / close-enough 时间约为 `343 / 240 = 1.4291667s`。这意味着默认可见移动不应该再叠加一层本地距离压缩；短距离和长距离都会复用同一条 spring progress 时间线，只是路径几何和可见姿态的速度感不同。
+The shipping default progress spring recovered so far is `response=1.4`, `dampingFraction=0.9`, `dt=1/240`. Per `CloseEnoughConfiguration(progressThreshold=1.0, distanceThreshold=0.01)`, the endpoint-lock / close-enough time is about `343 / 240 = 1.4291667s`. This means the default visible movement shouldn't have an additional local distance-compression layer stacked on top; both short and long distances reuse the same spring progress timeline, with only the path geometry and visible pose giving a different sense of speed.
 
-### 3. 什么时候允许下一次交互开始
+### 3. When the next interaction is allowed to start
 
-`CloseEnoughConfiguration(progressThreshold, distanceThreshold)` 和 `CursorNextInteractionTiming(closeEnough, finished)` 这组类型，说明官方把“动作已足够接近，可继续下一步”和“动作完全结束”明确区分开了。
+The pair of types `CloseEnoughConfiguration(progressThreshold, distanceThreshold)` and `CursorNextInteractionTiming(closeEnough, finished)` show that the official implementation explicitly distinguishes "the action is close enough to proceed" from "the action is fully finished."
 
-这意味着：
+This means:
 
-- 视觉动画还没完全 settle 时，系统可能已经允许模型进入下一次 tool interaction。
-- 这个 gate 至少会同时看两件事：
-  - 已经跑过了多少进度 `progressThreshold`
-  - 离目标还剩多少距离 `distanceThreshold`
+- While the visual animation hasn't fully settled, the system may already allow the model to move on to the next tool interaction.
+- This gate looks at at least two things simultaneously:
+  - how much progress has run, `progressThreshold`
+  - how much distance remains to the target, `distanceThreshold`
 
-这比“每次都傻等动画播完再继续”更贴近官方演示里那种连续、不断句的操作感。
+This is much closer to the continuous, unbroken feel of operation seen in official demos, compared to "always dumbly wait for the animation to finish before continuing."
 
-## 参数映射的修正判断
+## Corrected parameter-mapping judgments
 
-和上一版文档相比，这里有一处重要修正。
+Compared to the previous version of this document, there's one important correction here.
 
 ### `START HANDLE`
 
-现在看，最可能映射到 `CursorMotionPath.startControl`，以及最终分段 cubic 上的 `control1`。
+This now most plausibly maps to `CursorMotionPath.startControl`, and to `control1` on the final segmented cubic.
 
 ### `END HANDLE`
 
-现在看，最可能映射到 `CursorMotionPath.endControl`，以及最终分段 cubic 上的 `control2`。
+This now most plausibly maps to `CursorMotionPath.endControl`, and to `control2` on the final segmented cubic.
 
 ### `ARC SIZE`
 
-上一版把它直接映射到 `arcHeight`，这个判断现在要降级。
+The previous version mapped this directly to `arcHeight`; that judgment now needs to be downgraded.
 
-新的证据显示：
+New evidence shows:
 
-- cursor path 本体字段里确认到的是 `arc`、`arcIn`、`arcOut`。
-- `arcHeight` 目前只在 `SystemSettingsAccessoryTransitionGeometryStyle` 上被确认，不像 cursor path 本体字段。
+- The fields confirmed on the cursor path type itself are `arc`, `arcIn`, `arcOut`.
+- `arcHeight` has so far only been confirmed on `SystemSettingsAccessoryTransitionGeometryStyle`, not as a field on the cursor path type itself.
 
-所以更保守的说法是：`ARC SIZE` 更可能先作用在 `CursorMotionPath.arc` 或分段控制点偏移量上，而不是已经能直接确认是某个叫 `arcHeight` 的 cursor 字段。
+So a more conservative statement is: `ARC SIZE` more likely acts first on `CursorMotionPath.arc` or a segment control-point offset, rather than being confirmed as directly targeting some field literally called `arcHeight`.
 
 ### `ARC FLOW`
 
-这条判断比上一版更稳了，因为 `CursorMotionPath` 里确实存在 `arcIn` / `arcOut`：
+This judgment is firmer than in the previous version, because `arcIn` / `arcOut` really do exist on `CursorMotionPath`:
 
-- `arcIn` 大概率控制起点侧进入主弧线的节奏。
-- `arcOut` 大概率控制终点侧回收至目标的节奏。
-- `ARC FLOW` 大概率是在这两个量之间做重分配。
+- `arcIn` most likely controls the pacing of entering the main arc from the start side.
+- `arcOut` most likely controls the pacing of settling into the target on the end side.
+- `ARC FLOW` most likely redistributes the balance between these two quantities.
 
 ### `SPRING`
 
-这条也比上一版更具体了。现在可以把它落到一整套链路上：
+This judgment is also more specific than before. It can now be pinned to an entire chain:
 
-- 上层参数：`SpringParameters(response, dampingFraction)`
-- 运行时模拟：`VelocityVerletSimulation`
-- 模拟配置：`Configuration(response, stiffness, drag, dt, idleVelocityThreshold)`
+- Upper-level parameters: `SpringParameters(response, dampingFraction)`
+- Runtime simulation: `VelocityVerletSimulation`
+- Simulation configuration: `Configuration(response, stiffness, drag, dt, idleVelocityThreshold)`
 
-## 对独立实现的设计启发
+## Design implications for an independent implementation
 
-如果要在当前仓库里抽一个后续可独立开源的版本，建议不要再把所有逻辑继续塞进 `SoftwareCursorOverlay`，而是拆成 4 层：
+If we're going to carve out a version from the current repo that could later be open-sourced independently, we shouldn't keep stuffing all the logic into `SoftwareCursorOverlay`, but should split it into 4 layers:
 
 ### 1. Motion Parameters
 
-纯值类型，不依赖 AppKit。
+Pure value types, with no AppKit dependency.
 
-建议至少包含：
+Should include at least:
 
 - `startHandle`
 - `endHandle`
@@ -353,20 +353,20 @@ CursorView
 
 ### 2. Motion Path Builder
 
-输入起点、终点和参数，产出：
+Takes a start point, end point, and parameters as input, and produces:
 
 - `CursorMotionPath`
 - `segments`
 - `control1`
 - `control2`
 - `measurement`
-- 切线
+- tangents
 
-这里单独负责几何，不负责时间。
+This layer is responsible only for geometry, not timing.
 
 ### 3. Motion Simulator
 
-在路径几何之上叠时间推进：
+Layers time advancement on top of the path geometry:
 
 - Bezier progress animation
 - spring simulation
@@ -377,35 +377,35 @@ CursorView
 
 ### 4. Cursor Renderer / Demo Host
 
-最外层才接 AppKit / SwiftUI，负责：
+Only the outermost layer touches AppKit / SwiftUI, and is responsible for:
 
 - overlay window
 - debug slider UI
-- target point 标注
-- click / mail / debug toggle
+- target point annotation
+- click / mail / debug toggles
 
-## 对仓库落点的建议
+## Recommendation for where this lands in the repo
 
-为了后续独立开源更干净，这块建议先作为单独目录推进，而不是直接和 MCP runtime 耦合：
+For a cleaner path to a later independent open-source release, this should be developed in its own directory for now, rather than coupled directly to the MCP runtime:
 
-- 目录建议：`experiments/CursorMotion/`
-- 第一阶段先做一个纯本地 demo app，不接真实 tool call。
-- 等参数模型稳定后，再决定是否把其中的 `Motion Parameters` / `Path Builder` 下沉回 `packages/` 复用。
+- Suggested directory: `experiments/CursorMotion/`
+- First stage: a pure local demo app that doesn't wire up real tool calls.
+- Once the parameter model stabilizes, decide whether to move the `Motion Parameters` / `Path Builder` pieces back down into `packages/` for reuse.
 
-这样可以避免两个问题：
+This avoids two problems:
 
-- 为了追官方手感，反复改动线上 `click` overlay。
-- demo/调参 UI 代码污染主产品边界。
+- Repeatedly modifying the live `click` overlay just to chase the official feel.
+- Demo/tuning-UI code contaminating the main product's boundaries.
 
-## 当前判断
+## Current assessment
 
-当前最合理的独立实现方向不是“继续微调现有候选 Bezier 权重”，而是：
+The most sensible direction for an independent implementation right now isn't "keep fine-tuning the weights of the existing candidate Beziers," but rather:
 
-1. 先把 motion model 从 overlay 渲染里拆出来。
-2. 明确把 `handle`、`arc`、`spring`、`closeEnough timing` 建模成一等参数。
-3. 把 path builder 做成“多段 cubic + measurement”而不是单段模板曲线。
-4. 把 timing simulator 做成“Bezier progress + spring settle + velocity state”。
-5. 做一个带 slider/toggle 的本地 Swift demo。
-6. 用这个 demo 逼近视频里的轨迹和停驻手感。
+1. First extract the motion model out of the overlay rendering.
+2. Explicitly model `handle`, `arc`, `spring`, and `closeEnough timing` as first-class parameters.
+3. Make the path builder produce "multi-segment cubic + measurement" instead of a single-segment template curve.
+4. Make the timing simulator produce "Bezier progress + spring settle + velocity state."
+5. Build a local Swift demo with sliders/toggles.
+6. Use this demo to approach the trajectory and settling feel seen in the video.
 
-只有这样，后面这个目录才真的适合单独开源。
+Only then would this directory really be ready for independent open-sourcing.

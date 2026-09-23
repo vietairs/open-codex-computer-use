@@ -12,11 +12,11 @@
 **Scope:** `AGENTS.md`, `docs/histories/`
 
 **Key Actions:**
-- **[Add rule]**: 在 `AGENTS.md` 的工作规则里新增“回复跟随用户提问语言”的约束。
-- **[Record change]**: 新增对应 history，记录这次仓库级协作规则调整。
+- **[Add rule]**: added the constraint "reply in the same language as the user's query" to the working rules in `AGENTS.md`.
+- **[Record change]**: added the corresponding history entry recording this repo-level collaboration rule change.
 
 ### 🧠 Design Intent (Why)
-把语言跟随规则放进仓库入口约束里，能让后续 Agent 在协作时直接继承统一行为，减少对聊天上下文的依赖。
+Putting the language-mirroring rule into the repo's entry-point constraints lets later agents inherit consistent behavior directly during collaboration, reducing reliance on chat context.
 
 ### 📁 Files Modified
 - `AGENTS.md`
