@@ -33,7 +33,8 @@ file is reused only if it listens on the requested port and passes the same
 check-readout.mjs run (which also asserts the served model file) as a fresh one.
 
 Exit codes:
-  0  started (or already running) and the readout check passed
+  0  started (or already running) and the readout check passed (check-readout.mjs
+     exited 0 and printed its "all readout assertions passed" line)
   3  the model file is missing or fails sha256 verification
   4  the port is held by another process, or a recorded sidecar is still running
      on another port or cannot be verified (stop it first)
@@ -157,6 +158,23 @@ print_export_line() {
   echo "export OPEN_COMPUTER_USE_DECISION_MODEL_URL=http://127.0.0.1:${port}"
 }
 
+# Runs check-readout.mjs against the sidecar and passes only when it exits 0 AND
+# prints its success line, so a run that silently skipped its checks (for
+# example a script-entry guard that never fired) can never count as a pass.
+readout_check_passes() {
+  local output
+  local status=0
+  output="$(node "${script_dir}/check-readout.mjs" --url "http://127.0.0.1:${port}" --model "${model_key}")" || status=$?
+  if [ -n "${output}" ]; then
+    printf '%s\n' "${output}"
+  fi
+  [ "${status}" -eq 0 ] || return 1
+  if ! grep -qxF 'check-readout.mjs: all readout assertions passed.' <<<"${output}"; then
+    echo "start-sidecar.sh: check-readout.mjs exited 0 but did not report that every readout assertion passed." >&2
+    return 1
+  fi
+}
+
 # One sidecar per user: the pid file is not keyed by port, so starting a second
 # server would overwrite the record of the first and leave it running untracked.
 if [ -f "${pid_file}" ]; then
@@ -171,7 +189,7 @@ if [ -f "${pid_file}" ]; then
         fi
         # Reuse gets the same readout check as a fresh start; it also asserts
         # that the server serves this --model's file.
-        if ! node "${script_dir}/check-readout.mjs" --url "http://127.0.0.1:${port}" --model "${model_key}"; then
+        if ! readout_check_passes; then
           echo "start-sidecar.sh: the running sidecar (pid ${pf_pid}) failed check-readout.mjs for --model ${model_key}; it was left running." >&2
           echo "Stop it with scripts/decision-model/stop-sidecar.sh, then start again." >&2
           exit 6
@@ -253,7 +271,7 @@ if [ "${health_ok}" != "1" ]; then
   exit 1
 fi
 
-if ! node "${script_dir}/check-readout.mjs" --url "http://127.0.0.1:${port}" --model "${model_key}"; then
+if ! readout_check_passes; then
   echo "start-sidecar.sh: check-readout.mjs failed against the newly started server; stopping it" >&2
   stop_started_server
   exit 5

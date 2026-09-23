@@ -11,7 +11,8 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { invokedAsScript } from "./run-as-script.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const manifestPath = path.join(scriptDir, "model-manifest.json");
@@ -452,7 +453,7 @@ async function main() {
 }
 
 // Run only as a script, so tests can import locateTargetHead without probing a server.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (invokedAsScript(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(`check-readout.mjs: unexpected error: ${error.stack ?? error}\n`);
     process.exit(1);

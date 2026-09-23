@@ -17,12 +17,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, openSync, readSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { loadDataset, validateItem } from './eval-dataset.mjs';
 import {
   LATENCY_SCOPE_NOTE, aggregate, buildSummary, percentile, precisionCoverageAt, roundTauUp, scoreItem, selectTau,
   snapshotsBySplit, testClusteringNote, tuningIsolationNote,
 } from './eval-metrics.mjs';
+import { invokedAsScript } from './run-as-script.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..', '..');
@@ -325,7 +326,7 @@ async function main(argv) {
 }
 
 // Run only as a script, so tests can import parseArgs without starting an eval.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (invokedAsScript(import.meta.url)) {
   main(process.argv.slice(2)).then(
     (code) => { process.exitCode = code; },
     (error) => {

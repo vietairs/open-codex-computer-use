@@ -7,7 +7,8 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync,
+  constants, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -15,7 +16,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const SCRIPTS = ['start-sidecar.sh', 'stop-sidecar.sh', 'sidecar-pid-lib.sh', 'check-readout.mjs'];
+const SCRIPTS = ['start-sidecar.sh', 'stop-sidecar.sh', 'sidecar-pid-lib.sh', 'check-readout.mjs', 'run-as-script.mjs'];
 
 const MOCK_SERVER = `
 import { createServer } from 'node:http';
@@ -45,6 +46,9 @@ function makeSandbox(t) {
   const scripts = join(root, 'scripts');
   mkdirSync(scripts);
   for (const name of SCRIPTS) copyFileSync(join(scriptDir, name), join(scripts, name));
+  // The same scripts reached through a symlink, as from a symlinked checkout or /tmp on macOS.
+  const symlinkedScripts = join(root, 'scripts-link');
+  symlinkSync(scripts, symlinkedScripts, 'dir');
   const model = Buffer.from('tiny model for sidecar script tests\n');
   writeFileSync(join(scripts, 'model-manifest.json'), JSON.stringify({
     active: 'tiny',
@@ -71,16 +75,21 @@ function makeSandbox(t) {
 
   return {
     root,
+    scripts,
     fakeLlama,
     pidFile: join(stateDir, 'run', 'llama-server.pid'),
     track(child) {
       children.push(child);
       return child;
     },
-    /** Runs a script asynchronously, so this process keeps reaping its own dummy children while it waits. */
-    run(script, args = []) {
+    /**
+     * Runs a script asynchronously, so this process keeps reaping its own dummy children while it waits.
+     * `viaSymlink` runs it through the symlinked scripts path, so its script_dir is not a real path.
+     */
+    run(script, args = [], { viaSymlink = false } = {}) {
+      const dir = viaSymlink ? symlinkedScripts : scripts;
       return new Promise((resolve, reject) => {
-        const child = spawn('bash', [join(scripts, script), ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+        const child = spawn('bash', [join(dir, script), ...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
         let stdout = '';
         let stderr = '';
         child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -222,6 +231,33 @@ test('start-sidecar reuse runs check-readout and refuses a sidecar serving anoth
   assert.match(result.stderr, /model_path basename "Some-Other-Model.gguf"/);
   assert.ok(alive(child.pid), 'reuse failure must leave the running server alone');
   assert.equal(readFileSync(sandbox.pidFile, 'utf8'), before);
+});
+
+test('start-sidecar reached through a symlinked path still runs check-readout and refuses the wrong model', async (t) => {
+  const sandbox = makeSandbox(t);
+  const { child, port } = await listeningFakeSidecar(sandbox, '/x/Some-Other-Model.gguf');
+  writePidFile(sandbox, { pid: child.pid, port });
+
+  const result = await sandbox.run('start-sidecar.sh', ['--port', String(port)], { viaSymlink: true });
+
+  assert.equal(result.status, 6, result.stdout + result.stderr);
+  assert.doesNotMatch(result.stdout, /export OPEN_COMPUTER_USE_DECISION_MODEL_URL/);
+  assert.match(result.stderr, /model_path basename "Some-Other-Model.gguf"/);
+  assert.ok(alive(child.pid));
+});
+
+test('start-sidecar does not count a silent exit 0 from check-readout as a pass', async (t) => {
+  const sandbox = makeSandbox(t);
+  writeFileSync(join(sandbox.scripts, 'check-readout.mjs'), 'process.exit(0);\n');
+  const { child, port } = await listeningFakeSidecar(sandbox, '/x/tiny.gguf');
+  writePidFile(sandbox, { pid: child.pid, port });
+
+  const result = await sandbox.run('start-sidecar.sh', ['--port', String(port)]);
+
+  assert.equal(result.status, 6, result.stdout + result.stderr);
+  assert.doesNotMatch(result.stdout, /export OPEN_COMPUTER_USE_DECISION_MODEL_URL/);
+  assert.match(result.stderr, /did not report that every readout assertion passed/);
+  assert.ok(alive(child.pid));
 });
 
 test('start-sidecar refuses an old pid-only file that names a running process', async (t) => {

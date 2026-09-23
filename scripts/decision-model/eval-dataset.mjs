@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { invokedAsScript } from './run-as-script.mjs';
 
 export const OPERATIONS = ['click', 'set_value', 'type_text', 'scroll', 'press_key', 'wait', 'done'];
 export const TARGETED = new Set(['click', 'set_value', 'scroll']);
@@ -352,6 +352,7 @@ function main(argv) {
   return report.errors.length === 0 ? 0 : 1;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Run only as a script, so tests can import the validators without checking a dataset.
+if (invokedAsScript(import.meta.url)) {
   process.exitCode = main(process.argv.slice(2));
 }
