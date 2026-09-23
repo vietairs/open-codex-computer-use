@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "active": "qwen3.5-4b-q4km",
+  "models": {
+    "qwen3.5-4b-q4km": {
+      "repo": "unsloth/Qwen3.5-4B-GGUF",
+      "revision": "720bb031aae5488eae5d6a78768e6d826662b2ae",
+      "filename": "Qwen3.5-4B-Q4_K_M.gguf",
+      "sizeBytes": 2740937888,
+      "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4",
+      "license": "apache-2.0",
+      "chatTemplateKwargs": { "enable_thinking": false }
+    },
+    "qwen3-4b-instruct-2507-q4km": {
+      "repo": "unsloth/Qwen3-4B-Instruct-2507-GGUF",
+      "revision": "a06e946bb6b655725eafa393f4a9745d460374c9",
+      "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "sizeBytes": 2497281120,
+      "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+      "license": "apache-2.0",
+      "chatTemplateKwargs": {}
+    }
+  },
+  "llamaCpp": { "testedBuild": 10964, "testedCommit": "b29c606e2", "install": "brew install llama.cpp" }
+}
