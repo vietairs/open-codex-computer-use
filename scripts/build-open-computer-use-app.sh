@@ -9,6 +9,17 @@ codesign_mode="${OPEN_COMPUTER_USE_CODESIGN_MODE:-auto}"
 codesign_identity="${OPEN_COMPUTER_USE_CODESIGN_IDENTITY:-}"
 codesign_keychain="${OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN:-}"
 allow_adhoc_release="${OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE:-0}"
+notarize_mode="${OPEN_COMPUTER_USE_NOTARIZE:-auto}"
+notary_profile="${OPEN_COMPUTER_USE_NOTARY_PROFILE:-}"
+notary_key_path="${APPLE_NOTARY_KEY_PATH:-}"
+notary_key_p8_base64="${APPLE_NOTARY_API_KEY_P8_BASE64:-}"
+notary_key_id="${APPLE_NOTARY_KEY_ID:-}"
+notary_issuer_id="${APPLE_NOTARY_ISSUER_ID:-}"
+notary_team_id="${APPLE_DEVELOPER_TEAM_ID:-}"
+notary_auto_profile_name="open-computer-use-notary"
+notary_key_tmp_path=""
+notary_work_dir=""
+will_notarize=0
 
 usage() {
   cat <<'EOF'
@@ -23,6 +34,29 @@ Environment:
   OPEN_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
   OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
   OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1  (permit ad-hoc/unsigned RELEASE builds — peer authentication will be inactive)
+
+  OPEN_COMPUTER_USE_NOTARIZE=auto|required|skip  (default auto)
+    Notarizes the final app bundle with `xcrun notarytool` and staples the
+    ticket. "auto" notarizes release builds only; "required" notarizes any
+    configuration and fails the build when notarization cannot happen;
+    "skip" never notarizes. Notarization needs a "Developer ID Application"
+    signing identity (a 40-hex SHA-1 identity is mapped to its name) and
+    credentials; otherwise "auto" skips and "required" fails. The decision is
+    made before signing. A build that will be notarized always requests a
+    secure timestamp (--timestamp, which contacts Apple); debug builds pass
+    --timestamp=none so they never need the network; other release builds
+    keep codesign's default. The API-key path supports Team API keys (the
+    issuer ID is required); use a keychain profile for an Individual key.
+    Credentials are resolved in this order:
+      1. OPEN_COMPUTER_USE_NOTARY_PROFILE=<keychain profile name>
+      2. An App Store Connect API key: APPLE_NOTARY_KEY_PATH=/path/to/key.p8
+         or APPLE_NOTARY_API_KEY_P8_BASE64=<base64 .p8 contents>, plus
+         APPLE_NOTARY_KEY_ID and APPLE_NOTARY_ISSUER_ID (APPLE_DEVELOPER_TEAM_ID optional)
+      3. In "auto" mode only, when neither of the above is set: the keychain
+         profile "open-computer-use-notary", if one has been stored locally
+         with `xcrun notarytool store-credentials open-computer-use-notary`.
+         "required" never probes for it; set
+         OPEN_COMPUTER_USE_NOTARY_PROFILE=open-computer-use-notary explicitly.
 EOF
 }
 
@@ -72,6 +106,11 @@ fi
 
 if [[ "${codesign_mode}" != "auto" && "${codesign_mode}" != "identity" && "${codesign_mode}" != "adhoc" && "${codesign_mode}" != "none" ]]; then
   echo "Unsupported OPEN_COMPUTER_USE_CODESIGN_MODE: ${codesign_mode}" >&2
+  exit 1
+fi
+
+if [[ "${notarize_mode}" != "auto" && "${notarize_mode}" != "required" && "${notarize_mode}" != "skip" ]]; then
+  echo "Unsupported OPEN_COMPUTER_USE_NOTARIZE: ${notarize_mode}" >&2
   exit 1
 fi
 
@@ -243,6 +282,179 @@ with socket peer authentication INACTIVE (same-uid trust only).
 EOF
 }
 
+# Prints the human-readable name of the identity the bundle will be signed
+# with, or nothing when signing is disabled. A 40-hex SHA-1 identity is mapped
+# to its certificate name through `security find-identity`, so a hash-pinned
+# Developer ID identity is still recognized as one.
+resolve_signing_identity_name() {
+  local identity=""
+
+  if ! identity="$(resolve_codesign_identity)"; then
+    return 0
+  fi
+
+  if [[ ! "${identity}" =~ ^[0-9A-Fa-f]{40}$ ]]; then
+    printf '%s\n' "${identity}"
+    return 0
+  fi
+
+  local -a args=(find-identity -v -p codesigning)
+  if [[ -n "${codesign_keychain}" ]]; then
+    args+=("${codesign_keychain}")
+  fi
+
+  local identities=""
+  identities="$(security "${args[@]}" 2>/dev/null || true)"
+
+  local sha1_upper=""
+  sha1_upper="$(printf '%s' "${identity}" | tr '[:lower:]' '[:upper:]')"
+
+  printf '%s\n' "${identities}" | awk -v sha1="${sha1_upper}" '
+    $2 == sha1 {
+      line = $0
+      sub(/^[^"]*"/, "", line)
+      sub(/"[^"]*$/, "", line)
+      print line
+      exit
+    }
+  '
+}
+
+notary_profile_exists() {
+  local profile="${1:-}"
+
+  if [[ -z "${profile}" ]]; then
+    return 1
+  fi
+
+  xcrun notarytool history --keychain-profile "${profile}" --output-format json >/dev/null 2>&1
+}
+
+# Resolves notarization credentials into the global notary_auth_args array
+# and notary_auth_source string. Returns 1 (with no output) when no
+# credentials are configured. Bash on macOS defaults to 3.2 (no namerefs),
+# so results are communicated through global variables rather than returned.
+#
+# Callers invoke this inside an `if` condition, which disables errexit for
+# the whole function body, so every step that can fail is checked explicitly.
+# Key material is never echoed.
+resolve_notary_auth() {
+  notary_auth_args=()
+  notary_auth_source="none"
+
+  if [[ -n "${notary_profile}" ]]; then
+    notary_auth_args=(--keychain-profile "${notary_profile}")
+    notary_auth_source="profile"
+    return 0
+  fi
+
+  if [[ -n "${notary_key_path}" || -n "${notary_key_p8_base64}" ]]; then
+    if [[ -z "${notary_key_id}" || -z "${notary_issuer_id}" ]]; then
+      echo "APPLE_NOTARY_KEY_ID and APPLE_NOTARY_ISSUER_ID are required when APPLE_NOTARY_KEY_PATH or APPLE_NOTARY_API_KEY_P8_BASE64 is set" >&2
+      exit 1
+    fi
+
+    local resolved_key_path=""
+    if [[ -n "${notary_key_path}" ]]; then
+      if [[ ! -f "${notary_key_path}" || ! -r "${notary_key_path}" ]]; then
+        echo "APPLE_NOTARY_KEY_PATH does not point to a readable file: ${notary_key_path}" >&2
+        exit 1
+      fi
+      resolved_key_path="${notary_key_path}"
+    else
+      # BSD mktemp (macOS /usr/bin/mktemp) requires the Xs to be the trailing
+      # characters of the template; unlike GNU mktemp --suffix, a literal
+      # suffix after XXXXXX (e.g. ".p8") is left unsubstituted. notarytool
+      # does not require a .p8 extension, so the template omits one.
+      if ! notary_key_tmp_path="$(mktemp "${TMPDIR:-/tmp}/open-computer-use-notary-key.XXXXXX")" || [[ -z "${notary_key_tmp_path}" ]]; then
+        notary_key_tmp_path=""
+        echo "Failed to create a temporary file for the notary API key" >&2
+        exit 1
+      fi
+      if ! chmod 600 "${notary_key_tmp_path}"; then
+        echo "Failed to restrict permissions on the temporary notary API key file" >&2
+        exit 1
+      fi
+      # Whitespace (e.g. the line wrapping GNU base64 adds) is stripped first;
+      # anything else outside the base64 alphabet is rejected by validate=True.
+      if ! CERT_PATH="${notary_key_tmp_path}" python3 -c '
+import base64, binascii, os, pathlib, sys
+encoded = "".join(os.environ["APPLE_NOTARY_API_KEY_P8_BASE64"].split())
+try:
+    decoded = base64.b64decode(encoded, validate=True)
+except (binascii.Error, ValueError):
+    sys.exit(1)
+pathlib.Path(os.environ["CERT_PATH"]).write_bytes(decoded)
+' 2>/dev/null; then
+        echo "APPLE_NOTARY_API_KEY_P8_BASE64 is not valid base64" >&2
+        exit 1
+      fi
+      if [[ ! -s "${notary_key_tmp_path}" ]]; then
+        echo "APPLE_NOTARY_API_KEY_P8_BASE64 decoded to an empty notary API key" >&2
+        exit 1
+      fi
+      resolved_key_path="${notary_key_tmp_path}"
+    fi
+
+    notary_auth_args=(--key "${resolved_key_path}" --key-id "${notary_key_id}" --issuer "${notary_issuer_id}")
+    if [[ -n "${notary_team_id}" ]]; then
+      notary_auth_args+=(--team-id "${notary_team_id}")
+    fi
+    notary_auth_source="apikey"
+    return 0
+  fi
+
+  if [[ "${notarize_mode}" == "auto" ]] && notary_profile_exists "${notary_auto_profile_name}"; then
+    notary_auth_args=(--keychain-profile "${notary_auto_profile_name}")
+    notary_auth_source="profile"
+    return 0
+  fi
+
+  return 1
+}
+
+# Decides, before anything is signed, whether this build will be notarized,
+# and records the answer in the global will_notarize (0 or 1). Notarization
+# needs a secure timestamp, and requesting one contacts Apple, so this single
+# decision also controls codesign's --timestamp flag: a build that will not be
+# notarized (skip mode, an "auto" debug build, a non-Developer-ID identity, or
+# no credentials) never talks to Apple.
+decide_notarization() {
+  will_notarize=0
+
+  if [[ "${notarize_mode}" == "skip" ]]; then
+    return 0
+  fi
+
+  # "auto" notarizes release builds only; "required" applies to any configuration.
+  if [[ "${notarize_mode}" == "auto" && "${configuration}" != "release" ]]; then
+    return 0
+  fi
+
+  local identity_name=""
+  identity_name="$(resolve_signing_identity_name)"
+
+  if [[ "${identity_name}" != "Developer ID Application:"* ]]; then
+    if [[ "${notarize_mode}" == "required" ]]; then
+      echo "OPEN_COMPUTER_USE_NOTARIZE=required but the app bundle will not be signed with a \"Developer ID Application\" identity (resolved identity: ${identity_name:-none}, OPEN_COMPUTER_USE_CODESIGN_MODE=${codesign_mode}); notarization requires Developer ID Application signing with hardened runtime and a secure timestamp." >&2
+      exit 1
+    fi
+    echo "Skipping notarization: the app bundle will not be signed with a \"Developer ID Application\" identity (OPEN_COMPUTER_USE_CODESIGN_MODE=${codesign_mode})." >&2
+    return 0
+  fi
+
+  if ! resolve_notary_auth; then
+    if [[ "${notarize_mode}" == "required" ]]; then
+      echo "OPEN_COMPUTER_USE_NOTARIZE=required but no notarization credentials were found. Set OPEN_COMPUTER_USE_NOTARY_PROFILE (to use the locally stored keychain profile, set OPEN_COMPUTER_USE_NOTARY_PROFILE=${notary_auto_profile_name} explicitly; required mode never probes for it), or APPLE_NOTARY_KEY_PATH/APPLE_NOTARY_API_KEY_P8_BASE64 together with APPLE_NOTARY_KEY_ID and APPLE_NOTARY_ISSUER_ID." >&2
+      exit 1
+    fi
+    echo "Skipping notarization: no notarization credentials configured (set OPEN_COMPUTER_USE_NOTARY_PROFILE, APPLE_NOTARY_KEY_PATH, or APPLE_NOTARY_API_KEY_P8_BASE64 with APPLE_NOTARY_KEY_ID/APPLE_NOTARY_ISSUER_ID, or store a keychain profile named \"${notary_auto_profile_name}\")." >&2
+    return 0
+  fi
+
+  will_notarize=1
+}
+
 codesign_app_bundle() {
   local app_path="${1:-}"
   local identity=""
@@ -262,6 +474,17 @@ codesign_app_bundle() {
     args+=(--options runtime)
   fi
 
+  # A secure timestamp requires contacting Apple's timestamp server, and
+  # codesign requests one by default for Developer ID signatures. Force it when
+  # this build will be notarized, disable it for debug builds so offline dev
+  # loops never touch the network, and leave codesign's default for other
+  # release builds so they keep the timestamp they always had.
+  if [[ "${will_notarize}" -eq 1 ]]; then
+    args+=(--timestamp)
+  elif [[ "${identity}" != "-" && "${configuration}" == "debug" ]]; then
+    args+=(--timestamp=none)
+  fi
+
   run_with_codesign_keychain "${codesign_keychain}" \
     codesign "${args[@]}" "${app_path}" >/dev/null
 
@@ -272,9 +495,132 @@ codesign_app_bundle() {
   fi
 }
 
+# Prints one top-level field ("id" or "status") from notarytool's JSON output.
+# Tolerates non-JSON lines around the JSON object; prints nothing when absent.
+read_notary_submit_field() {
+  local json_path="${1:-}"
+  local field="${2:-}"
+
+  python3 - "${json_path}" "${field}" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+path, field = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8", errors="replace") as fh:
+    text = fh.read()
+
+data = None
+try:
+    data = json.loads(text)
+except ValueError:
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            data = json.loads(line)
+            break
+        except ValueError:
+            continue
+
+if isinstance(data, dict):
+    value = data.get(field, "")
+    print(value if isinstance(value, str) else "")
+PY
+}
+
+notarize_app_bundle() {
+  local app_path="${1:-}"
+
+  # Confirm from the actual signature, not the configured identity, that the
+  # bundle carries a Developer ID Application authority before submitting.
+  local signature_details=""
+  signature_details="$(codesign -dvv "${app_path}" 2>&1 || true)"
+  if ! printf '%s\n' "${signature_details}" | grep -q '^Authority=Developer ID Application:'; then
+    if [[ "${notarize_mode}" == "required" ]]; then
+      echo "OPEN_COMPUTER_USE_NOTARIZE=required but the signature on ${app_path} has no \"Authority=Developer ID Application:\" entry; refusing to submit it for notarization." >&2
+      exit 1
+    fi
+    echo "Skipping notarization for ${app_path}: its signature has no \"Developer ID Application\" authority." >&2
+    return 0
+  fi
+
+  echo "Notarizing ${app_path} (credentials: ${notary_auth_source})..." >&2
+
+  notary_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/open-computer-use-notarize.XXXXXX")"
+  local zip_path
+  zip_path="${notary_work_dir}/$(basename "${app_path%.app}").zip"
+  local submit_stdout_path="${notary_work_dir}/submit.json"
+  local submit_stderr_path="${notary_work_dir}/submit.stderr"
+
+  ditto -c -k --keepParent "${app_path}" "${zip_path}"
+
+  local submit_status=0
+  xcrun notarytool submit "${zip_path}" "${notary_auth_args[@]}" --wait --timeout 30m --output-format json --no-progress \
+    >"${submit_stdout_path}" 2>"${submit_stderr_path}" || submit_status=$?
+  cat "${submit_stderr_path}" >&2
+  cat "${submit_stdout_path}" >&2
+
+  local submission_id=""
+  local submission_status=""
+  submission_id="$(read_notary_submit_field "${submit_stdout_path}" id)"
+  submission_status="$(read_notary_submit_field "${submit_stdout_path}" status)"
+
+  # notarytool can exit 0 for a submission Apple rejected, so the JSON status
+  # is authoritative: anything other than "Accepted" is a failure.
+  if [[ "${submit_status}" -ne 0 || "${submission_status}" != "Accepted" ]]; then
+    echo "Notarization failed for ${app_path}: submission id=${submission_id:-unknown}, status=${submission_status:-unknown}, notarytool exit code=${submit_status}" >&2
+    if [[ -n "${submission_id}" ]]; then
+      echo "Fetching notarytool log for submission ${submission_id}..." >&2
+      xcrun notarytool log "${submission_id}" "${notary_auth_args[@]}" >&2 || true
+    fi
+    exit 1
+  fi
+
+  echo "Notarization accepted (submission id ${submission_id})." >&2
+
+  # The ticket can take a moment to propagate to Apple's CDN after acceptance,
+  # so stapling is retried a bounded number of times before giving up.
+  local -a staple_retry_delays=(10 20)
+  local staple_max_attempts=3
+  local staple_attempt=1
+  while ! xcrun stapler staple "${app_path}"; do
+    if [[ "${staple_attempt}" -ge "${staple_max_attempts}" ]]; then
+      echo "stapler staple failed for ${app_path} after ${staple_max_attempts} attempts" >&2
+      exit 1
+    fi
+    local staple_delay="${staple_retry_delays[$((staple_attempt - 1))]}"
+    echo "stapler staple failed (attempt ${staple_attempt}/${staple_max_attempts}); retrying in ${staple_delay}s..." >&2
+    sleep "${staple_delay}"
+    staple_attempt=$((staple_attempt + 1))
+  done
+
+  xcrun stapler validate "${app_path}"
+  spctl -a -vvv -t exec "${app_path}" 2>&1 | sed 's/^/spctl: /' >&2 || true
+
+  echo "Notarized and stapled ${app_path}" >&2
+}
+
 cd "${repo_root}"
 
+icon_work_dir=""
+cleanup() {
+  if [[ -n "${icon_work_dir:-}" ]]; then
+    rm -rf "${icon_work_dir}"
+  fi
+  if [[ -n "${notary_key_tmp_path:-}" ]]; then
+    rm -f "${notary_key_tmp_path}"
+  fi
+  if [[ -n "${notary_work_dir:-}" ]]; then
+    rm -rf "${notary_work_dir}"
+  fi
+}
+# Installed before decide_notarization, which may decode an API key into a
+# temporary file that must be removed however the script exits.
+trap cleanup EXIT
+
 enforce_release_signing_policy
+decide_notarization
 
 package_version="$(read_package_version)"
 bundle_version="${OPEN_COMPUTER_USE_BUNDLE_VERSION:-$(git -C "${repo_root}" rev-list --count HEAD 2>/dev/null || echo 1)}"
@@ -349,12 +695,6 @@ if [[ ! -f "${cursor_reference_source}" ]]; then
 fi
 
 icon_work_dir="$(mktemp -d "${TMPDIR:-/tmp}/open-computer-use-icon.XXXXXX")"
-cleanup() {
-  if [[ -n "${icon_work_dir:-}" ]]; then
-    rm -rf "${icon_work_dir}"
-  fi
-}
-trap cleanup EXIT
 iconset_dir="${icon_work_dir}/OpenComputerUse.iconset"
 mkdir -p "${iconset_dir}"
 "${iconset_build_script}" "${icon_master_png}" "${iconset_dir}"
@@ -402,5 +742,13 @@ PLIST
 
 plutil -lint "${contents_dir}/Info.plist" >/dev/null
 codesign_app_bundle "${app_root}"
+
+# arch_mode only selects which architectures are compiled into the single
+# executable above (see the arch_mode case block); there is exactly one
+# ${app_root} bundle regardless of arch_mode, so notarizing here already
+# covers the universal build in one pass.
+if [[ "${will_notarize}" -eq 1 ]]; then
+  notarize_app_bundle "${app_root}"
+fi
 
 echo "Built ${app_root} (${arch_mode}, ${configuration})"

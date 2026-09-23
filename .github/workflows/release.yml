@@ -118,7 +118,42 @@ jobs:
             echo "OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN=${keychain_path}"
           } >> "${GITHUB_ENV}"
 
+      - name: Prepare Open Computer Use notarization config
+        env:
+          APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          # Only the notarization mode goes into GITHUB_ENV. The secrets
+          # themselves are passed to the build step's env below, where the
+          # build script decodes the key into a 0600 temp file it removes on exit.
+          missing=""
+          present=0
+          for name in APPLE_NOTARY_API_KEY_P8_BASE64 APPLE_NOTARY_KEY_ID APPLE_NOTARY_ISSUER_ID; do
+            if [ -n "${!name}" ]; then
+              present=$((present + 1))
+            else
+              missing="${missing:+${missing}, }${name}"
+            fi
+          done
+
+          if [ "${present}" -eq 3 ]; then
+            echo "Notary credentials configured; the npm release app bundle must be notarized."
+            echo "OPEN_COMPUTER_USE_NOTARIZE=required" >> "${GITHUB_ENV}"
+          elif [ "${present}" -eq 0 ]; then
+            echo "::notice::No notary credentials configured; the npm release app bundle will not be notarized."
+            echo "OPEN_COMPUTER_USE_NOTARIZE=auto" >> "${GITHUB_ENV}"
+          else
+            echo "::error::Notary credentials are partially configured; missing secret(s): ${missing}"
+            exit 1
+          fi
+
       - name: Build npm release artifacts
+        env:
+          APPLE_NOTARY_API_KEY_P8_BASE64: ${{ secrets.APPLE_NOTARY_API_KEY_P8_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_DEVELOPER_TEAM_ID: ${{ secrets.APPLE_DEVELOPER_TEAM_ID }}
         run: npm run npm:pack
 
       - name: Upload npm release artifacts
