@@ -13,18 +13,24 @@ public enum DecisionModelError: Error, Equatable, LocalizedError {
     case responseTooLarge(limit: Int)
     case httpStatus(Int)
     case readout(String)
+    /// The loopback listener is not the llama-server that start-sidecar.sh recorded; nothing was sent to it.
+    case unverifiedSidecar(String)
 
     public var errorDescription: String? {
         switch self {
         case .malformedURL(let value): return "Decision model URL is malformed: \(value)"
         case .unsupportedScheme(let scheme): return "Decision model URL must use http, not \(scheme)"
-        case .nonLoopbackHost(let host): return "Decision model host must be 127.0.0.1 or [::1], not \(host)"
+        case .nonLoopbackHost(let host): return "Decision model host must be 127.0.0.1, not \(host)"
         case .transport(let message): return "Decision model request failed: \(message)"
         case .timeout: return "Decision model request timed out"
         case .redirectRefused: return "Decision model server attempted a redirect, which is refused"
         case .responseTooLarge(let limit): return "Decision model response exceeded \(limit) bytes"
         case .httpStatus(let status): return "Decision model server returned HTTP \(status)"
         case .readout(let message): return "Decision model readout is unusable: \(message)"
+        case .unverifiedSidecar(let reason):
+            return "Decision model listener is not the sidecar recorded by scripts/decision-model/start-sidecar.sh "
+                + "(\(reason)); no goal or screen text was sent. Start the sidecar with start-sidecar.sh, or unset "
+                + "\(DecisionModelEndpoint.environmentKey)."
         }
     }
 }
@@ -38,19 +44,19 @@ public struct DecisionModelEndpoint: Equatable, Sendable {
     /// baseURL + "/completion"
     public var completionURL: URL { URL(string: baseURL.absoluteString + "/completion")! }
 
-    /// Literal loopback hosts only. `localhost` is refused: it is resolved through the system resolver and may map
-    /// to `::1`, while llama-server binds IPv4 only. `URLComponents.host` returns IPv6 bracketed or not depending on
-    /// the Foundation version, so both spellings of `::1` are accepted.
+    /// The literal IPv4 loopback address only, because that is the only address start-sidecar.sh binds. `localhost`
+    /// is refused because the resolver may map it to `::1`. `[::1]` is refused because the IPv4 bind does not reserve
+    /// the IPv6 port, so any same-uid process could listen there and receive the goal and screen rows instead of the
+    /// sidecar.
     static func canonicalLoopbackHost(_ host: String) -> String? {
-        switch host {
-        case "127.0.0.1": return "127.0.0.1"
-        case "::1", "[::1]": return "[::1]"
-        default: return nil
-        }
+        host == "127.0.0.1" ? host : nil
     }
 
+    /// The port the sidecar must be listening on, for the ownership check before any request is sent.
+    public var port: Int { baseURL.port ?? 0 }
+
     /// nil when the key is absent or whitespace-only. Throws for anything that is not
-    /// http://{127.0.0.1 | [::1]}:<1-65535>[/] with no userinfo, query, fragment or other path.
+    /// http://127.0.0.1:<1-65535>[/] with no userinfo, query, fragment or other path.
     public static func fromEnvironment(_ environment: [String: String]) throws -> DecisionModelEndpoint? {
         guard let raw = environment[environmentKey] else { return nil }
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -126,9 +132,10 @@ public enum DecisionReadoutParser {
         let targetEntry = entries.dropFirst().last { entry in
             (entry["token"] as? String).map(targetPieces.contains) ?? false
         }
+        // Error texts never echo server-supplied tokens: they end up in the tool result the host LLM reads, and a
+        // squatting server could otherwise inject up to the response cap of arbitrary text there.
         guard let targetEntry else {
-            let token = entries.last?["token"] as? String ?? "<none>"
-            throw DecisionModelError.readout("unexpected token \(token.debugDescription) at target head")
+            throw DecisionModelError.readout("unexpected token at target head")
         }
         let target = try distribution(entry: targetEntry, labels: targetLabels, head: "target")
         return DecisionHeadReadout(operation: operation, target: target)
@@ -137,7 +144,7 @@ public enum DecisionReadoutParser {
     private static func distribution(entry: [String: Any], labels: [String], head: String) throws -> DecisionDistribution {
         let token = entry["token"] as? String ?? ""
         guard token.hasPrefix(" "), labels.contains(String(token.dropFirst())) else {
-            throw DecisionModelError.readout("unexpected token \(token.debugDescription) at \(head) head")
+            throw DecisionModelError.readout("unexpected token at \(head) head")
         }
         let chosenLabel = String(token.dropFirst())
         guard let topLogprobs = entry["top_logprobs"] as? [[String: Any]] else {

@@ -473,11 +473,14 @@ public final class ComputerUseService {
 
     /// Read-only advice from the local decision model. The endpoint and goal are validated before any AX read or
     /// network call; the snapshot goes through `refreshSnapshot`, so the returned element_index is resolvable later.
+    /// The listener is verified to be the recorded sidecar immediately before the first request, so no goal or screen
+    /// text is sent to a process that merely holds the port.
     public func decideNextAction(
         app query: String,
         goal: String,
         environment: [String: String],
-        transport: DecisionModelTransport = URLSessionDecisionModelTransport()
+        transport: DecisionModelTransport = URLSessionDecisionModelTransport(),
+        sidecarVerifier: DecisionSidecarVerifier = DecisionSidecarVerifier()
     ) throws -> ToolCallResult {
         let endpoint: DecisionModelEndpoint
         do {
@@ -498,6 +501,7 @@ public final class ComputerUseService {
         let renderedCompact = snapshot.renderedText(style: .compactActionable)
         let client = DecisionModelClient(endpoint: endpoint, transport: transport)
         do {
+            try sidecarVerifier.verify(port: endpoint.port)
             let advice = try DecisionAdvisor.runOffMainThread {
                 try DecisionAdvisor.advise(
                     goal: goal, appName: appName, renderedFull: renderedFull, renderedCompact: renderedCompact, client: client
