@@ -31,6 +31,6 @@ Real Feishu verification also found that even after focusing the input field, ba
 
 - `swift test`
 - `./scripts/run-tool-smoke-tests.sh`
-- Manual verification in the local fixture window: after focusing `fixture-input`, delivered `（ocu发的）👩🏽‍💻é𠀀` ("(sent by ocu)👩🏽‍💻é𠀀") via batched `CGEvent.keyboardSetUnicodeString`, and the exported fixture state showed the exact same string precisely.
-- Real verification against Feishu with the dev app: in the same process, clicked the input field first, then ran `type_text` to type `（ocu发的测试）👩🏽‍💻é𠀀` ("(test sent by ocu)👩🏽‍💻é𠀀"); the subsequent snapshot's actual draft child text fully contained the Chinese parentheses, ZWJ emoji, combining accents, and CJK extension characters intact; cleared the draft afterward with `Command+A` / `BackSpace`.
+- Manual verification in the local fixture window: after focusing `fixture-input`, delivered `（ocu发的）👩🏽‍💻é𠀀` ("(sent by ocu)👩🏽‍💻é𠀀") via batched `CGEvent.keyboardSetUnicodeString`, and the exported fixture state showed the exact same string precisely.
+- Real verification against Feishu with the dev app: in the same process, clicked the input field first, then ran `type_text` to type `（ocu发的测试）👩🏽‍💻é𠀀` ("(test sent by ocu)👩🏽‍💻é𠀀"); the subsequent snapshot's actual draft child text fully contained the Chinese parentheses, ZWJ emoji, combining accents, and CJK extension characters intact; cleared the draft afterward with `Command+A` / `BackSpace`.
 - Re-tested `type_text` over the real delivery path: when the input field wasn't focused, WebArea was no longer treated as an editable target; after first using OCU `click` to focus the text entry area, `type_text` + `press_key Return` successfully sent the full Chinese test message into the Feishu conversation.
