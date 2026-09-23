@@ -34,7 +34,3 @@ The official bundled `computer-use` requires that, before an action-type tool ca
 **Follow-up Files:**
 - `scripts/computer-use-cli/README.md`
 - `scripts/computer-use-cli/examples/textedit-overlay-seq.json`
-
-**Follow-up Files:**
-- `scripts/computer-use-cli/README.md`
-- `scripts/computer-use-cli/examples/textedit-overlay-seq.json`

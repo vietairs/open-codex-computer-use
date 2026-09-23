@@ -21,10 +21,10 @@
 - **[Visibility adjustment]**: Removed `private` from `SnapshotBuilder.buildFixtureSnapshot`, making it
   module-internal, so the test target can drive the renderer directly via the existing `@testable import`.
   This is the only production code change in this round.
-- **[Ordering assertion]**: Review overturned a claim from the first draft — that "feeding elements in
-  shuffled order would catch a missed sort" — does not hold: line text and indentation are determined
+- **[Ordering assertion]**: Review overturned a claim from the first draft: that feeding elements in
+  shuffled order would catch a missed sort. It does not hold: line text and indentation are determined
   solely by `element.index`, and offsets are always self-consistent with each other, so the row-by-row
-  prefix check passes under any emission order, since compact itself re-sorts ascending anyway. The
+  prefix check passes under any emission order; separately, compact itself re-sorts ascending anyway. The
   claim only actually holds once the offset is compared directly against its ascending position.
 - **[Mutation verification]**: Both mutations failed as expected — changing the recording point to
   `lines.count` (introducing an off-by-one); and removing the renderer's `.sorted(by:)`, which reported

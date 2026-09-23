@@ -25,7 +25,7 @@ docs/histories/
 
 ## What to Write
 
-- The user's request verbatim, or a condensed, desensitized version of it.
+- The user's request verbatim, or a condensed, redacted version of it.
 - The main code and documentation changes made this round.
 - The design motivation, and why it was done this way.
 - The most critical affected files.

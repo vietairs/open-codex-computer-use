@@ -22,7 +22,7 @@
   - Confirmed `full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window`.
   - Confirmed short Lark message summaries render as `container` parent rows.
   - Confirmed message rows with avatars/images render as `container -> text + image`.
-  - Confirmed `text entry area`, `SideEdgeView`, and focused `HTML content messenger-chat, URL: ...` are still present.
+  - Confirmed `text entry area`, `SideEdgeView`, and focused `HTML 内容 messenger-chat, URL: ...` (`内容` = "content") are still present.
   - Confirmed no `Scroll To Visible` or `selectable` noise in the sampled tree.
 - Added `testAccessibilityRendererRendersSummariesWithImagesAsChildren` to cover the summary/image split decision.
 

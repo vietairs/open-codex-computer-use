@@ -34,8 +34,8 @@ When launched with the MCP Inspector over `stdio`, two kinds of failures showed 
 
 Launching on this machine via the following methods, respectively:
 
-- Node's `child_process.spawn(..., stdio: ['pipe', 'pipe', 'pipe'])`
-- Python's `subprocess.Popen(..., stdin=PIPE, stdout=PIPE, stderr=PIPE)`
+- `node`'s `child_process.spawn(..., stdio: ['pipe', 'pipe', 'pipe'])`
+- `python3`'s `subprocess.Popen(..., stdin=PIPE, stdout=PIPE, stderr=PIPE)`
 - The Python MCP SDK's `stdio_client(...)`
 
 All reliably reproduce:

@@ -36,6 +36,7 @@ If a code or process change makes a document stale, update it in the same round 
 - Prefer small, clear abstractions that are friendly to both the repository and Agents.
 - Replies default to the language the user's question used; if the user switches language, replies switch too.
 - If the user's input this round is in English, reply directly in English.
+- Write all repository documents in English — including `docs/histories/`, execution plans, and release records — regardless of the language used in conversation. `README.zh-CN.md` is the one deliberate exception.
 - Sync with the latest remote code before running `git push`.
 - Keep prompts, rules, and architectural constraints version-controlled in the repository as much as possible.
 - Don't rely on chat context alone for complex tasks — write an execution plan.

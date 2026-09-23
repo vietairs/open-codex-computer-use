@@ -13,11 +13,11 @@
 
 **Key Actions:**
 - **Translated 251 tracked Markdown files** in place, keeping headings, tables, code fences, link targets, commands and version strings unchanged.
-- **Switched the doc-language rules to English**: where a guide or template told contributors to write histories, plans or notes in Chinese, it now says English. The rule that assistant replies mirror the user's language is unchanged.
+- **Made the English-only doc rule explicit**: no written rule required Chinese before this change; the convention came only from the Chinese templates and existing notes. `AGENTS.md` now states that all repository documents are written in English, with `README.zh-CN.md` as the one exception. The rule that assistant replies mirror the user's language is unchanged.
 - **Kept deliberate Chinese**: `README.zh-CN.md` (the Chinese translation of the README), the README language-switch badge, and literal on-screen UI strings or test input quoted from real apps (for example Feishu (飞书) menu labels), each glossed in English.
 
 ### 🧠 Design Intent (Why)
-The fork's maintainer works in English, and `AGENTS.md`, the entry point every agent reads first, was Chinese. A mechanical check confirmed that every translated file keeps the original's heading count, code-fence count and link targets, and that each of the 10 lines still containing CJK is intentional literal data.
+The fork's maintainer works in English, and `AGENTS.md`, the entry point every agent reads first, was Chinese. A mechanical check confirmed that every translated file keeps the original's heading count, code-fence count and link targets, and that every remaining line containing CJK (28 lines in 13 files) is intentional literal data.
 
 Trade-off accepted: any of these files that upstream later edits will conflict on the next upstream sync.
 

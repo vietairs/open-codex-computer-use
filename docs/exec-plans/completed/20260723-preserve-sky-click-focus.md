@@ -7,7 +7,7 @@ Fix `click_method=sky_click` briefly deactivating the real foreground applicatio
 ## Scope
 
 - In scope:
-  - Collapse the SkyLight activation session from "defocus foreground + focus target + bidirectional restore" down to changing only the target application's compositing state.
+  - Collapse the SkyLight activation session from "defocus foreground + focus target + bidirectional restore" down to changing only the target application's synthetic-active state.
   - Add foreground AppKit active, key-window, and first-responder observation to the real-machine Chrome regression.
   - Disable activate/raise recovery for `sky_click`'s action-result snapshot refresh.
   - Sync architecture, reliability, SkyLight reference material, and history.

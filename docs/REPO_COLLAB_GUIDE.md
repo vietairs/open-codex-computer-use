@@ -6,7 +6,7 @@ This document defines the default collaboration approach for an Agent-first repo
 
 - Prefer simple, clear, observable solutions; do not pile up hard-to-maintain complexity.
 - Organize the repository around Agent readability and executability; important information that lives only in chat history or in someone's head is effectively nonexistent.
-- Keep code, documentation, tests, configuration, and release records updated from the same source as much as possible.
+- Keep code, documentation, tests, configuration, and release records updated together, in the same change, as much as possible.
 - If an Agent repeatedly fails on the same class of problem, prioritize fixing the environment, scaffolding, or conventions; don't treat "try the prompt a few more times" as the primary remedy.
 - Whenever fixing a bug, also check whether tests and documentation should be strengthened, so the same kind of issue only needs fixing once.
 
