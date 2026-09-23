@@ -8916,6 +8916,6 @@
     ],
     "content": " C\nTarget: C"
   },
-  "responseShapeNote": "completion_probabilities can include a trailing forced-stop entry (empty token/bytes) after the grammar's root production is fully matched; locate the operation-head entry at index 0 and the target-head entry as the LAST entry whose token is a member of the page's target-label pieces, not by raw array index -1.",
+  "responseShapeNote": "completion_probabilities can include a trailing forced-stop entry (empty token/bytes) after the grammar's root production is fully matched; locate the operation-head entry at index 0 and the target-head entry as the LAST entry after index 0 whose token is a member of the page's target-label pieces, not by raw array index -1. The entries between the two heads spell the grammar literal \"\\nTarget:\" and only empty-token entries follow the target head.",
   "p50Ms": 85.88295799999997
 }

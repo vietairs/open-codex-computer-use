@@ -11,7 +11,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const manifestPath = path.join(scriptDir, "model-manifest.json");
@@ -217,6 +217,43 @@ function buildGrammar(operationLabels, targetLabels) {
   return `root ::= op "\\nTarget:" tgt\nop ::= ${opAlt}\ntgt ::= ${tgtAlt}\n`;
 }
 
+export const RESPONSE_SHAPE_NOTE =
+  "completion_probabilities can include a trailing forced-stop entry (empty token/bytes) after the grammar's root production is fully matched; locate the operation-head entry at index 0 and the target-head entry as the LAST entry after index 0 whose token is a member of the page's target-label pieces, not by raw array index -1. The entries between the two heads spell the grammar literal \"\\nTarget:\" and only empty-token entries follow the target head.";
+
+// Finds the target-head entry. Index 0 is the operation head and is never a
+// candidate: operation labels A-G overlap target labels A-E, so searching down
+// to index 0 would validate the target assertions against the operation
+// distribution whenever the target answer is split across tokens. This is
+// stricter than the Swift parser (DecisionModelClient.swift searches only
+// after index 0 and throws otherwise): it also requires the tokens between the
+// heads to spell the grammar's "\nTarget:" literal and only empty-token
+// forced-stop entries after the target head. Returns { entry, index } or
+// { error }.
+export function locateTargetHead(probs, targetPieces) {
+  if (!Array.isArray(probs) || probs.length < 2) {
+    return { error: `completion_probabilities has ${Array.isArray(probs) ? probs.length : "no"} entries, expected >= 2` };
+  }
+  const tokens = probs.map((entry) => entry?.token);
+  let index = -1;
+  for (let i = probs.length - 1; i >= 1; i -= 1) {
+    if (targetPieces.includes(tokens[i])) {
+      index = i;
+      break;
+    }
+  }
+  if (index < 0) {
+    return { error: `no entry after the operation head has a target-label token (tokens: ${JSON.stringify(tokens)})` };
+  }
+  const literal = tokens.slice(1, index).map((token) => (typeof token === "string" ? token : "")).join("");
+  if (literal !== "\nTarget:") {
+    return { error: `the tokens between the operation head and the target head spell ${JSON.stringify(literal)}, expected "\\nTarget:" (tokens: ${JSON.stringify(tokens)})` };
+  }
+  if (tokens.slice(index + 1).some((token) => token !== "")) {
+    return { error: `non-empty tokens follow the target head (tokens: ${JSON.stringify(tokens)})` };
+  }
+  return { entry: probs[index], index };
+}
+
 function renormalizeOverLabels(topLogprobs, labelPieces) {
   const relevant = topLogprobs.filter((entry) => labelPieces.includes(entry.token));
   const maxLogprob = Math.max(...relevant.map((entry) => entry.logprob));
@@ -275,21 +312,14 @@ async function runSyntheticCompletion(base, framing, targetPageLabels) {
   // The grammar's literal "\nTarget:" span generates as several intermediate
   // steps ("\n", "Target", ":"), and once the grammar's root production is
   // fully matched, this build samples one further forced-stop step (an
-  // empty-text entry) before it stops generating. So the target answer is
-  // not literally the last array entry; it is the last entry whose token is
-  // one of this page's target-label pieces. Verified empirically against the
-  // pinned build: tokens_predicted was consistently opHead + 3 literal
-  // tokens + targetHead + 1 trailing stop entry for this grammar shape.
-  let tgtEntry = null;
-  for (let i = probs.length - 1; i >= 0; i -= 1) {
-    if (tgtPieces.includes(probs[i].token)) {
-      tgtEntry = probs[i];
-      break;
-    }
+  // empty-text entry) before it stops generating. Verified empirically against
+  // the pinned build: opHead + 3 literal tokens + targetHead + 1 trailing stop
+  // entry for this grammar shape. See locateTargetHead for the exact rule.
+  const located = locateTargetHead(probs, tgtPieces);
+  if (!check(located.error === undefined, `/completion target head: ${located.error}`)) {
+    return null;
   }
-  if (!check(tgtEntry !== null, `no entry in completion_probabilities has a token that is a target-page label piece (checked ${probs.length} entries, tokens: ${JSON.stringify(probs.map((e) => e.token))})`)) {
-    tgtEntry = probs[probs.length - 1];
-  }
+  const tgtEntry = located.entry;
 
   const opTopTokens = new Set((opEntry.top_logprobs ?? []).map((e) => e.token));
   const tgtTopTokens = new Set((tgtEntry.top_logprobs ?? []).map((e) => e.token));
@@ -412,8 +442,7 @@ async function main() {
       targetLabels: targetPageLabels,
       request: completionResult.requestBody,
       response: completionResult.response,
-      responseShapeNote:
-        "completion_probabilities can include a trailing forced-stop entry (empty token/bytes) after the grammar's root production is fully matched; locate the operation-head entry at index 0 and the target-head entry as the LAST entry whose token is a member of the page's target-label pieces, not by raw array index -1.",
+      responseShapeNote: RESPONSE_SHAPE_NOTE,
       p50Ms,
     };
     mkdirSync(path.dirname(pinPath), { recursive: true });
@@ -422,7 +451,10 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  process.stderr.write(`check-readout.mjs: unexpected error: ${error.stack ?? error}\n`);
-  process.exit(1);
-});
+// Run only as a script, so tests can import locateTargetHead without probing a server.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    process.stderr.write(`check-readout.mjs: unexpected error: ${error.stack ?? error}\n`);
+    process.exit(1);
+  });
+}
