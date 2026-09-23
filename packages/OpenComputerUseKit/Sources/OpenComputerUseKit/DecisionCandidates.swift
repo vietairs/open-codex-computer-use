@@ -78,8 +78,10 @@ public enum DecisionCandidateBuilder {
         "scroll bar", "value indicator", "increment arrow", "decrement arrow", "increment page", "decrement page",
     ]
     private static let windowChromePhrases = ["close button", "minimize button", "zoom button", "full screen button"]
+    /// Goal words that keep window chrome: the control names themselves, plus the window or display it acts on
+    /// ("get rid of this window", "fill the entire display").
     private static let windowChromeWords: Set<String> = [
-        "close", "minimize", "minimise", "zoom", "fullscreen", "full", "screen",
+        "close", "minimize", "minimise", "zoom", "fullscreen", "full", "screen", "window", "windows", "display",
     ]
 
     // MARK: - Parsing

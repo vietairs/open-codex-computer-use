@@ -253,6 +253,22 @@ final class DecisionCandidatesTests: XCTestCase {
         XCTAssertNil(closing.dropped[5])
     }
 
+    func testPruneRuleWindowChromeKeepsChromeWhenGoalIsAboutTheWindowOrDisplay() {
+        let rows = ["5 close button", "6 full screen button Secondary Actions: zoom the window"]
+
+        let dismissWindow = build(goal: "get rid of this document window", compactRows: rows)
+        XCTAssertNil(dismissWindow.dropped[5], "a goal about the window itself keeps its chrome buttons")
+        XCTAssertNil(dismissWindow.dropped[6])
+
+        let fillDisplay = build(goal: "make the app take up the entire display", compactRows: rows)
+        XCTAssertNil(fillDisplay.dropped[5], "a goal about the display keeps the window-sizing chrome")
+        XCTAssertNil(fillDisplay.dropped[6])
+
+        let unrelated = build(goal: "save the report", compactRows: rows)
+        XCTAssertEqual(unrelated.dropped[5], .windowChrome)
+        XCTAssertEqual(unrelated.dropped[6], .windowChrome)
+    }
+
     // MARK: - duplicate_close rule
 
     func testPruneRuleDuplicateCloseDropsRepeatedCloseRowsUnlessGoalSaysClose() {
