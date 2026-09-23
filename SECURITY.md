@@ -4,7 +4,7 @@
 
 This is a fork (`vietairs/open-codex-computer-use`) of `iFurySt/open-codex-computer-use`.
 Security fixes are provided for the latest release on this fork's `main` branch,
-currently `0.3.6-vietairs.1`. Older tags are not maintained.
+currently `0.3.8-vietairs.1`. Older tags are not maintained.
 
 ## Reporting a Vulnerability
 
