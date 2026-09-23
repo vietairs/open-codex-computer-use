@@ -39,6 +39,18 @@ public func shouldUseMacOSAppAgentProxy(
     }
 }
 
+/// True when `arguments` is a proxied CLI command whose whole configuration comes from the environment dictionary
+/// passed to `runOpenComputerUseCall`: today only a single `call decide_next_action`. It is the CLI counterpart of
+/// `StdioMCPServer.readsOnlyCallEnvironment(line:)`; such a call blocks on the model for seconds, so the app agent runs
+/// it without taking its process-wide environment-override lock. A `call --calls` sequence keeps the lock even when it
+/// contains decide_next_action, because its other tools may read the process environment.
+public func openComputerUseCLIReadsOnlyCallEnvironment(arguments: [String]) -> Bool {
+    guard case let .call(.single(toolName, _, _))? = try? parseOpenComputerUseCLI(arguments: arguments) else {
+        return false
+    }
+    return toolName == ToolDefinitions.decideNextAction.name
+}
+
 public struct OpenComputerUseCLIError: LocalizedError, Equatable {
     public let message: String
     public let helpCommand: String?

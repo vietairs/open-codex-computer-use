@@ -1,6 +1,6 @@
 import Foundation
 
-let computerUseServerInstructions = """
+let baseComputerUseServerInstructions = """
 Computer Use tools let you interact with macOS apps by performing UI actions.
 
 Some apps might have a separate dedicated plugin or skill. You may want to use that plugin or skill instead of Computer Use when it seems like a good fit for the task. While the separate plugin or skill may not expose every feature in the app, if the plugin can perform the task with its available features, prefer it. If the needed capability is not exposed there, use Computer Use may be appropriate for the missing interaction.
@@ -17,11 +17,29 @@ Avoid falling back to AppleScript during a computer use session. Prefer Computer
 Ask the user before taking destructive or externally visible actions such as sending, deleting, or purchasing. If helpful, you can ask follow-up questions before taking action to make sure you’re understanding the user’s request correctly.
 """
 
+/// The base instructions under their original name, for existing callers that compare against the unmodified text.
+let computerUseServerInstructions = baseComputerUseServerInstructions
+
+/// The base instructions byte-for-byte when the advisory tool is not listed; otherwise the base plus the cascade
+/// guide, so the host only ever sees guidance for a tool it can actually call.
+func computerUseServerInstructions(environment: [String: String]) -> String {
+    guard ToolDefinitions.listed(environment: environment).count > ToolDefinitions.all.count else {
+        return baseComputerUseServerInstructions
+    }
+    return baseComputerUseServerInstructions + "\n\n" + DecisionAdvisor.cascadeGuide
+}
+
 public final class StdioMCPServer {
     private let dispatcher: ComputerUseToolDispatcher
+    /// Read per request: in the app agent each MCP line runs under the calling host's environment overrides.
+    private let environment: @Sendable () -> [String: String]
 
-    public init(service: ComputerUseService = ComputerUseService()) {
-        self.dispatcher = ComputerUseToolDispatcher(service: service)
+    public init(
+        service: ComputerUseService = ComputerUseService(),
+        environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
+    ) {
+        self.environment = environment
+        self.dispatcher = ComputerUseToolDispatcher(service: service, environment: environment)
     }
 
     public func run() throws {
@@ -36,7 +54,22 @@ public final class StdioMCPServer {
         }
     }
 
-    public func handle(line: String) -> String? {
+    /// True when `line` is a request whose whole configuration comes from the environment dictionary passed to
+    /// `handle(line:environment:)`: today only `tools/call` for `decide_next_action`. Such a request blocks on the
+    /// model for seconds, so the app agent runs it without taking its process-wide environment-override lock.
+    public static func readsOnlyCallEnvironment(line: String) -> Bool {
+        guard let payload = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              payload["method"] as? String == "tools/call",
+              let params = payload["params"] as? [String: Any]
+        else { return false }
+        return params["name"] as? String == ToolDefinitions.decideNextAction.name
+    }
+
+    /// `environment`, when given, is the calling host's per-call environment: it decides whether the advisory tool is
+    /// listed, whether `initialize` carries the cascade guide, and where `decide_next_action` sends its request. When
+    /// nil, the injected environment closure is read instead.
+    public func handle(line: String, environment callEnvironment: [String: String]? = nil) -> String? {
+        let environment = { callEnvironment ?? self.environment() }
         do {
             guard let payload = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
                 return try encodeJSONRPCError(id: nil, code: -32700, message: "Invalid JSON-RPC payload")
@@ -61,7 +94,7 @@ public final class StdioMCPServer {
                                 "listChanged": false,
                             ],
                         ],
-                        "instructions": computerUseServerInstructions,
+                        "instructions": computerUseServerInstructions(environment: environment()),
                     ]
                 )
             case "notifications/initialized":
@@ -80,13 +113,13 @@ public final class StdioMCPServer {
                 return try encodeJSONRPCResult(
                     id: id,
                     result: [
-                        "tools": ToolDefinitions.all.map(\.asDictionary),
+                        "tools": ToolDefinitions.listed(environment: environment()).map(\.asDictionary),
                     ]
                 )
             case "tools/call":
                 let name = params["name"] as? String ?? ""
                 let arguments = params["arguments"] as? [String: Any] ?? [:]
-                let result = try dispatcher.callTool(name: name, arguments: arguments)
+                let result = try dispatcher.callTool(name: name, arguments: arguments, environment: callEnvironment)
                 return try encodeJSONRPCResult(
                     id: id,
                     result: result.asDictionary

@@ -348,6 +348,7 @@ enum OpenComputerUseSmokeSuite {
     private static func smokeServerEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"] = "1"
+        environment.removeValue(forKey: "OPEN_COMPUTER_USE_DECISION_MODEL_URL")
         return environment
     }
 

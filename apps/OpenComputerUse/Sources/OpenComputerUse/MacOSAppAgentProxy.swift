@@ -405,8 +405,17 @@ private final class AppAgentConnection: @unchecked Sendable {
             case "mcp":
                 let line = request["line"] as? String ?? ""
                 let environment = sanitizedPeerEnvironment(request["environment"] as? [String: String] ?? [:])
-                let response = AppAgentEnvironment.withOverrides(environment) {
-                    server.handle(line: line)
+                // The per-call environment is also passed explicitly, so settings such as the decision-model URL come
+                // from this host alone, never from another host's overrides that are set on the shared process
+                // environment at the same moment. decide_next_action reads nothing else from the environment and
+                // blocks on the model for seconds, so it skips the process-wide override lock entirely.
+                let response: String?
+                if StdioMCPServer.readsOnlyCallEnvironment(line: line) {
+                    response = server.handle(line: line, environment: environment)
+                } else {
+                    response = AppAgentEnvironment.withOverrides(environment) {
+                        server.handle(line: line, environment: environment)
+                    }
                 }
                 if let response {
                     return ["response": response]
@@ -415,8 +424,15 @@ private final class AppAgentConnection: @unchecked Sendable {
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
                 let environment = sanitizedPeerEnvironment(request["environment"] as? [String: String] ?? [:])
-                let response = AppAgentEnvironment.withOverrides(environment) {
-                    runCLI(arguments: arguments)
+                // Same rule as the "mcp" kind: runCLI hands the per-call environment to the call explicitly, and a
+                // single `call decide_next_action` reads nothing else, so its model round trip skips the lock.
+                let response: CLIProxyResponse
+                if openComputerUseCLIReadsOnlyCallEnvironment(arguments: arguments) {
+                    response = runCLI(arguments: arguments, environment: environment)
+                } else {
+                    response = AppAgentEnvironment.withOverrides(environment) {
+                        runCLI(arguments: arguments, environment: environment)
+                    }
                 }
                 return [
                     "stdout": response.stdout,
@@ -438,7 +454,7 @@ private final class AppAgentConnection: @unchecked Sendable {
         MacSessionLockPolicy.sanitizePeerEnvironment(environment)
     }
 
-    private func runCLI(arguments: [String]) -> CLIProxyResponse {
+    private func runCLI(arguments: [String], environment: [String: String]) -> CLIProxyResponse {
         do {
             let command = try parseOpenComputerUseCLI(arguments: arguments)
 
@@ -471,7 +487,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return CLIProxyResponse(stdout: text + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .call(invocation):
-                let output = try runOpenComputerUseCall(invocation)
+                let output = try runOpenComputerUseCall(invocation, environment: { environment })
                 return CLIProxyResponse(
                     stdout: try output.jsonText() + "\n",
                     stderr: "",

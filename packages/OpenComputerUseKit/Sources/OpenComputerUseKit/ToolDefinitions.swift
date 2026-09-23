@@ -156,6 +156,29 @@ public enum ToolDefinitions {
     ]
 }
 
+// Declared in this file so the private schema/annotation helpers below are reachable. `all` stays the fixed base set;
+// the advisory tool is appended only by `listed(environment:)`.
+public extension ToolDefinitions {
+    static let decideNextAction = ToolDefinition(
+        name: "decide_next_action",
+        description: "Experimental, read-only advisor. A local decision model reads the app's current state and proposes the next operation and target for your sub-goal. Returns operation, element_index, margin and the full operation and target distributions. It never performs an action; you decide whether to act. Available only when OPEN_COMPUTER_USE_DECISION_MODEL_URL is set. This tool is part of plugin `Computer Use`.",
+        annotations: readOnlyAnnotations(),
+        inputSchema: objectSchema(
+            properties: [
+                "app": stringProperty(description: "App name or bundle identifier"),
+                "goal": stringProperty(description: "Your current sub-goal in plain words. Never paste screen text here."),
+            ],
+            required: ["app", "goal"]
+        )
+    )
+
+    /// all + [decideNextAction] iff DecisionModelEndpoint.fromEnvironment(environment) returns non-nil without throwing.
+    static func listed(environment: [String: String]) -> [ToolDefinition] {
+        guard (try? DecisionModelEndpoint.fromEnvironment(environment)) != nil else { return all }
+        return all + [decideNextAction]
+    }
+}
+
 private func objectSchema(properties: [String: Any], required: [String]) -> [String: Any] {
     var schema: [String: Any] = [
         "type": "object",

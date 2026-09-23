@@ -14,6 +14,8 @@ The macOS runtime requires macOS 14.0 or later. Windows and Linux use their own 
 It supports the same core tool surface across macOS, Linux, and Windows:
 `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`,
 `drag`, `type_text`, `press_key`, and `set_value`.
+On macOS an optional, experimental `decide_next_action` advisory tool is also available when a local decision model
+is configured; see [references/decision-model.md](references/decision-model.md).
 
 ## Core Workflow
 
@@ -81,3 +83,4 @@ Read [references/usage.md](references/usage.md) for JSON config examples, direct
 - [references/installation.md](references/installation.md): one-time CLI install, agent MCP install commands, and macOS permissions.
 - [references/usage.md](references/usage.md): MCP config, direct CLI calls, sequencing, and platform behavior.
 - [references/troubleshooting.md](references/troubleshooting.md): permission, desktop-session, app discovery, and action failures.
+- [references/decision-model.md](references/decision-model.md): the optional, experimental macOS `decide_next_action` advisory tool, its setup, cascade guide, and measured quality.

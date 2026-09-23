@@ -39,13 +39,24 @@ private func normalizedElementIndexNumber(_ value: Double) -> String? {
 public final class ComputerUseToolDispatcher {
     private let service: ComputerUseService
     private let macSessionGuard: MacSessionGuard
+    private let environment: @Sendable () -> [String: String]
 
-    public init(service: ComputerUseService = ComputerUseService(), guard macSessionGuard: MacSessionGuard = MacSessionGuard()) {
+    public init(
+        service: ComputerUseService = ComputerUseService(),
+        guard macSessionGuard: MacSessionGuard = MacSessionGuard(),
+        environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
+    ) {
         self.service = service
         self.macSessionGuard = macSessionGuard
+        self.environment = environment
     }
 
-    public func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
+    /// `environment`, when given, is the calling host's own per-call environment and replaces the injected closure
+    /// for this call. The app agent passes it so a host's configuration is never read back from the shared process
+    /// environment, where another host's overrides may be set at the same moment.
+    public func callTool(
+        name: String, arguments: [String: Any], environment callEnvironment: [String: String]? = nil
+    ) throws -> ToolCallResult {
         // Activity recording MUST NOT occur before this line — record only at the MCP layer (MCPServer/runtime) after the guard passes.
         try macSessionGuard.requireUnlocked(for: name)
         switch name {
@@ -60,6 +71,12 @@ public final class ComputerUseToolDispatcher {
                     maxDepth: try optionalPositiveInt("max_tree_depth", in: arguments)
                 ),
                 compact: try optionalBool("compact", in: arguments) ?? false
+            )
+        case "decide_next_action":
+            return try service.decideNextAction(
+                app: requireString("app", in: arguments),
+                goal: requireString("goal", in: arguments),
+                environment: callEnvironment ?? environment()
             )
         case "click":
             return try service.click(
@@ -113,9 +130,11 @@ public final class ComputerUseToolDispatcher {
         }
     }
 
-    public func callToolAsResult(name: String, arguments: [String: Any]) -> ToolCallResult {
+    public func callToolAsResult(
+        name: String, arguments: [String: Any], environment callEnvironment: [String: String]? = nil
+    ) -> ToolCallResult {
         do {
-            return try callTool(name: name, arguments: arguments)
+            return try callTool(name: name, arguments: arguments, environment: callEnvironment)
         } catch let error as ComputerUseError {
             return ToolCallResult.text(
                 error.errorDescription ?? String(describing: error),
@@ -305,9 +324,10 @@ public func runOpenComputerUseCall(
     _ invocation: OpenComputerUseCallInvocation,
     service: ComputerUseService = ComputerUseService(),
     guard macSessionGuard: MacSessionGuard = MacSessionGuard(),
-    sleepHandler: OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) }
+    sleepHandler: OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
+    environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
 ) throws -> OpenComputerUseCallOutput {
-    let dispatcher = ComputerUseToolDispatcher(service: service, guard: macSessionGuard)
+    let dispatcher = ComputerUseToolDispatcher(service: service, guard: macSessionGuard, environment: environment)
 
     switch invocation {
     case let .single(toolName, argumentsJSON, argumentsFile):

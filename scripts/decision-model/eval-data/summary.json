@@ -1,0 +1,149 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-23T01:43:53.194Z",
+  "model": {
+    "key": "qwen3.5-4b-q4km",
+    "sha256": "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
+  },
+  "llamaCpp": {
+    "version": "b10964-b29c606e2"
+  },
+  "hardware": {
+    "chip": "Apple M4 Max",
+    "memoryGB": 48
+  },
+  "dataset": {
+    "n": 254,
+    "fixture": 27,
+    "real": 227,
+    "bySplit": {
+      "test": 79,
+      "dev": 175
+    },
+    "snapshotsBySplit": {
+      "test": 7,
+      "dev": 16
+    },
+    "byOperation": {
+      "click": 148,
+      "set_value": 28,
+      "scroll": 22,
+      "press_key": 24,
+      "type_text": 7,
+      "wait": 3,
+      "done": 22
+    }
+  },
+  "metrics": {
+    "all": {
+      "n": 254,
+      "top1": 0.4843,
+      "opAccuracy": 0.6772,
+      "targetAccuracy": 0.4899,
+      "prunedTargetRate": 0.1212,
+      "prunedByCause": {
+        "not_actionable": 17,
+        "duplicate_close": 1,
+        "overflow": 6
+      },
+      "auroc": 0.7775,
+      "p50Ms": 584,
+      "p95Ms": 1107,
+      "errors": 0
+    },
+    "dev": {
+      "n": 175,
+      "top1": 0.5029,
+      "opAccuracy": 0.6857,
+      "targetAccuracy": 0.5299,
+      "prunedTargetRate": 0.1343,
+      "prunedByCause": {
+        "overflow": 6,
+        "not_actionable": 12
+      },
+      "auroc": 0.7585,
+      "p50Ms": 608,
+      "p95Ms": 1140,
+      "errors": 0
+    },
+    "test": {
+      "n": 79,
+      "top1": 0.443,
+      "opAccuracy": 0.6582,
+      "targetAccuracy": 0.4063,
+      "prunedTargetRate": 0.0938,
+      "prunedByCause": {
+        "not_actionable": 5,
+        "duplicate_close": 1
+      },
+      "auroc": 0.8286,
+      "p50Ms": 509,
+      "p95Ms": 913,
+      "errors": 0
+    }
+  },
+  "tau": {
+    "value": 0.72,
+    "devPrecision": 0.9,
+    "devCoverage": 0.1714,
+    "testPrecision": 0.9286,
+    "testCoverage": 0.1772
+  },
+  "gates": [
+    {
+      "name": "top1",
+      "threshold": 0.8,
+      "cmp": ">=",
+      "value": 0.443,
+      "split": "test",
+      "pass": false
+    },
+    {
+      "name": "auroc",
+      "threshold": 0.7,
+      "cmp": ">=",
+      "value": 0.8286,
+      "split": "test",
+      "pass": true
+    },
+    {
+      "name": "prunedTargetRate",
+      "threshold": 0.05,
+      "cmp": "<=",
+      "value": 0.0938,
+      "split": "test",
+      "pass": false
+    },
+    {
+      "name": "p50Ms",
+      "threshold": 1500,
+      "cmp": "<",
+      "value": 509,
+      "split": "test",
+      "pass": true
+    }
+  ],
+  "tuningRounds": [
+    {
+      "round": 0,
+      "note": "baseline",
+      "devTop1": 0.4971,
+      "devPrunedTargetRate": 0.1493
+    },
+    {
+      "round": 1,
+      "note": "window_chrome keeps chrome when the goal names the window or display",
+      "devTop1": 0.5029,
+      "devPrunedTargetRate": 0.1343
+    }
+  ],
+  "notes": [
+    "p50/p95 latency is an optimistic bound (Apple M4 Max, 48 GB); the p50 gate is specified for a 16 GB M-series machine.",
+    "p50/p95 are the advisor latency_ms of each item: candidate pruning plus the model round trip. They exclude the accessibility refresh and rendering that the live decide_next_action call performs first (the cost of a get_app_state), and the MCP and app-agent hops, so a live call takes longer.",
+    "llama-server timings over 254 prefill requests (of 257): prompt_n p50 624 / p95 1162 tokens, prompt_ms p50 512.5 / p95 1033.07; cache_prompt reuses shared prefixes between consecutive items.",
+    "P3 step-count gate not measured: it needs agent-in-the-loop A/B runs.",
+    "Gates are judged on the test split; tau was selected on the dev split only. Pruning tuning rounds 0, 1 were compared on their dev metrics, but they ran over --split all, so their reports also printed test aggregates.",
+    "Test metrics come from 79 items on only 7 screens (the split is by snapshot); items from one screen are correlated, so the test AUROC and the test precision at tau are weaker evidence than the item count suggests.",
+    "tau selection: smallest dev margin with precision >= 0.90 and coverage >= 0.10 (selected 0.7117), rounded up to 2 decimals; 1.0 means never auto-follow."
+  ]
+}
