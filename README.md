@@ -51,19 +51,12 @@ For unattended agents (Claude Code, Codex) that must keep working while the scre
 
 ## Quick Start
 
-> [!IMPORTANT]
-> `@vietairs/open-computer-use` is **not published to npm yet**, so the command
-> below will fail until the first scoped release is pushed. Until then, build
-> from source: clone this repository and run `make app` (macOS) or the matching
-> `scripts/build-open-computer-use-*.sh` for Linux/Windows.
-
-Once the scoped package is published:
-
 ```bash
 npm i -g @vietairs/open-computer-use
 ```
 
-That package will also expose `ocu` as the short CLI alias.
+The package also exposes `ocu` as the short CLI alias. To update later, run
+`npm i -g @vietairs/open-computer-use@latest`.
 
 > [!IMPORTANT]
 > The macOS runtime requires macOS 14.0 or later.

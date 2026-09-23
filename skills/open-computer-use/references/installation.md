@@ -16,9 +16,7 @@ On macOS versions earlier than 14.0, npm installation may succeed but the bundle
 
 ## Install The CLI
 
-Use npm. Note that `@vietairs/open-computer-use` is not published yet, so until
-the first scoped release is pushed, build from source instead (`make app` on
-macOS, or the matching `scripts/build-open-computer-use-*.sh`):
+Use npm:
 
 ```sh
 npm install -g @vietairs/open-computer-use
@@ -37,7 +35,7 @@ Supported npm packages expose `ocu` as the short alias. If it is unavailable, us
 If the package is already installed and the user asks to update it:
 
 ```sh
-npm update -g @vietairs/open-computer-use
+npm install -g @vietairs/open-computer-use@latest
 ```
 
 ## macOS Permissions
