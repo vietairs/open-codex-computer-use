@@ -35,7 +35,7 @@ public enum DecisionAdvisorError: Error, Equatable, LocalizedError {
 public enum DecisionAdvisor {
     /// Smallest margin at which the offline eval measured >= 90% precision; 1.0 means "never auto-follow".
     /// Set from scripts/decision-model/eval-data/summary.json. Start value here: 1.0.
-    public static let recommendedMinMargin: Double = 1.0
+    public static let recommendedMinMargin: Double = 0.72
     public static let overallDeadline: TimeInterval = 12
     /// One-line reminder embedded in every result.
     public static let resultNote: String =
