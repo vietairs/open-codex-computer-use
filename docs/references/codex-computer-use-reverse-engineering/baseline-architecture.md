@@ -1,23 +1,23 @@
 # Baseline Architecture
 
-## 已观察事实
+## Observed Facts
 
-### 1. 组件拆分
+### 1. Component Split
 
-当前官方 bundle 至少包含两层可执行组件：
+The current official bundle contains at least two layers of executable components:
 
 - `Codex Computer Use.app`
-  - 可执行文件：`SkyComputerUseService`
-  - bundle identifier：`com.openai.sky.CUAService`
+  - Executable: `SkyComputerUseService`
+  - Bundle identifier: `com.openai.sky.CUAService`
 - `Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app`
-  - 可执行文件：`SkyComputerUseClient`
-  - bundle identifier：`com.openai.sky.CUAService.cli`
+  - Executable: `SkyComputerUseClient`
+  - Bundle identifier: `com.openai.sky.CUAService.cli`
 
-这说明官方实现不是单一二进制，而是 service app 和 client app 分层。
+This indicates the official implementation isn't a single binary, but a service app and a client app layered separately.
 
-### 2. Codex 当前如何接入
+### 2. How Codex Currently Connects
 
-本机插件配置显示，Codex 不是直接调 service，而是通过内置 client 以 `stdio` 模式拉起 MCP server：
+The local plugin config shows that Codex doesn't call the service directly, but launches an MCP server in `stdio` mode via the built-in client:
 
 ```json
 {
@@ -31,82 +31,82 @@
 }
 ```
 
-结合本机日志，当前集成方式可以确认是：
+Combined with local logs, the current integration method can be confirmed as:
 
-- server name：`computer-use`
-- origin：`stdio`
-- transport：`stdio`
+- server name: `computer-use`
+- origin: `stdio`
+- transport: `stdio`
 
-### 3. client 的命令行入口
+### 3. The Client's Command-Line Entry Points
 
-`SkyComputerUseClient --help` 显示它至少有两个子命令：
+`SkyComputerUseClient --help` shows it has at least two subcommands:
 
 - `mcp`
-  - 说明文字：`Runs the Computer Use client as an MCP server`
+  - Description: `Runs the Computer Use client as an MCP server`
 - `turn-ended`
-  - 说明文字：`Handles a Codex turn-ended notification`
+  - Description: `Handles a Codex turn-ended notification`
 
-这说明 client 不只是 MCP 包装层，还显式参与了“turn 结束”这类会话生命周期事件。
+This shows the client isn't just an MCP wrapper layer — it also explicitly participates in session lifecycle events like "turn ended."
 
-本机 `~/.codex/config.toml` 里还能看到：
+Locally, `~/.codex/config.toml` also shows:
 
 ```toml
 notify = ["/Users/.../SkyComputerUseClient", "turn-ended"]
 ```
 
-这说明 Codex 在本机确实把 `turn-ended` 当作全局通知入口来调用，而不是一个未使用的调试命令。
+This indicates that Codex, locally, really does invoke `turn-ended` as a global notification entry point, not an unused debug command.
 
-### 4. service / client 共享安全边界
+### 4. Service / Client Share a Security Boundary
 
-service 和 client 共享同一个 application group：
+The service and client share the same application group:
 
 - `2DC432GLL2.com.openai.sky.CUAService`
 
-两者 entitlement 中都出现：
+Both entitlements also show:
 
 - `com.apple.security.application-groups`
 - `com.apple.security.automation.apple-events`
 
-这说明它们属于同一安全边界，预计会共享持久化状态、权限状态或 IPC 配置。
+This indicates they belong to the same security boundary, and are expected to share persisted state, permission state, or IPC configuration.
 
-### 5. service 二进制暴露出的能力面
+### 5. Capability Surface Exposed by the Service Binary
 
-`SkyComputerUseService` 中能稳定观察到以下能力模块：
+`SkyComputerUseService` stably shows the following capability modules:
 
-- 权限与引导：
+- Permissions and onboarding:
   - `CUAServicePermissionState`
   - `CUAServicePermissionsWindow`
   - `SystemSettingsAccessoryWindow`
-- Accessibility / UI 树：
+- Accessibility / UI tree:
   - `AXNotificationObserver`
   - `SystemFocusedUIElementObserver`
   - `KeyWindowTracker`
   - `WindowOrderingObserver`
-- 屏幕截图与窗口层：
+- Screenshots and window layer:
   - `ScreenCaptureKit`
   - `SCScreenshotManager`
   - `SCShareableContent`
   - `WindowBoundsObserver`
-- 输入与交互：
+- Input and interaction:
   - `EventTap`
   - `clickEventTap`
   - `keyboardEventTap`
   - `drag`
   - `scroll`
-- 可视化层：
+- Visualization layer:
   - `ComputerUseCursor`
   - `FogCursorStyle`
   - `virtualCursor`
-- MCP 支持：
+- MCP support:
   - `MCP/Server.swift`
   - `MCP/StdioTransport.swift`
   - `MCP/StatefulHTTPServerTransport.swift`
   - `MCP/StatelessHTTPServerTransport.swift`
   - `MCP/SSEClientTransport.swift`
 
-### 6. 当前公开可见的 tools
+### 6. Currently Publicly Visible Tools
 
-strings 和运行时都指向同一组 tools：
+Both strings and runtime behavior point to the same set of tools:
 
 - `list_apps`
 - `get_app_state`
@@ -118,9 +118,9 @@ strings 和运行时都指向同一组 tools：
 - `press_key`
 - `set_value`
 
-### 7. 当前会话可见的 tool schema
+### 7. Currently Visible Tool Schemas in Session
 
-下面这组 schema 以当前 Codex 会话真实暴露的 MCP tool 定义为准，并结合一次运行时调用结果补充使用语义。
+The schemas below are based on the actual MCP tool definitions exposed in a current Codex session, supplemented with usage semantics derived from a runtime call's result.
 
 #### `list_apps`
 
@@ -128,9 +128,9 @@ strings 和运行时都指向同一组 tools：
 {}
 ```
 
-- 无参数。
-- 返回当前机器上正在运行或近 14 天使用过的 app 列表。
-- 返回文本中会包含 app 名、bundle identifier、`running` 状态、`last-used` 和 `uses`。
+- No parameters.
+- Returns the list of apps currently running or used within the last 14 days on this machine.
+- The returned text includes the app name, bundle identifier, `running` status, `last-used`, and `uses`.
 
 #### `get_app_state`
 
@@ -140,15 +140,15 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：app 名或 bundle identifier。
-- 作用是启动或复用 app use session，并返回当前主窗口状态。
-- 运行时返回至少包含：
-  - app 标识和 pid
-  - 窗口层级和 accessibility tree
-  - 每个 element 的索引号
-  - element 的 role、value、description、`settable` 等属性
+- `app`: the app name or bundle identifier.
+- Its role is to launch or reuse an app-use session, and return the current main window state.
+- The runtime return includes at least:
+  - the app identifier and pid
+  - window hierarchy and the accessibility tree
+  - an index number for each element
+  - each element's role, value, description, `settable`, and other attributes
   - `Secondary Actions`
-  - 当前窗口截图
+  - a screenshot of the current window
 
 #### `click`
 
@@ -163,12 +163,12 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `element_index`：按 accessibility element 定位点击目标。
-- `x` / `y`：按截图像素坐标点击目标。
-- `click_count`：点击次数，默认 `1`，可用于 double-click 或 triple-click。
-- `mouse_button`：鼠标按键，默认 `left`。
-- 接口语义上，`element_index` 和 `x` / `y` 是两套寻址方式，通常应二选一。
+- `app`: the target app.
+- `element_index`: locate the click target by accessibility element.
+- `x` / `y`: click a target by screenshot pixel coordinates.
+- `click_count`: number of clicks, defaults to `1`, usable for double-click or triple-click.
+- `mouse_button`: the mouse button, defaults to `left`.
+- Semantically, `element_index` and `x` / `y` are two separate addressing schemes, and usually only one should be used at a time.
 
 #### `perform_secondary_action`
 
@@ -180,10 +180,10 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `element_index`：目标 accessibility element。
-- `action`：element 当前暴露的 secondary action 名称。
-- `action` 不是固定枚举，必须来自 `get_app_state` 输出中的 `Secondary Actions`。
+- `app`: the target app.
+- `element_index`: the target accessibility element.
+- `action`: the name of a secondary action currently exposed by the element.
+- `action` isn't a fixed enum — it must come from the `Secondary Actions` in `get_app_state`'s output.
 
 #### `scroll`
 
@@ -196,11 +196,11 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `direction`：工具说明约束为 `up` / `down` / `left` / `right`。
-- `element_index`：必须是可滚动的 element。
-- `pages`：滚动页数，默认 `1`；官方 `1.0.755` 的 tool schema 已改为 `number`，支持小数页数。
-- 这是 element-scoped scroll，不是全局屏幕滚动。
+- `app`: the target app.
+- `direction`: constrained by the tool description to `up` / `down` / `left` / `right`.
+- `element_index`: must be a scrollable element.
+- `pages`: number of pages to scroll, defaults to `1`; the official `1.0.755` tool schema has changed this to `number`, supporting fractional page counts.
+- This is an element-scoped scroll, not a global screen scroll.
 
 #### `drag`
 
@@ -214,10 +214,10 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `from_x` / `from_y`：拖拽起点像素坐标。
-- `to_x` / `to_y`：拖拽终点像素坐标。
-- 当前公开接口里，拖拽只支持坐标，不支持 `element_index`。
+- `app`: the target app.
+- `from_x` / `from_y`: the drag start pixel coordinates.
+- `to_x` / `to_y`: the drag end pixel coordinates.
+- In the current public interface, drag only supports coordinates, not `element_index`.
 
 #### `type_text`
 
@@ -228,9 +228,9 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `text`：要输入的字面文本。
-- 更适合普通文本录入，不负责表达快捷键语义。
+- `app`: the target app.
+- `text`: the literal text to type.
+- Better suited for plain text entry; it doesn't express keyboard-shortcut semantics.
 
 #### `press_key`
 
@@ -241,16 +241,16 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `key`：按键或组合键，采用 `xdotool key` 风格。
-- 工具说明示例包括：
+- `app`: the target app.
+- `key`: a key or key combination, in `xdotool key` style.
+- Examples from the tool description include:
   - `a`
   - `Return`
   - `Tab`
   - `super+c`
   - `Up`
   - `KP_0`
-- 当前 `1.0.755` binary 里还能看到 `BackSpace`、`Page_Up`、`Prior`、`Next`、`F1...F12`、`KP_0...KP_9`、`KP_Enter` 等 key table 字符串；开源版 parser 已按这些常用 xdotool alias 收敛。
+- The current `1.0.755` binary also has key table strings like `BackSpace`, `Page_Up`, `Prior`, `Next`, `F1...F12`, `KP_0...KP_9`, `KP_Enter`; the open-source parser has already converged on these common xdotool aliases.
 
 #### `set_value`
 
@@ -262,51 +262,51 @@ strings 和运行时都指向同一组 tools：
 }
 ```
 
-- `app`：目标 app。
-- `element_index`：目标 settable element。
-- `value`：要直接写入的值，当前 schema 中统一为字符串。
-- 这是比 `type_text` 更语义化的输入方式，适合 search field、text field 等可直接赋值控件。
+- `app`: the target app.
+- `element_index`: the target settable element.
+- `value`: the value to write directly; in the current schema this is uniformly a string.
+- This is a more semantic input method than `type_text`, suited to controls like search fields and text fields that can be assigned a value directly.
 
-## 当前推断
+## Current Inferences
 
-### 1. 官方实现的最小分层
+### 1. The Official Implementation's Minimal Layering
 
-当前最合理的分层判断是：
+The most reasonable layering judgment right now is:
 
 - `SkyComputerUseService`
-  - 权限管理、状态栏、窗口/光标 overlay、系统集成、Accessibility、截图、审批与会话状态
-  - 还负责和 Codex appserver 的宿主 IPC、notify hook 和 plugin 生命周期集成
+  - Permission management, status bar, window/cursor overlay, system integration, Accessibility, screenshots, approval and session state
+  - Also handles host IPC with the Codex appserver, the notify hook, and plugin lifecycle integration
 - `SkyComputerUseClient`
-  - MCP 入口、turn 生命周期桥接、和 service 的本地通信
+  - The MCP entry point, turn lifecycle bridging, and local communication with the service
 
-### 2. transport 能力和当前启用状态不是一回事
+### 2. Transport Capability and Current Enablement Status Are Not the Same Thing
 
-虽然 service / client 二进制中能看到 HTTP、SSE、network 相关 MCP transport 符号，但当前安装包的真实启用方式仍然只有 `stdio`。开源版设计时不能直接假设官方对外公开了 HTTP/SSE server。
+Although HTTP, SSE, and network-related MCP transport symbols can be seen in the service / client binaries, the currently installed package is actually only enabled via `stdio`. The open-source version's design shouldn't assume the official implementation exposes an HTTP/SSE server externally.
 
-补充一点：当前 Node MCP SDK 的 `stdio` framing 是 newline-delimited JSON，而不是 `Content-Length`。这意味着开源版如果要优先兼容主流 Node client，最直接的做法也是先把 JSON line `stdio` 路径打稳。
+One more note: the current Node MCP SDK's `stdio` framing is newline-delimited JSON, not `Content-Length`. This means if the open-source version wants to be compatible with mainstream Node clients first, the most direct approach is also to stabilize the JSON-line `stdio` path first.
 
-再补一层：官方实现里不只是“stdio 启一个本地 server”这么简单。`SkyComputerUseService` 还会主动连接 Codex 宿主维护的 `codex-ipc` Unix socket，并在里面处理 thread-end、auth 和 plugin 集成。这说明开源版如果没有官方宿主，也应该明确删掉这类私有 appserver 依赖，而不是半复制一个绑定宿主的结构。
+One more layer: the official implementation isn't as simple as "start a local server over stdio." `SkyComputerUseService` also actively connects to a `codex-ipc` Unix socket maintained by the Codex host, and handles thread-end, auth, and plugin integration within it. This means that if the open-source version has no official host, it should explicitly drop this kind of private appserver dependency rather than half-copying a host-bound structure.
 
-### 3. 开源版不必复制官方的所有产品壳
+### 3. The Open-Source Version Doesn't Need to Replicate the Official Product Shell
 
-从能力上看，真正必须复现的是：
+Looking at capability, what truly must be reproduced is:
 
-- app 发现
-- 窗口截图
-- Accessibility 树读取
-- 鼠标键盘动作
-- 权限引导
-- 会话状态和审批模型
+- app discovery
+- window screenshots
+- accessibility tree reading
+- mouse/keyboard actions
+- permission onboarding
+- session state and approval model
 
-### 4. 当前 tool 面是一个以 Accessibility tree 为中心的最小接口层
+### 4. The Current Tool Surface Is a Minimal Interface Layer Centered on the Accessibility Tree
 
-当前这组公开 tools 可以压缩成三层：
+The current set of public tools can be compressed into three layers:
 
-- 发现：
+- Discovery:
   - `list_apps`
-- 读状态：
+- Read state:
   - `get_app_state`
-- 做动作：
+- Take action:
   - `click`
   - `perform_secondary_action`
   - `scroll`
@@ -315,27 +315,27 @@ strings 和运行时都指向同一组 tools：
   - `press_key`
   - `set_value`
 
-这说明官方当前暴露的是一套很小的 automation kernel，而不是完整的桌面控制 API。
+This indicates the official implementation currently exposes a very small automation kernel, not a full desktop control API.
 
-### 5. `element_index` 是第一公民，坐标只是补充定位方式
+### 5. `element_index` Is a First-Class Citizen; Coordinates Are Only a Supplementary Locator
 
-大部分交互类工具都围绕 `get_app_state` 产出的 accessibility tree 工作：
+Most interaction tools work around the accessibility tree produced by `get_app_state`:
 
 - `perform_secondary_action`
 - `scroll`
 - `set_value`
-- `click` 的主要模式
+- `click`'s primary mode
 
-只有少数动作明显是纯几何操作：
+Only a few actions are clearly pure geometric operations:
 
 - `drag`
-- `click` 的 `x` / `y` 模式
+- `click`'s `x` / `y` mode
 
-这意味着官方实现优先依赖 AX 语义定位，而不是把 screenshot 当主导航面。
+This means the official implementation prioritizes AX-semantic locating, rather than treating the screenshot as the primary navigation surface.
 
-### 6. 开源兼容层最好保留聚合型 `get_app_state`
+### 6. The Open-Source Compatibility Layer Should Best Keep an Aggregate `get_app_state`
 
-当前公开接口没有单独的：
+The current public interface has no separate:
 
 - `launch_app`
 - `screenshot`
@@ -343,13 +343,13 @@ strings 和运行时都指向同一组 tools：
 - `wait`
 - `hover`
 
-而是把“必要时拉起 session + 读取窗口树 + 读取截图”合并到了 `get_app_state`。如果开源版目标之一是兼容现有 agent 使用习惯，保留这个聚合入口会更稳。
+Instead, "launch a session if needed + read the window tree + read the screenshot" are merged into `get_app_state`. If one of the open-source version's goals is compatibility with existing agent usage habits, keeping this aggregate entry point will be more stable.
 
-状态栏、虚拟光标、PIP 一类的产品壳可以晚于核心 automation path。
+Product-shell items like the status bar, virtual cursor, and PIP can come after the core automation path.
 
-## 对开源版的直接启发
+## Direct Implications for the Open-Source Version
 
-- MCP server 可以单独设计成公开、稳定、可被任意 client 拉起的入口，不必复用官方那种宿主绑定方式。
-- service/client 的边界应该尽早显式化，否则后续很容易被私有宿主约束反噬。
-- transport、权限、Automation 内核、UI/overlay 最好拆成独立模块，避免逆向时看到的多层耦合直接复制进开源实现。
-- 开源版 schema 可以直接对齐这 9 个 tools 作为兼容层第一版，再在实现内部拆成 app discovery、AX snapshot、screen capture、input dispatcher 和 approval/session manager。
+- The MCP server can be designed as a standalone, public, stable entry point that any client can launch, without having to reuse the official's host-bound approach.
+- The service/client boundary should be made explicit as early as possible, otherwise it's easy to get bitten later by the private host constraints seen during reverse engineering.
+- Transport, permissions, the automation kernel, and the UI/overlay are best split into independent modules, avoiding directly copying the multi-layer coupling seen during reverse engineering straight into the open-source implementation.
+- The open-source schema can directly align with these 9 tools as the first version of the compatibility layer, then internally split the implementation into app discovery, AX snapshot, screen capture, input dispatcher, and approval/session manager.

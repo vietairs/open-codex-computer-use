@@ -1,4 +1,4 @@
-## [2026-04-22 16:38] | Task: 调整 visual cursor 停驻时长
+## [2026-04-22 16:38] | Task: Adjust visual cursor dwell duration
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -9,15 +9,15 @@
 > let's optimize the cursor status, currently it will disappeared immediately once it reach the target place, but I wanna it keep float there, only vanish if there is no new move after 30s
 
 ### Changes Overview
-**Scope:** `OpenComputerUseKit` visual cursor runtime、测试、架构文档
+**Scope:** `OpenComputerUseKit` visual cursor runtime, tests, architecture docs
 
 **Key Actions:**
-- **[Idle timeout 调整]**: 将 visual cursor 交互后的 idle cleanup 窗口改为 `30s`，让 cursor 到达目标点后继续停驻并等待后续动作。
-- **[回归测试同步]**: 更新 timeout 常量测试，避免后续把停驻时长又改回更短或更长而没有显式确认。
-- **[文档同步]**: 更新 `docs/ARCHITECTURE.md`，说明当前开源 runtime 的 idle 隐藏条件已经收敛为“30 秒无新动作才清理”。
+- **[Idle timeout adjustment]**: Changed the idle cleanup window after visual cursor interaction to `30s`, letting the cursor keep dwelling at the target point and wait for subsequent actions after arriving.
+- **[Regression test sync]**: Updated the timeout constant test, preventing the dwell duration from later being changed shorter or longer again without explicit confirmation.
+- **[Documentation sync]**: Updated `docs/ARCHITECTURE.md` to state that the current open-source runtime's idle-hide condition has converged to "cleanup only after 30 seconds with no new action".
 
 ### Design Intent
-这轮目标不是改 motion 曲线，而是改 overlay 的可见性生命周期。cursor 到达目标点后应该继续以 idle 姿态停在原地，给用户明确的“刚刚操作到了这里”的反馈；只有在一段时间内没有新的 move / click / set_value 时才隐藏。这里把等待窗口收敛到 30 秒，兼顾连续操作时的可跟踪性和长时间残留的干扰。
+This round's goal is not to change the motion curve, but to change the overlay's visibility lifecycle. After the cursor reaches the target point, it should continue resting in place in an idle pose, giving the user a clear "just acted here" signal; it only hides once there has been no new move / click / set_value for a period of time. Here the waiting window is converged to 30 seconds, balancing trackability during consecutive operations against the distraction of long-lived leftover state.
 
 ### Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift`

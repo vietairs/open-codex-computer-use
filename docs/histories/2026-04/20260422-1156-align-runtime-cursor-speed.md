@@ -1,4 +1,4 @@
-## [2026-04-22 11:56] | Task: 对齐 runtime overlay cursor 移动速度
+## [2026-04-22 11:56] | Task: Align runtime overlay cursor movement speed
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -6,16 +6,16 @@
 * **Runtime**: `Codex CLI on macOS + SwiftPM`
 
 ### User Query
-> `open-computer-use` 里的 overlay cursor 移动速度好像太快；对照官方速度和 `Cursor Motion` 里的可调速度。
+> The overlay cursor movement speed in `open-computer-use` seems too fast; compare against the official speed and the adjustable speed in `Cursor Motion`.
 
 ### Changes Overview
-**Scope:** `OpenComputerUseKit` cursor motion timing、文档、测试
+**Scope:** `OpenComputerUseKit` cursor motion timing, docs, tests
 
 **Key Actions:**
-- **[确认差异]**: `Cursor Motion` 默认档已经对齐官方 `response=1.4 / damping=0.9` 的 `343 / 240 = 1.4291667s` endpoint-lock 时间，但 runtime 仍使用旧的距离压缩公式，实际常落在 `0.23s+`，导致中长距离移动明显偏快。
-- **[Runtime timing 对齐]**: `OfficialCursorMotionModel.calibratedTravelDuration` 改为直接返回 recovered close-enough 时间，不再按路径距离和曲率压缩 wall-clock duration。
-- **[回归测试]**: 新增测试锁定 runtime travel duration 等于 recovered endpoint-lock timing，避免后续重新引入距离压缩。
-- **[文档同步]**: 架构文档和逆向 motion model 文档更新为默认 move 时长对齐 `343 / 240`。
+- **[Confirm the discrepancy]**: `Cursor Motion`'s default tier already aligns with the official `response=1.4 / damping=0.9` endpoint-lock time of `343 / 240 = 1.4291667s`, but the runtime still used the old distance-compression formula, actually landing at `0.23s+` in practice, causing mid-to-long-distance moves to be noticeably too fast.
+- **[Align runtime timing]**: `OfficialCursorMotionModel.calibratedTravelDuration` now returns the recovered close-enough time directly, no longer compressing the wall-clock duration by path distance and curvature.
+- **[Regression test]**: Added a test locking the runtime travel duration to equal the recovered endpoint-lock timing, to prevent distance compression from being reintroduced later.
+- **[Docs sync]**: Updated the architecture doc and the reverse-engineered motion-model doc to reflect the default move duration aligning with `343 / 240`.
 
 ### Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift`

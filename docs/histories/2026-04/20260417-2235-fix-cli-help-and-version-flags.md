@@ -1,4 +1,4 @@
-## [2026-04-17 22:35] | Task: 修复 CLI help 和 version 参数
+## [2026-04-17 22:35] | Task: Fix CLI help and version flags
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> `open-computer-use -v` 会卡住。这个 CLI 需要支持 `-h`、`--help`、`-v`、`--version`，并且能看到支持的子命令和参数。
+> `open-computer-use -v` hangs. This CLI needs to support `-h`, `--help`, `-v`, `--version`, and let users see the supported subcommands and arguments.
 
 ### 🛠 Changes Overview
 **Scope:** `apps/OpenComputerUse`, `packages/OpenComputerUseKit`, `README.md`, `docs/ARCHITECTURE.md`, `scripts/npm/build-packages.mjs`
 
 **Key Actions:**
-- **抽离 CLI 解析**：在 `OpenComputerUseKit` 新增可测试的 CLI 解析与帮助文本逻辑，统一处理全局 flag、子命令帮助和错误提示。
-- **修复版本参数行为**：让 `-v` / `--version` / `version` 直接输出版本号，不再误落到默认 app 模式。
-- **补文档与分发说明**：同步仓库 README、架构文档和 npm 包 README 模板，明确帮助与版本命令的用法。
+- **Extract CLI parsing**: Added testable CLI parsing and help-text logic in `OpenComputerUseKit`, uniformly handling global flags, subcommand help, and error messages.
+- **Fix version flag behavior**: Made `-v` / `--version` / `version` print the version number directly, instead of incorrectly falling through to the default app mode.
+- **Update docs and distribution notes**: Synced the repo README, architecture doc, and npm package README template to clarify the help and version command usage.
 
 ### 🧠 Design Intent (Why)
-之前的入口只按第一个参数匹配子命令，没有单独处理全局 flag，导致 `-v` 这种常见 CLI 用法直接触发默认 onboarding 分支。把解析逻辑收口成独立模块后，帮助文本、错误提示和版本输出可以共用一套规则，也更容易通过单测长期守住。
+The previous entry point only matched a subcommand against the first argument and didn't handle global flags separately, so a common CLI usage like `-v` directly triggered the default onboarding branch. Consolidating the parsing logic into its own module lets help text, error messages, and version output share one set of rules, and makes it easier to guard long-term with unit tests.
 
 ### 📁 Files Modified
 - `apps/OpenComputerUse/Sources/OpenComputerUse/OpenComputerUseMain.swift`

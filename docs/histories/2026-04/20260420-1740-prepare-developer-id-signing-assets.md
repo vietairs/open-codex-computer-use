@@ -1,4 +1,4 @@
-## [2026-04-20 17:40] | Task: 准备 Developer ID signing 资产并恢复可选 CI 签名链路
+## [2026-04-20 17:40] | Task: Prepare Developer ID signing assets and restore the optional CI signing path
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 你直接做吧，做到不能做或者需要我的时候再叫我。
+> Just go ahead and do it, call me back when you can't proceed or need me.
 
 ### 🛠 Changes Overview
-**Scope:** `.github/workflows/`、`docs/`、`scripts/`
+**Scope:** `.github/workflows/`, `docs/`, `scripts/`
 
 **Key Actions:**
-- **[Developer ID Asset Prep]**: 将用户本机基于 CSR 签发下来的 `Developer ID Application` 证书导入 `login.keychain-db`，确认存在可用 codesigning identity，并导出本地可复用的 `.p12` 资产。
-- **[CI Signing Fix]**: 修复 `scripts/build-open-computer-use-app.sh` 在使用临时 keychain 时仅把 keychain 传给 `codesign --keychain`、但未加入用户搜索链导致“item could not be found in the keychain”的问题。
-- **[Workflow Restore]**: 把 release workflow 的可选证书导入步骤补回；当 repo secrets 里配置 `OPEN_COMPUTER_USE_CODESIGN_*` 时，CI 会导入 `.p12` 并统一用 `Developer ID Application` identity 对 npm release `.app` 签名，未配置时仍退回 ad-hoc。
-- **[Docs Sync]**: 同步 CI/CD 与 release guide，明确当前状态是“Open Computer Use 可选 Developer ID 签名，Cursor Motion 仍为 ad-hoc，notarization 还未接”。
+- **[Developer ID Asset Prep]**: Imported the `Developer ID Application` certificate the user issued locally from a CSR into `login.keychain-db`, confirmed a usable codesigning identity exists, and exported a reusable local `.p12` asset.
+- **[CI Signing Fix]**: Fixed an issue in `scripts/build-open-computer-use-app.sh` where, when using a temporary keychain, only passing the keychain to `codesign --keychain` without adding it to the user's search list caused "item could not be found in the keychain."
+- **[Workflow Restore]**: Restored the release workflow's optional certificate import step; when `OPEN_COMPUTER_USE_CODESIGN_*` is configured in repo secrets, CI imports the `.p12` and uniformly signs the npm release `.app` with the `Developer ID Application` identity, falling back to ad-hoc signing when not configured.
+- **[Docs Sync]**: Synced the CI/CD and release guides to clarify the current state: "Open Computer Use has optional Developer ID signing, Cursor Motion is still ad-hoc, and notarization is not yet wired up."
 
 ### 🧠 Design Intent (Why)
-用户已经在自己机器上完成 CSR，并用团队账号在 Apple Developer 网站上签发了 `Developer ID Application` 证书。此时最重要的不是继续停留在“材料怎么拿”，而是把这份证书真正转成可用于 CI 的 `.p12` 资产，并把仓库里的签名链路补回到“有 secret 就统一签名、没 secret 也不阻塞发版”的状态。这样后续只剩 GitHub secrets 与 notarization 两个外部依赖点。
+The user has already completed the CSR on their own machine and issued a `Developer ID Application` certificate on the Apple Developer website using the team account. At this point, the priority is not to keep dwelling on "how to obtain the materials," but to actually turn this certificate into a usable `.p12` asset for CI, and restore the repo's signing path to a state where "signing is unified when a secret is present, and releases aren't blocked when it isn't." This leaves only two external dependencies remaining: GitHub secrets and notarization.
 
 ### 📁 Files Modified
 - `scripts/build-open-computer-use-app.sh`

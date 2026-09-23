@@ -1,4 +1,4 @@
-## [2026-04-18 00:15] | Task: 收口权限 bundle 身份并简化 onboarding 生命周期
+## [2026-04-18 00:15] | Task: Lock down the permission bundle identity and simplify the onboarding lifecycle
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 把 bundle identifier 改成 `com.ifuryst.opencomputeruse`，未来名字都按这个走；权限长期以 `npm install -g open-computer-use` 安装后的路径为准。另外已全部授权时不要再反复弹 onboarding，授权完成后窗口要自动关闭。
+> Change the bundle identifier to `com.ifuryst.opencomputeruse`, and use it going forward; permissions should be keyed on the path from an `npm install -g open-computer-use` install. Also, once everything is already authorized, don't keep popping up onboarding repeatedly — the window should close automatically once authorization is complete.
 
 ### 🛠 Changes Overview
 **Scope:** `apps/OpenComputerUse`, `packages/OpenComputerUseKit`, `scripts/`, `docs/`
 
 **Key Actions:**
-- **[Bundle Identity]**: 把 app bundle identifier 从 `dev.opencodex.OpenComputerUse` 统一改成 `com.ifuryst.opencomputeruse`，并同步更新打包产物校验逻辑。
-- **[Onboarding Lifecycle]**: 默认启动和 `doctor` 都先检查权限；如果两项已授权，则不再弹出 onboarding。窗口内两项权限都完成后，会自动关闭并退出 app。
-- **[Stable Permission Target]**: 文档与权限识别逻辑统一强调 npm 全局安装后的 `Open Computer Use.app` 是长期授权对象，避免把源码仓库里的临时 `dist` 路径当成最终稳定身份。
-- **[NPM Path Priority]**: 当源码启动时，权限识别和拖拽目标会优先寻找 npm 全局安装目录里的 `Open Computer Use.app`；只有没有全局安装产物时才回退到仓库 `dist/`，进一步减少开发态路径参与长期授权身份的概率。
+- **[Bundle Identity]**: Unified the app bundle identifier from `dev.opencodex.OpenComputerUse` to `com.ifuryst.opencomputeruse`, and updated the packaging artifact verification logic to match.
+- **[Onboarding Lifecycle]**: Both default launch and `doctor` now check permissions first; if both are already granted, onboarding no longer pops up. Once both permissions are completed within the window, it now closes and exits the app automatically.
+- **[Stable Permission Target]**: Docs and the permission-detection logic now consistently emphasize that the `Open Computer Use.app` from an npm global install is the long-term authorization target, avoiding treating the source repo's temporary `dist` path as the final stable identity.
+- **[NPM Path Priority]**: When launched from source, permission detection and the drag-and-drop target now prefer looking for `Open Computer Use.app` in the npm global install directory; it only falls back to the repo's `dist/` when there's no global install artifact, further reducing the chance that a dev-time path participates in the long-term authorization identity.
 
 ### 🧠 Design Intent (Why)
-权限体验要想接近“只授权一次，以后升级不重复折腾”，核心不是继续堆更多检测分支，而是尽量收口到一个稳定 bundle 身份和稳定安装路径。与此同时，onboarding 作为一次性修复流程，不应该在权限已经齐全时继续打扰用户，也不应该在最后一步还要求用户手动关窗。
+For the permission experience to approach "authorize once, no repeated hassle on future upgrades," the key isn't stacking more detection branches, but consolidating as much as possible onto a stable bundle identity and a stable install path. At the same time, since onboarding is a one-time setup flow, it shouldn't keep interrupting the user once permissions are already all granted, nor should it require the user to manually close the window as a final step.
 
 ### 📁 Files Modified
 - `apps/OpenComputerUse/Sources/OpenComputerUse/OpenComputerUseMain.swift`

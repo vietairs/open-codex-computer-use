@@ -1,16 +1,16 @@
 # Computer Use Tool Call Samples (2026-04-17)
 
-这份文档记录 2026-04-17 在当前 Codex 会话里，对 `computer-use` MCP 的 9 个公开 tools 做的实测样本。
+This document records real-world test samples taken on 2026-04-17, in the current Codex session, against the `computer-use` MCP's 9 public tools.
 
-## 记录方式
+## Recording Method
 
-- 样本来源：当前会话内的真实 MCP 调用结果。
-- 目标：给后续开源兼容层实现保留“请求长什么样、响应大概长什么样”的仓库内参考。
-- 文本策略：尽量保留原始响应格式；对特别长的 accessibility tree 只保留前缀和关键变化片段。
-- 截图策略：`get_app_state`、`click`、`scroll`、`drag` 等调用都会在工具 UI 中附带截图；文档里只保留文本响应，不嵌入截图。
-- 测试 app：`Finder`、`Activity Monitor`、`System Settings`。
-- 安全边界：只选择了目录选择、搜索框输入、滚动、分隔条拖拽这类低风险动作，没有切换系统权限开关，也没有双击打开文件。
-- 2026-04-17 晚些时候再次核对后确认：直接看 MCP tool `content[0].text` 时，官方文本是从 `App=...` 起头的；这里早先保留下来的 `Computer Use state (CUA App Version: 750)` / `<app_state>` 包裹不应再视为当前官方基线。
+- Sample source: real MCP call results from within the current session.
+- Goal: preserve an in-repo reference for later open-source compatibility-layer implementation, showing roughly "what a request looks like, what a response looks like."
+- Text strategy: preserve the original response format as much as possible; for especially long accessibility trees, keep only the prefix and key changed fragments.
+- Screenshot strategy: calls like `get_app_state`, `click`, `scroll`, and `drag` all attach a screenshot in the tool UI; this document keeps only the text response, without embedding screenshots.
+- Test apps: `Finder`, `Activity Monitor`, `System Settings`.
+- Safety boundary: only low-risk actions were selected — directory selection, search-box input, scrolling, splitter dragging — with no system permission toggles switched and no double-clicking to open files.
+- Re-checked later on 2026-04-17 and confirmed: when looking directly at the MCP tool's `content[0].text`, the official text starts with `App=...`; the earlier-preserved `Computer Use state (CUA App Version: 750)` / `<app_state>` wrapper noted here should no longer be treated as the current official baseline.
 
 ## `list_apps`
 
@@ -71,12 +71,12 @@ iTerm2 — com.googlecode.iterm2 [running, last-used=2026-04-17, uses=3179]
 Obsidian — md.obsidian [last-used=2026-04-08, uses=8]"}]
 ```
 
-已观察到的返回形态：
+Observed response shape:
 
 ```text
-- 外层是 content array。
-- 当前只返回一个 text block。
-- text block 内部是多行纯文本，每行格式接近：
+- The outer layer is a content array.
+- Currently only one text block is returned.
+- Inside the text block is multi-line plain text, each line roughly formatted as:
   App Name — bundle.id [running, last-used=YYYY-MM-DD, uses=N]
 ```
 
@@ -172,7 +172,7 @@ Window: "Screen & System Audio Recording", App: System Settings.
 ...
 ```
 
-额外边界样本：
+Additional boundary sample:
 
 Request
 
@@ -338,11 +338,11 @@ Response excerpt
 The focused UI element is 2 outline.
 ```
 
-这个样本说明：
+This sample illustrates:
 
 ```text
-部分 secondary action 是真正会改 UI 状态的动作（Expand / Collapse）。
-也有一类更像窗口级命令（Raise），响应文本可能几乎不变。
+Some secondary actions genuinely change UI state (Expand / Collapse).
+There's also a class that's more like a window-level command (Raise), where the response text may barely change.
 ```
 
 ## `scroll`
@@ -649,7 +649,7 @@ Response excerpt
 170 pop up button Description: list view, Value: as List
 ```
 
-这个样本里，`Finder` 左侧 sidebar 被拉宽，splitter 的 float 从 `133` 变成了 `185`。
+In this sample, `Finder`'s left sidebar was widened, and the splitter's float value changed from `133` to `185`.
 
 ### Sample 2
 
@@ -696,9 +696,9 @@ Response excerpt
 57 row (selected) Privacy & Security
 ```
 
-这个样本返回正常，但从文本上看没有产生明显的 split value 变化，说明纯坐标拖拽对起点定位比较敏感。
+This sample returned normally, but the text shows no noticeable change in the split value, indicating pure-coordinate dragging is fairly sensitive to the starting point's positioning.
 
-额外 no-op 倾向样本：
+Additional sample tending toward a no-op:
 
 Request
 
@@ -721,16 +721,16 @@ Response excerpt
 38 search text field (settable, string) Helper
 ```
 
-## 总结
+## Summary
 
-从这轮实测可以先得到几个稳定结论：
+A few stable conclusions can already be drawn from this round of testing:
 
 ```text
-1. `list_apps` 是纯文本枚举接口，最简单。
-2. `get_app_state` 是整个接口面的核心，会返回 element index、属性、secondary actions 和截图。
-3. 大多数交互类工具在响应里都会把“最新的完整或近完整 UI 状态”再返回一遍，而不只是返回 `ok`。
-4. `set_value` 比 `type_text` 更语义化，适合直接写 search/text field。
-5. `press_key` 的响应里会带 `Selected text`，这对判断焦点和选区很有价值。
-6. `drag` 只有坐标模式，没有 `element_index`，所以稳定性最依赖截图坐标选点。
-7. app 名解析有边界：人类可读名不一定能直接命中，bundle id 也可能被安全策略拒绝。
+1. `list_apps` is a pure text enumeration interface, the simplest one.
+2. `get_app_state` is the core of the whole interface surface, returning element index, attributes, secondary actions, and a screenshot.
+3. Most interactive tools return "the latest full or near-full UI state" again in the response, rather than just returning `ok`.
+4. `set_value` is more semantic than `type_text`, suited for writing directly to a search/text field.
+5. `press_key`'s response carries `Selected text`, which is valuable for judging focus and selection.
+6. `drag` only has coordinate mode, no `element_index`, so its stability depends most heavily on picking screenshot coordinates.
+7. App-name resolution has boundaries: a human-readable name won't necessarily match directly, and a bundle id may also be rejected by safety policy.
 ```

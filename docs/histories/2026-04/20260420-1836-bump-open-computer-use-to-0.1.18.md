@@ -1,4 +1,4 @@
-## [2026-04-20 18:36] | Task: 发布 0.1.18
+## [2026-04-20 18:36] | Task: Release 0.1.18
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 可以，bump 小版本 tag 推，然后看看结果
+> Okay, bump the patch version, push the tag, and see what happens
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.18`。
-- **[Release Notes Correction]**: 为 `0.1.17` 增加准确说明，记录其 `package-npm` 已成功但 `Cursor Motion` notarization 因缺少 hardened runtime 失败；新增 `0.1.18` 作为真正补齐 hardened runtime 后的 patch release。
-- **[Release Trigger]**: 基于 hardened runtime 修复后的 `HEAD` 收口新版本，准备用 `v0.1.18` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: Uniformly raised the plugin manifest, Swift/Go version constants, the smoke suite's initialization version, the test MCP client version, and the CLI doc path to `0.1.18`.
+- **[Release Notes Correction]**: Added an accurate note for `0.1.17`, documenting that its `package-npm` succeeded but `Cursor Motion` notarization failed due to a missing hardened runtime; added `0.1.18` as the actual patch release that fills in the hardened runtime.
+- **[Release Trigger]**: Settled the new version on `HEAD` after the hardened-runtime fix, ready to push the `v0.1.18` tag to trigger a new GitHub Actions release.
 
 ### 🧠 Design Intent (Why)
-`0.1.17` 已经把 npm 包成功发布出去，因此不再适合继续复用同版本重试所有 release 步骤。最稳妥的方式是把 notarization 真正需要的 hardened runtime 修复打进新的 patch release，让 `0.1.18` 成为首个同时具备 Developer ID 签名与可 notarize `Cursor Motion` 资产的版本。
+`0.1.17` had already successfully published its npm package, so it is no longer suitable to keep retrying all release steps under the same version. The safest approach is to land the hardened-runtime fix that notarization actually needs into a new patch release, making `0.1.18` the first version to have both Developer ID signing and a notarizable `Cursor Motion` asset.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

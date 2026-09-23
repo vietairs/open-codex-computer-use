@@ -1,67 +1,67 @@
-# 非抢焦点 computer-use 交互改造
+# Non-intrusive computer-use interaction rework
 
-## 目标
+## Goal
 
-让 `open-codex-computer-use` 在常见交互中尽量避免抢占用户当前焦点和真实鼠标位置，同时把与官方 `computer-use` 的对比样本沉淀到仓库里，便于后续做数据分析和 eval。
+Make `open-codex-computer-use` avoid seizing the user's current focus and real mouse position during common interactions as much as possible, while also archiving comparison samples against the official `computer-use` into the repository for later data analysis and eval work.
 
-## 范围
+## Scope
 
-- 包含：
-- 收集一组 `computer-use` 与 `open-codex-computer-use` 对同一目标 app 的对比调用样本，并保存 tool call 与结果。
-- 调整 `get_app_state` 与动作型 tools 的实现，减少不必要的 `activate` 和全局 HID 事件。
-- 为键盘与点击路径补充更合适的定向投递或 AX 优先策略。
-- 同步测试、架构文档、质量说明和 history。
-- 不包含：
-- 复刻官方闭源实现的私有 overlay、宿主集成和完整后台事件路由。
-- 在本轮里解决所有第三方 app 的兼容性差异。
+- In scope:
+- Collecting a set of paired `computer-use` vs. `open-codex-computer-use` calls against the same target app, and saving both the tool calls and their results.
+- Adjusting the implementation of `get_app_state` and the action-type tools to reduce unnecessary `activate` calls and global HID events.
+- Adding more appropriate targeted delivery or AX-first strategies for keyboard and click paths.
+- Syncing tests, architecture docs, the quality notes, and history.
+- Out of scope:
+- Reproducing the official closed-source implementation's private overlay, host integration, or the full background event routing.
+- Resolving compatibility differences for every third-party app in this round.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
 - `docs/ARCHITECTURE.md`
 - `docs/REPO_COLLAB_GUIDE.md`
 - `docs/QUALITY_SCORE.md`
-- 相关代码路径：
+- Related code paths:
 - `packages/OpenCodexComputerUseKit/Sources/OpenCodexComputerUseKit/AccessibilitySnapshot.swift`
 - `packages/OpenCodexComputerUseKit/Sources/OpenCodexComputerUseKit/ComputerUseService.swift`
 - `packages/OpenCodexComputerUseKit/Sources/OpenCodexComputerUseKit/InputSimulation.swift`
-- 已知约束：
-- 当前实现大量依赖 `NSRunningApplication.activate` 与 `CGEvent.post(tap: .cghidEventTap)`。
-- 鼠标类事件若继续走全局 HID，理论上仍会移动真实鼠标指针。
-- SDK 可用能力里可确认 `CGEventPostToPid` 和 `AXUIElementPostKeyboardEvent`，但需要验证行为边界。
+- Known constraints:
+- The current implementation relies heavily on `NSRunningApplication.activate` and `CGEvent.post(tap: .cghidEventTap)`.
+- If mouse-type events keep going through global HID, they will in theory still move the real mouse pointer.
+- Among the SDK's available capabilities, `CGEventPostToPid` and `AXUIElementPostKeyboardEvent` are confirmed present, but their behavioral boundaries need verification.
 
-## 风险
+## Risks
 
-- 风险：去掉 `activate` 后，某些依赖前台窗口的 snapshot 或动作可能拿不到期望元素。
-- 缓解方式：snapshot 改成优先读取 app 自身窗口/焦点信息，不再强依赖前台态；必要时保留显式降级路径。
-- 风险：`CGEventPostToPid` 或 `AXUIElementPostKeyboardEvent` 在部分 app 上行为和全局 HID 不一致。
-- 缓解方式：先在 fixture 上做样本验证；代码中保留有边界说明的 fallback。
-- 风险：为了减少副作用而过度牺牲兼容性。
-- 缓解方式：优先改“能不抢焦点就不抢”，不是无条件禁止所有全局输入。
+- Risk: after removing `activate`, some snapshots or actions that depend on the foreground window may fail to get the expected element.
+- Mitigation: change snapshot to prefer reading the app's own window/focus info instead of hard-depending on foreground state; keep an explicit fallback path where necessary.
+- Risk: `CGEventPostToPid` or `AXUIElementPostKeyboardEvent` may behave inconsistently with global HID on some apps.
+- Mitigation: verify with samples on fixtures first; keep a fallback in the code with documented boundaries.
+- Risk: over-sacrificing compatibility in order to reduce side effects.
+- Mitigation: prioritize "avoid seizing focus where possible," not an unconditional ban on all global input.
 
-## 里程碑
+## Milestones
 
-1. 收集双工具对比样本并固定归档结构。
-2. 实现非抢焦点优先的 snapshot / 输入策略。
-3. 完成验证、文档同步和 history 留痕。
+1. Collect paired comparison samples from both tools and fix the archive structure.
+2. Implement the non-intrusive-first snapshot / input strategy.
+3. Complete verification, doc sync, and history record.
 
-## 验证方式
+## Verification method
 
-- 命令：
+- Commands:
 - `swift test`
 - `./scripts/run-tool-smoke-tests.sh`
-- 手工检查：
-- 对 fixture app 分别执行 `get_app_state`、`click`、`type_text`，记录调用前后前台 app 和鼠标坐标。
-- 观测检查：
-- 查看 `artifacts/tool-comparisons/20260417-focus-behavior/` 下的双目录样本是否完整。
+- Manual checks:
+- Run `get_app_state`, `click`, `type_text` against a fixture app and record the foreground app and mouse coordinates before and after each call.
+- Observational checks:
+- Verify the paired sample directories under `artifacts/tool-comparisons/20260417-focus-behavior/` are complete.
 
-## 进度记录
+## Progress log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
 
-## 决策记录
+## Decision log
 
-- 2026-04-17：本轮优先解决“抢焦点/抢鼠标”这一类强副作用问题，并把对比数据直接落仓库，后续 eval 先基于真实样本迭代，而不是只靠口头描述。
-- 2026-04-17：`get_app_state` 改为不再显式激活目标 app；键盘事件改走 `CGEvent.postToPid`，点击优先走 AX action / AX hit-test，只有 drag 或无法命中 AX 元素时才退回全局 HID。
+- 2026-04-17: This round prioritizes fixing the strong-side-effect class of issues around "seizing focus/seizing the mouse," and lands the comparison data directly in the repository, so future eval work can iterate from real samples rather than relying only on verbal descriptions.
+- 2026-04-17: `get_app_state` no longer explicitly activates the target app; keyboard events now go through `CGEvent.postToPid`, and clicks prefer AX action / AX hit-test, falling back to global HID only for drag or when an AX element can't be hit.

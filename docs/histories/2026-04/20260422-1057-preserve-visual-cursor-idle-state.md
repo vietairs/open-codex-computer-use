@@ -1,4 +1,4 @@
-## [2026-04-22 10:57] | Task: 保持 visual cursor 的 interaction 间 idle 状态
+## [2026-04-22 10:57] | Task: Keep the visual cursor's idle state between interactions
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS + SwiftPM`
 
 ### User Query
-> 逆向官方 `.app` 看它如何管理 overlay cursor 显示；当前本地 `click` / `set_value` 之间 cursor 会消失并反复从左下角 `(0,0)` 出发，而官方会 idle 在当前位置，下次操作继续移动。
+> Reverse-engineer how the official `.app` manages the overlay cursor's visibility; currently, locally, the cursor disappears between `click` / `set_value` and keeps re-starting from the bottom-left `(0,0)`, while officially it idles at its current position and continues moving from there on the next action.
 
 ### Changes Overview
-**Scope:** `OpenComputerUseKit` visual cursor runtime、逆向文档、架构文档
+**Scope:** `OpenComputerUseKit` visual cursor runtime, reverse-engineering docs, architecture docs
 
 **Key Actions:**
-- **[官方生命周期复查]**: 对 bundled `computer-use` `1.0.755` 复查 Swift metadata，确认 `ComputerUseCursor.Window.currentInterpolatedOrigin` 和 `wantsToBeVisible` / `shouldFadeOut` 是分离状态。
-- **[运行时日志对照]**: 通过 unified log 复查官方 service 的 cursor movement，确认多次 movement 之间复用同一个 cursor window，最后一次 movement 后约 5 分钟才由 service idle timeout 终止。
-- **[本地 idle 生命周期修正]**: `SoftwareCursorOverlay` 不再在 `click` / `set_value` 收尾后 0.5 秒级清空状态，而是保留 idle 约 5 分钟，让后续 tool call 从当前 visible tip 继续。
-- **[补测试和文档]**: 新增 idle timeout 常量回归测试，并同步 `ARCHITECTURE.md` 与 reverse-engineering 文档。
+- **[Re-review of official lifecycle]**: re-reviewed the Swift metadata for the bundled `computer-use` `1.0.755`, confirming that `ComputerUseCursor.Window.currentInterpolatedOrigin` and `wantsToBeVisible` / `shouldFadeOut` are separate states.
+- **[Cross-check against runtime logs]**: re-reviewed the official service's cursor movement via the unified log, confirming that the same cursor window is reused across multiple movements, and is only torn down by the service's idle timeout about 5 minutes after the last movement.
+- **[Fix the local idle lifecycle]**: `SoftwareCursorOverlay` no longer clears its state 0.5 seconds after `click` / `set_value` finishes; instead it now stays idle for about 5 minutes, letting subsequent tool calls continue from the currently visible tip.
+- **[Add tests and docs]**: added a regression test for the idle timeout constant, and synced `ARCHITECTURE.md` and the reverse-engineering docs.
 
 ### Design Intent
-官方的 `(0,0)` 起点是 fresh service / fresh cursor window 语义，不是每次 action 的收尾语义。把本地短延迟 hide 改成较长的 idle cleanup，可以保留当前进程内的 `displayedTipPosition` / visual dynamics 状态，避免连续工具调用时反复回到左下角。
+The official `(0,0)` starting point is the semantics of a fresh service / fresh cursor window, not the semantics of the end of every action. Changing the local short-delay hide into a longer idle cleanup preserves the `displayedTipPosition` / visual dynamics state within the current process, avoiding a repeated snap back to the bottom-left corner across consecutive tool calls.
 
 ### Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift`
@@ -30,10 +30,10 @@
 
 ### Follow-up (2026-04-22, turn-ended cleanup)
 
-- **[确认缺口]**: 复查后确认本地 `open-computer-use turn-ended` 只是单独 CLI 进程打印确认，不会影响正在运行的 MCP overlay；这不能满足“任务结束 cursor 消失”。
-- **[MCP 内部 hook]**: `StdioMCPServer` 新增 `notifications/turn-ended`，收到后立即 reset 当前进程里的 visual cursor。
-- **[Codex notify 兼容]**: CLI `turn-ended` 现在接受 Codex legacy notify 追加的 after-agent payload，并通过 macOS distributed notification 通知正在运行的 AppKit MCP 进程清理 cursor；`MCPAppRuntime` 会监听这条通知。
-- **[同步测试文档]**: 新增 CLI payload 解析和 MCP notification 回归测试，并更新架构与逆向文档。
+- **[Confirmed gap]**: re-review confirmed that the local `open-computer-use turn-ended` is just a standalone CLI process printing a confirmation; it doesn't affect a running MCP overlay. This doesn't satisfy "the cursor disappears when the task ends."
+- **[MCP internal hook]**: `StdioMCPServer` now has a `notifications/turn-ended`, which, once received, immediately resets the visual cursor in the current process.
+- **[Codex notify compatibility]**: the CLI `turn-ended` now accepts the after-agent payload appended by the Codex legacy notify, and notifies the running AppKit MCP process to clean up the cursor via a macOS distributed notification; `MCPAppRuntime` now listens for this notification.
+- **[Sync tests and docs]**: added regression tests for CLI payload parsing and MCP notification, and updated the architecture and reverse-engineering docs.
 
 **Follow-up Files:**
 - `apps/OpenComputerUse/Sources/OpenComputerUse/MCPAppRuntime.swift`

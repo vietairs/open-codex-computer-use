@@ -1,4 +1,4 @@
-## [2026-04-22 18:16] | Task: 增加 Gemini 和 opencode 的 MCP 安装支持
+## [2026-04-22 18:16] | Task: Add MCP install support for Gemini and opencode
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -9,16 +9,16 @@
 > add quick support for gemini and opencode, you can test it by run gemini and opencode from command line
 
 ### 🛠 Changes Overview
-**Scope:** 安装脚本、npm launcher、README 文档
+**Scope:** install scripts, npm launcher, README docs
 
 **Key Actions:**
-- **[Installer Support]**: 新增 `scripts/install-gemini-mcp.sh` 和 `scripts/install-opencode-mcp.sh`，分别对接 Gemini CLI 和 opencode 的 MCP 配置格式。
-- **[Shared Config Helper]**: 扩展 `scripts/install-config-helper.mjs`，支持 Gemini JSON 配置写入，以及 opencode `mcp.<name> = { type: "local", command: [...] }` 的幂等安装与旧别名清理。
-- **[Packaging and Docs]**: 更新 `README.md`、`README.zh-CN.md` 和 npm launcher/build 脚本，让 npm 安装后的 `open-computer-use` 也能直接转发 `install-gemini-mcp` / `install-opencode-mcp`。
-- **[Repo Hygiene]**: 将 `.gemini/` 加入 `.gitignore`，避免 Gemini 默认 project-scope 安装把本地配置噪音带进工作区。
+- **[Installer Support]**: Added `scripts/install-gemini-mcp.sh` and `scripts/install-opencode-mcp.sh`, targeting the Gemini CLI's and opencode's respective MCP config formats.
+- **[Shared Config Helper]**: Extended `scripts/install-config-helper.mjs` to support writing Gemini JSON config, as well as idempotent install and stale-alias cleanup for opencode's `mcp.<name> = { type: "local", command: [...] }`.
+- **[Packaging and Docs]**: Updated `README.md`, `README.zh-CN.md`, and the npm launcher/build scripts, so the npm-installed `open-computer-use` can also directly forward `install-gemini-mcp` / `install-opencode-mcp`.
+- **[Repo Hygiene]**: Added `.gemini/` to `.gitignore`, avoiding Gemini's default project-scope install from bringing local config noise into the workspace.
 
 ### 🧠 Design Intent (Why)
-这次改动延续仓库现有的“内置 install 子命令”模式，而不是要求用户手动查不同 host CLI 的配置格式。Gemini 默认是项目级 `.gemini/settings.json`，opencode 则会合并多个 JSON 配置文件，所以 helper 需要显式处理目标文件选择、幂等写入和旧别名清理，避免用户安装一次后留下重复配置或脏工作区。
+This change continues the repo's existing "built-in install subcommand" pattern, rather than requiring users to manually look up different host CLIs' config formats. Gemini defaults to a project-level `.gemini/settings.json`, while opencode merges multiple JSON config files, so the helper needs to explicitly handle target file selection, idempotent writes, and stale-alias cleanup, avoiding leaving duplicate config or a dirty workspace after a user installs once.
 
 ### 📁 Files Modified
 - `.gitignore`

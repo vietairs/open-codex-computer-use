@@ -1,4 +1,4 @@
-## [2026-04-17 23:58] | Task: 简化 README
+## [2026-04-17 23:58] | Task: Simplify the README
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 简化 README，只保留介绍、quick start、更多子命令和协议；介绍里提到 codex-computer-use 与 OpenAI 文章，quick start 写 npm 安装、授权、`open-computer-use doctor` 和 MCP JSON 配置。
+> Simplify the README to keep only the introduction, quick start, further subcommands, and license sections; the introduction should mention codex-computer-use and the OpenAI article, and the quick start should cover npm install, authorization, `open-computer-use doctor`, and MCP JSON configuration.
 
 ### 🛠 Changes Overview
-**Scope:** `README`、`docs/histories`
+**Scope:** `README`, `docs/histories`
 
 **Key Actions:**
-- **重写 README 结构**: 删除冗长的源码运行、抓包和实现细节，只保留四段式入口文档。
-- **保留关键上手路径**: 明确 `npm i -g open-computer-use`、`open-computer-use doctor`、权限授权和 MCP JSON 配置。
-- **补充常用命令说明**: 简要列出 `install-claude-mcp`、`install-codex-mcp`、`install-codex-plugin` 等命令用途。
+- **Rewrote the README structure**: Removed the lengthy source-run, packet-capture, and implementation-detail sections, keeping only a four-section entry-point document.
+- **Kept the key onboarding path**: Clearly documented `npm i -g open-computer-use`, `open-computer-use doctor`, permission authorization, and MCP JSON configuration.
+- **Added a summary of common commands**: Briefly listed the purpose of commands such as `install-claude-mcp`, `install-codex-mcp`, and `install-codex-plugin`.
 
 ### 🧠 Design Intent (Why)
-README 现在更像安装入口而不是项目手册。把首次使用路径压缩到最短，可以降低用户理解成本；更细节的实现和仓库协作信息继续留在 `docs/`。
+The README now reads more like an install entry point than a project manual. Compressing the first-use path down to the minimum lowers the barrier to understanding for users; more detailed implementation and repository collaboration information remains in `docs/`.
 
 ### 📁 Files Modified
 - `README.md`

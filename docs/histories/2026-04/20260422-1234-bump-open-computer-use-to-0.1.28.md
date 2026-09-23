@@ -1,4 +1,4 @@
-## [2026-04-22 12:34] | Task: 发布 0.1.28
+## [2026-04-22 12:34] | Task: Release 0.1.28
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -9,9 +9,9 @@
 **Scope:** release version bump, release notes, local release verification
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.28`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.28`，说明本次 patch release 聚焦 runtime overlay cursor 默认速度对齐官方 recovered spring timing。
-- **[Release Trigger]**: 基于 runtime cursor speed 对齐提交，准备用 `v0.1.28` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: Uniformly bumped the plugin manifest, Swift/Go version constants, smoke suite initialization version, test MCP client version, and CLI doc paths to `0.1.28`.
+- **[Release Notes]**: Added `0.1.28` to the user-facing release record, noting that this patch release focuses on aligning the runtime overlay cursor's default speed with the official recovered spring timing.
+- **[Release Trigger]**: Based on the runtime cursor speed alignment commit, prepared to push a `v0.1.28` tag to trigger a new GitHub Actions release.
 
 ### Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

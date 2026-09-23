@@ -1,4 +1,4 @@
-## [2026-04-20 11:51] | Task: 深挖 cursor slider 的 binary 映射
+## [2026-04-20 11:51] | Task: Dig into the binary mapping of the cursor slider
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,20 +6,20 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 现在我们有了这些参数调节，现在我们看看之前逆向分析的，再去二进制里挖掘一下，这几个参数调节的，看看二进制里是否有涉及这个，以及他们调节后分别对实际的曲线有什么影响
+> Now that we have these parameter knobs, let's go back into the binary and dig up what we reverse-engineered before, check whether the binary actually has something for each of these knobs, and see what effect adjusting each one actually has on the real curve.
 
 ### 🛠 Changes Overview
-**Scope:** `scripts/cursor-motion-re/`、`docs/references/`、`docs/exec-plans/`
+**Scope:** `scripts/cursor-motion-re/`, `docs/references/`, `docs/exec-plans/`
 
 **Key Actions:**
-- **[新增 slider-study 分析入口]**: 在 `scripts/cursor-motion-re/official_cursor_motion.py` / `reconstruct_cursor_motion.py` 中新增 `slider-study` 子命令，输出 shipping bundle phrase scan、binary-confirmed motion terms，以及 5 个 slider 的参数敏感性分析。
-- **[补 shipping bundle 证据边界]**: 明确记录当前 release bundle 未命中 `START HANDLE`、`END HANDLE`、`ARC SIZE`、`ARC FLOW` 这些完整 phrase；`SPRING` / `DEBUG` / `MAIL` / `CLICK` 仅作为歧义 token 命中，不再被误写成“debug UI 仍然随 release shipping”。
-- **[沉淀 slider 映射文档]**: 新增 `software-cursor-slider-parameter-investigation.md`，把 `start/end handle`、`arc size/flow`、`spring` 各自对应的 binary-confirmed 几何 / timing 量，以及默认样例 / 居中样例下的实际曲线影响单独沉淀。
-- **[同步旧文档口径]**: `software-cursor-motion-model.md` 不再只写“视频里有 slider UI”，而是补充说明当前 shipping bundle phrase scan 没有直接命中这组 label。
-- **[新增独立执行计划]**: 为这轮参数映射调查新增 active execution plan，避免继续挤在之前的 cursor reconstruction 或 CursorMotion UI 任务里。
+- **[Add a slider-study analysis entry point]**: added a `slider-study` subcommand to `scripts/cursor-motion-re/official_cursor_motion.py` / `reconstruct_cursor_motion.py`, which outputs a shipping-bundle phrase scan, binary-confirmed motion terms, and a parameter-sensitivity analysis for the 5 sliders.
+- **[Fill in the shipping-bundle evidence boundary]**: clearly recorded that the current release bundle does not match the full phrases `START HANDLE`, `END HANDLE`, `ARC SIZE`, or `ARC FLOW`; `SPRING` / `DEBUG` / `MAIL` / `CLICK` only match as ambiguous tokens, and this is no longer mis-written as "the debug UI from the video is still shipping in the release app."
+- **[Land the slider-mapping doc]**: added `software-cursor-slider-parameter-investigation.md`, separately landing the binary-confirmed geometry / timing quantities corresponding to `start/end handle`, `arc size/flow`, and `spring`, along with the actual curve effects under a default sample and a more-centered sample.
+- **[Sync the wording of the older doc]**: `software-cursor-motion-model.md` no longer just says "the video shows a slider UI"; it now also notes that the current shipping-bundle phrase scan does not directly match this set of labels.
+- **[Add a new independent execution plan]**: added a new active execution plan for this round of parameter-mapping investigation, so it no longer crowds into the earlier cursor-reconstruction or CursorMotion UI tasks.
 
 ### 🧠 Design Intent (Why)
-这轮的关键不是继续猜 5 个 slider 在 UI 上长什么样，而是把“release binary 里还能直接确认什么”和“我们如何基于这些量推断 slider 对曲线的影响”明确分层。这样后续继续挖 `ARC FLOW` 或 spring remap 时，就不会把 shipping 证据、视频证据和本地 lab 调参混成一团。
+The key point of this round isn't to keep guessing what the 5 sliders look like in the UI, but to clearly separate "what can still be directly confirmed in the release binary" from "how we infer the sliders' effect on the curve based on those quantities." That way, when we keep digging into `ARC FLOW` or a spring remap later, we won't mix up shipping evidence, video evidence, and local lab tuning.
 
 ### 📁 Files Modified
 - `scripts/cursor-motion-re/official_cursor_motion.py`

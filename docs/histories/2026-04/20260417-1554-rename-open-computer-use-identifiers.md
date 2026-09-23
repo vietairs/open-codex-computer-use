@@ -1,4 +1,4 @@
-## [2026-04-17 15:54] | Task: 统一 open-computer-use 命名
+## [2026-04-17 15:54] | Task: Unify open-computer-use naming
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 除了 repo 名继续保留 `open-codex-computer-use` 以外，其余对外命名统一改成 `open-computer-use`，至少先把 plugin 已经采用的新命名和 MCP name 对齐。
+> Besides keeping the repo name as `open-codex-computer-use`, unify all other external naming to `open-computer-use`; at minimum, align the plugin's already-adopted new naming with the MCP name first.
 
 ### 🛠 Changes Overview
 **Scope:** `Package.swift`, `apps/`, `packages/`, `scripts/`, `plugins/open-computer-use`, `README.md`, `docs/`, `artifacts/`
 
 **Key Actions:**
-- **[Runtime Identity]**: 把 Swift package / executable / fixture / smoke suite 的当前命名统一收敛到 `OpenComputerUse*`，并把 MCP `serverInfo.name` 改为 `open-computer-use`。
-- **[Packaging and Install]**: 把 `.app` 打包产物、插件 launcher、安装脚本和 Makefile 入口切到 `OpenComputerUse.app` / `OpenComputerUse`，同步更新 bundle display name 与 bundle identifier。
-- **[Docs and Samples]**: 更新 README、架构/安全/稳定性/质量文档和 active exec plan；对历史样本保留旧目录名，但在说明文字里显式标出当前产品名已切换到 `open-computer-use`。
+- **[Runtime Identity]**: Converged the current naming of the Swift package / executable / fixture / smoke suite to `OpenComputerUse*`, and changed the MCP `serverInfo.name` to `open-computer-use`.
+- **[Packaging and Install]**: Switched the `.app` packaging artifact, plugin launcher, install script, and Makefile entry points to `OpenComputerUse.app` / `OpenComputerUse`, and synced the bundle display name and bundle identifier accordingly.
+- **[Docs and Samples]**: Updated the README, architecture/security/reliability/quality docs, and the active exec plan; kept old directory names for historical samples but explicitly noted in the accompanying text that the current product name has switched to `open-computer-use`.
 
 ### 🧠 Design Intent (Why)
-这轮改动的目标不是只改某一个字符串，而是把“产品名、MCP 名、可执行名、打包名、插件入口、文档说明”收敛成一套一致的当前态，避免用户在仓库里同时看到 `open-codex-computer-use` 和 `open-computer-use` 两套并行命名。保留 repo 名、历史记录和旧配置清理逻辑，是为了兼顾迁移成本和可追溯性。
+The goal of this round of changes was not just to change one string, but to converge "product name, MCP name, executable name, packaging name, plugin entry point, and doc wording" into one consistent current state, avoiding users seeing both `open-codex-computer-use` and `open-computer-use` as two parallel naming schemes in the repo at the same time. The repo name, history records, and legacy config cleanup logic were kept as-is to balance migration cost against traceability.
 
 ### 📁 Files Modified
 - `Package.swift`

@@ -1,12 +1,12 @@
-# 核心理念
+# Core Beliefs
 
-这些理念用于约束这个模板在项目早期的默认方向。
+These beliefs constrain the default direction of this template during the early stages of a project.
 
-## Agent-First 的工作原则
+## Agent-First Working Principles
 
-- 人来定方向，Agent 负责执行和推进。
-- 仓库内可追溯的知识，比私有上下文更重要。
-- Agent 反复失败时，优先修脚手架和环境，不是继续加 prompt 压力。
-- 短而稳定的入口文档，比越来越长的大 prompt 更可靠。
-- 能变成机械检查的约束，就不要只停留在口头规范。
-- 速度很重要，但无节制地堆积熵会迅速拖垮效率，所以要持续整理和收口。
+- Humans set the direction; agents handle execution and progress.
+- Traceable knowledge in the repo matters more than private context.
+- When an agent repeatedly fails, fix the scaffolding and environment first, not pile on more prompt pressure.
+- A short, stable entry-point doc is more reliable than an ever-growing giant prompt.
+- If a constraint can become a mechanical check, don't leave it as verbal convention only.
+- Speed matters, but unchecked entropy accumulation quickly drags down efficiency, so keep tidying and closing loops continuously.

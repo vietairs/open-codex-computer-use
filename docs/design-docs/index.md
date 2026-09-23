@@ -1,13 +1,13 @@
-# 设计文档索引
+# Design Docs Index
 
-用这个目录集中管理架构设计和产品设计文档。
+Use this directory to centrally manage architecture design and product design documents.
 
-建议约定：
+Suggested conventions:
 
-- 一个主题一份文档。
-- 每份文档写清当前状态和简短摘要。
-- 关联引入它的 execution plan 或 spec。
+- One document per topic.
+- Each document should clearly state its current status and a short summary.
+- Link to the execution plan or spec that introduced it.
 
-## 初始文档
+## Initial Documents
 
 - `core-beliefs.md`

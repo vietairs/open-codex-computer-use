@@ -1,4 +1,4 @@
-## [2026-04-17 15:10] | Task: 收敛非抢焦点交互
+## [2026-04-17 15:10] | Task: Converge on non-focus-stealing interaction
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 现在已经有官方 `computer-use` 和仓库内 `open-codex-computer-use` 两套工具，要求并行对比效果，并把两边的 tool call / 结果分别保存到同一目录下的两个子目录里；当前最明显的问题是我们的实现会抢用户鼠标和焦点，希望围绕这一点做改进。
+> We now have two toolsets — the official `computer-use` and the repo's own `open-codex-computer-use` — and I want a parallel comparison, with the tool calls / results from each side saved to two separate subdirectories under the same directory; the most obvious current problem is that our implementation steals the user's mouse and focus, and I want improvements focused on that.
 
 ### 🛠 Changes Overview
 **Scope:** `OpenCodexComputerUseKit`, `docs/`, `artifacts/`
 
 **Key Actions:**
-- **[非侵入优先输入链路]**: 去掉 `get_app_state` 的强制 app 激活，把 `type_text` / `press_key` 改成按 PID 定向投递键盘事件。
-- **[点击策略修正]**: 修复 raw AX actions 被错误过滤的问题，并为 coordinate click 增加 AX hit-test 优先路径，只有命中失败才退回全局 HID。
-- **[对比样本留档]**: 新增 `artifacts/tool-comparisons/20260417-focus-behavior/`，分别保存官方 `computer-use` 和仓库实现的调用样本与前后台观测。
-- **[文档同步]**: 更新架构与质量文档，补执行计划与本次 history。
+- **[Non-intrusive-first input path]**: Removed the forced app activation from `get_app_state`, and changed `type_text` / `press_key` to deliver keyboard events targeted by PID.
+- **[Click strategy fix]**: Fixed an issue where raw AX actions were incorrectly filtered, and added an AX hit-test-first path for coordinate clicks, only falling back to global HID when the hit test fails.
+- **[Comparison samples archived]**: Added `artifacts/tool-comparisons/20260417-focus-behavior/`, saving call samples and foreground/background observations for both the official `computer-use` and the repo implementation.
+- **[Documentation sync]**: Updated the architecture and quality docs, and added the execution plan and this history entry.
 
 ### 🧠 Design Intent (Why)
-“抢焦点/抢鼠标”本质上是当前实现把太多路径都建立在 `activate + cghidEventTap` 上。这个改动的目标不是假装所有鼠标路径都能彻底无副作用，而是把读状态、键盘输入和大部分可反解到 AX 元素的点击先收敛到更温和的通道，把真正需要全局 HID 的场景显式缩到最小。
+"Stealing focus/mouse" is fundamentally a result of the current implementation building too many paths on top of `activate + cghidEventTap`. The goal of this change is not to pretend all mouse paths can be made entirely side-effect-free, but to converge state reads, keyboard input, and most AX-resolvable clicks onto gentler channels, while explicitly minimizing the scenarios that truly need global HID.
 
 ### 📁 Files Modified
 - `packages/OpenCodexComputerUseKit/Sources/OpenCodexComputerUseKit/InputSimulation.swift`
@@ -34,13 +34,13 @@
 
 ### 🔁 Follow-up (2026-04-17 17:02)
 
-同一任务在后续 MITM 调试里继续推进，新增两类收敛：
+The same task continued in a later round of MITM debugging, adding two more rounds of convergence:
 
-- **[全局鼠标前的 AX 提升]**: `InputSimulation` 不再把“需要全局 pointer”直接等价成 `activate()`；现在会先尝试 `AXRaise`、`kAXMainAttribute` 和 `kAXFocusedAttribute`，只有这些都失败后才回退到 `NSRunningApplication.activate`。
-- **[Tool Intrusion Hints]**: 把 9 个 tools 的侵入性偏好直接写进 `ToolDefinitions` 和 plugin manifest，让模型更容易优先选择 `get_app_state` / `press_key` / `type_text` / `set_value` / `perform_secondary_action`，减少不必要的坐标点击和 drag。
-- **[MITM 调试方法沉淀]**: 在 `docs/references/codex-network-capture.md` 增补 prompt 锚定差异和“宿主取消 vs MCP server 故障”的排查顺序，避免后续做 A/B 或 eval 时重复踩坑。
+- **[AX-raise before global mouse]**: `InputSimulation` no longer treats "needs global pointer" as automatically equivalent to `activate()`; it now first tries `AXRaise`, `kAXMainAttribute`, and `kAXFocusedAttribute`, and only falls back to `NSRunningApplication.activate` if all of those fail.
+- **[Tool intrusion hints]**: The intrusiveness preference of all 9 tools is now written directly into `ToolDefinitions` and the plugin manifest, making it easier for the model to prefer `get_app_state` / `press_key` / `type_text` / `set_value` / `perform_secondary_action`, reducing unnecessary coordinate clicks and drags.
+- **[MITM debugging methodology captured]**: Added notes to `docs/references/codex-network-capture.md` on prompt-anchoring differences and the "host cancellation vs. MCP server failure" triage order, to avoid repeating the same pitfalls in future A/B tests or evals.
 
-这次 follow-up 的重点不是再加一层复杂抽象，而是把“模型侧偏好”和“运行时兜底策略”一起往同一个方向推。仅靠运行时优化，模型仍可能频繁选到高副作用 tool；仅靠文案提示，真正退化到全局 pointer 时又仍会过早抢焦点。两边同时收口，才能更稳定地逼近官方 `computer-use` 那种“键盘优先、AX 优先、全局鼠标最后”的行为。
+The focus of this follow-up wasn't to add another layer of abstraction, but to push the "model-side preference" and the "runtime fallback strategy" in the same direction together. Runtime optimization alone still leaves the model frequently choosing high-side-effect tools; prompt hints alone still leave premature focus-stealing when it truly degrades to global pointer use. Closing both loops together gets us more reliably closer to the official `computer-use` behavior of "keyboard first, AX first, global mouse last."
 
 **Follow-up Files:**
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/InputSimulation.swift`
@@ -53,13 +53,13 @@
 
 ### 🔬 Follow-up (2026-04-17 17:20)
 
-在继续做 Codex 宿主侧调试时，把“隔离另一套 plugin 再跑 case”正式收进仓库流程：
+While continuing to debug the Codex host side, formally brought "isolate the other plugin and rerun the case" into the repo workflow:
 
-- **[Isolated Exec Helper]**: 新增 `scripts/run-isolated-codex-exec.sh`，把 `computer-use` / `open-computer-use` / `all` 三种模式收成统一入口，底层通过单次 `codex exec -c 'plugins."...".enabled=false'` 做临时覆写，不改全局 `~/.codex/config.toml`。
-- **[A/B Routing Guidance]**: 在 `docs/references/codex-network-capture.md` 增补“隔离 plugin 路径”章节，明确当需要比较官方和仓库插件时，默认应该关掉另一套，避免 prompt 锚点和共存插件一起污染结论。
-- **[Verification Outcome]**: 这台机器上的隔离验证结果是：只开官方 `computer-use` 时 `list_apps` 正常；只开 `open-computer-use` 时 `list_apps` 仍然返回 `user cancelled MCP tool call`；而 direct JSON-RPC 调用仓库插件 launcher 是正常的，因此当前主瓶颈不是两套 plugin 互相干扰，而更像是 Codex host 对第三方 plugin 调用的 gate。
+- **[Isolated exec helper]**: Added `scripts/run-isolated-codex-exec.sh`, unifying the `computer-use` / `open-computer-use` / `all` three modes into a single entry point, implemented under the hood via a single `codex exec -c 'plugins."...".enabled=false'` temporary override, without touching the global `~/.codex/config.toml`.
+- **[A/B routing guidance]**: Added an "isolated plugin path" section to `docs/references/codex-network-capture.md`, clarifying that when comparing the official and repo plugins, the other one should be disabled by default, to avoid prompt anchoring and co-installed plugins jointly polluting the conclusion.
+- **[Verification outcome]**: On this machine, the isolated verification result was: with only the official `computer-use` enabled, `list_apps` works normally; with only `open-computer-use` enabled, `list_apps` still returns `user cancelled MCP tool call`; while a direct JSON-RPC call to the repo plugin's launcher works fine. So the current main bottleneck is not the two plugins interfering with each other, but rather something more like a gate the Codex host applies to third-party plugin calls.
 
-这一步的价值不只是“跑通一个 shell alias”。之前调试里，`prompt` 文案、插件共存状态和宿主策略混在一起，很容易把路由偏差误判成 runtime 行为差异。把隔离入口收进仓库后，后续做焦点行为对比、MITM 抓样本和 eval 时，至少能先把“到底调用的是谁”固定下来。
+The value of this step isn't just "getting a shell alias working." Previously, the `prompt` copy, plugin co-installation state, and host policy were all tangled together, making it easy to misattribute routing differences as runtime behavior differences. With the isolation entry point now in the repo, future focus-behavior comparisons, MITM sample captures, and evals can at least pin down "who is actually being called" first.
 
 **Isolation Files:**
 - `scripts/run-isolated-codex-exec.sh`

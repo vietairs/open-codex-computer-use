@@ -1,4 +1,4 @@
-## [2026-04-19 22:03] | Task: 沉淀发版必读文档
+## [2026-04-19 22:03] | Task: Capture a must-read release guide
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 这个发版本的落个独立的md到docs把，然后AGENTS.md加个发版本必读的指向。这样未来新发版本就都知道怎么做了
+> Split this release process into its own standalone md under docs, then add a pointer in AGENTS.md for "must-read before releasing." That way future releases will all know how to do it.
 
 ### 🛠 Changes Overview
-**Scope:** `docs/`、`AGENTS.md`
+**Scope:** `docs/`, `AGENTS.md`
 
 **Key Actions:**
-- **[Release Guide]**: 新增 `docs/releases/RELEASE_GUIDE.md`，把版本源、release checklist、tag 推送命令、GitHub Actions 排查方式，以及 tag 打错后的修复路径单独沉淀下来。
-- **[Agent Routing]**: 在 `AGENTS.md` 里新增“发版本必读”导航，让版本 bump / 打 tag / 查 release 失败这类任务一开始就能命中正确文档。
-- **[Docs Index Sync]**: 更新 `docs/releases/README.md`，把面向用户的 release note 入口和面向维护者的发版指南区分开。
+- **[Release Guide]**: Added `docs/releases/RELEASE_GUIDE.md`, capturing the version source of truth, the release checklist, tag-push commands, how to troubleshoot GitHub Actions, and the fix path for a mistakenly created tag.
+- **[Agent Routing]**: Added a "must-read before releasing" navigation entry in `AGENTS.md`, so tasks like version bumps, tagging, or investigating a failed release land on the correct doc from the start.
+- **[Docs Index Sync]**: Updated `docs/releases/README.md` to separate the user-facing release-notes entry point from the maintainer-facing release guide.
 
 ### 🧠 Design Intent (Why)
-这次 release 修复暴露出一个典型问题：版本源和 tag 约定如果只存在于聊天里，下一次发版时仍然很容易再踩一遍。把“必须先改哪几个版本文件、怎么验证 staging 包真的变成新版本、CI 失败先查什么”沉淀成独立文档，再在 `AGENTS.md` 里做最短路径导航，后续 Agent 和人都能按同一套流程执行，不需要继续靠记忆维持。
+This release fix exposed a typical problem: if the version source of truth and tagging conventions only live in chat, the next release will easily hit the same pitfalls again. Capturing "which version files must be changed first, how to verify the staging package actually became the new version, what to check first when CI fails" into a standalone doc, with the shortest-path navigation added in `AGENTS.md`, lets future agents and humans follow the same process without relying on memory.
 
 ### 📁 Files Modified
 - `AGENTS.md`

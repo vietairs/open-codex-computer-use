@@ -1,4 +1,4 @@
-## [2026-07-18 10:44] | Task: 合并 upstream v0.2.0 并新增锁屏可选放行
+## [2026-07-18 10:44] | Task: Merge upstream v0.2.0 and add optional lock-screen pass-through
 
 ### 🤖 Execution Context
 * **Agent ID**: `/hvn:cortex --auto`
@@ -6,20 +6,20 @@
 * **Runtime**: Claude Code (background job)
 
 ### 📥 User Query
-> 拉取 fork 源头 `iFurySt/open-codex-computer-use` 最新代码，对比 fork 与最新版差异，把我们开发的功能与其最新更新合并到 fork；再检查合并后 agent（Claude Code / Codex）能否在锁屏时继续操作电脑，若不能则开发该功能。
+> Pull the latest code from the fork's upstream, `iFurySt/open-codex-computer-use`, diff the fork against the newest version, and merge the features we've built into that latest update; then check whether the agents (Claude Code / Codex) can keep operating the computer while the screen is locked after the merge, and if not, build that capability.
 
 ### 🛠 Changes Overview
-**Scope:** 三方合并（本地 Stage Manager + origin 锁屏守卫 + upstream v0.2.0）+ `OpenComputerUseKit` 锁屏策略 + app-agent IPC 加固
+**Scope:** three-way merge (local Stage Manager + origin lock-screen guard + upstream v0.2.0) + `OpenComputerUseKit` lock-screen policy + app-agent IPC hardening
 
 **Key Actions:**
-- **[三方合并]**: 合并 upstream v0.1.51→v0.2.0 全部 17 个提交（`text_limit` 破坏性改动、tree budget 参数、数字 `element_index`、Windows UTF-8、匿名 Web 点击保留）到含两套 fork 功能的分支；唯一语义冲突：upstream 新增 `WindowCaptureCandidate.isOnscreen`，修复 4 处测试构造。
-- **[锁屏能力判定]**: 合并后锁屏守卫为 fail-closed，**阻止**全部工具——与目标相反。
-- **[可选放行]**: 新增 `MacSessionLockPolicy`，`OPEN_COMPUTER_USE_ALLOW_LOCKED=1` 开启锁屏 best-effort 控制；默认仍 fail-closed。可行原因：所有 action 走 process-targeted 投递（AX / `postToPid`），不经全局 HID tap。锁屏时截图返回空图，优先用 `element_index` 定位。
-- **[安全加固]**: 对抗式复审发现 confused-deputy——同 uid 未认证 socket 可 per-call 伪造该标志。改为仅经可信启动 env 传入并在 agent 侧剥离 per-call 该键。
-- **[验证]**: +7 锁屏策略测试，共 172 测试全绿；full workspace build 通过；`make check-docs` 通过。
+- **[Three-way merge]**: merged all 17 upstream commits from v0.1.51→v0.2.0 (the breaking `text_limit` change, the tree budget parameter, numeric `element_index`, Windows UTF-8, preserving anonymous web click targets) into the branch carrying both sets of fork features. The one semantic conflict: upstream added `WindowCaptureCandidate.isOnscreen`, which required fixing 4 test constructors.
+- **[Lock-screen capability check]**: after the merge, the lock-screen guard was fail-closed and **blocked** every tool — the opposite of the goal.
+- **[Optional pass-through]**: added `MacSessionLockPolicy`; setting `OPEN_COMPUTER_USE_ALLOW_LOCKED=1` enables best-effort control while the screen is locked, with fail-closed still the default. This is feasible because every action is delivered process-targeted (AX / `postToPid`), never through the global HID tap. While locked, screenshots return an empty image, so `element_index` is preferred for locating elements.
+- **[Security hardening]**: adversarial re-review found a confused-deputy issue — a same-uid, unauthenticated socket could forge this flag per-call. Changed so the flag is only passed in via a trusted launch env and is stripped from the per-call key on the agent side.
+- **[Verification]**: +7 lock-screen policy tests, 172 tests total all green; full workspace build passed; `make check-docs` passed.
 
 ### 🧠 Design Intent (Why)
-无人值守 agent 需要在锁屏时继续工作，但先前团队的 brainstorm 已论证「宣称 Lock Screen 支持」不可辩护，故守卫刻意 fail-closed。本次不推翻该决定：默认不变，仅提供显式 opt-in，并如实记录限制（截图不可用、coordinate-only 不可靠）与残余同 uid 信任边界。安全敏感开关只走启动 env，避免 per-call socket 伪造。
+Unattended agents need to keep working while the screen is locked, but the team's earlier brainstorm had already concluded that claiming "Lock Screen support" isn't defensible, which is why the guard was deliberately fail-closed. This round doesn't overturn that decision: the default stays unchanged, and only an explicit opt-in is added, honestly documenting the limitations (screenshots unavailable, coordinate-only is unreliable) and the remaining same-uid trust boundary. The security-sensitive switch is only passed through the launch env, avoiding per-call socket forgery.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MacSessionGuard.swift`

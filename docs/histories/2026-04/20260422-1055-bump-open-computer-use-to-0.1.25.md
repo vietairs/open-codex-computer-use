@@ -1,20 +1,20 @@
-## [2026-04-22 10:55] | Task: 发布 0.1.25
+## [2026-04-22 10:55] | Task: Release 0.1.25
 
-### 用户诉求
+### User Request
 
-> 提交相关改动，bump version 推送。
+> Commit the related changes, bump the version, and push.
 
-### 本次改动
+### Changes This Round
 
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.25`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.25`，说明本次 patch release 聚焦 `set_value` 的 settable accessibility element 边界。
-- **[Release Trigger]**: 基于 `set_value` 官方语义收敛提交，准备用 `v0.1.25` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: raised the plugin manifest, Swift/Go version constants, smoke suite init version, test MCP client version, and CLI doc paths together to `0.1.25`.
+- **[Release Notes]**: added `0.1.25` to the user-visible release record, noting that this patch release focuses on tightening the settable-accessibility-element boundary for `set_value`.
+- **[Release Trigger]**: based on the commit converging `set_value` to official semantics, preparing to push the `v0.1.25` tag to trigger a new GitHub Actions release.
 
-### 设计动机
+### Design Rationale
 
-`0.1.24` 解决了 `click` 的全局物理指针 fallback 问题，但 `set_value` 对 Sublime 这类可读不可写的 AX 节点仍会暴露底层 `-25200`。这次 patch release 将 `set_value` 收敛到官方的 settable-only 语义，并用独立版本发布，便于安装用户拿到清晰错误提示。
+`0.1.24` fixed the global physical pointer fallback issue for `click`, but `set_value` still leaked the underlying `-25200` error for AX nodes that are readable but not writable, such as in Sublime. This patch release converges `set_value` to the official settable-only semantics, shipped as its own version so installed users get a clear error message.
 
-### 影响文件
+### Files Affected
 
 - `plugins/open-computer-use/.codex-plugin/plugin.json`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/OpenComputerUseVersion.swift`

@@ -1,4 +1,4 @@
-## [2026-04-20 18:42] | Task: 发布 0.1.16 并拆分本地 Dev app 身份
+## [2026-04-20 18:42] | Task: Release 0.1.16 and split local Dev app identity
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 不然这样吧，原来 CI 上的就按照原来的方式来就行了（等我未来有证书了再来处理），这样就只以 CI 发的为准就行了。然后本地开发都用自己本地的 sign 就好了。不过本地 DEBUG 或者 dev 打包的时候，应用应该要加个 `(Dev)` 结尾，这样会明确一点。
+> Let's do it this way then: keep what's on CI as it already is (I'll deal with it once I have a certificate in the future), so CI-published builds stay canonical. Local development should just use local signing. But when building locally in DEBUG or dev mode, the app should have a `(Dev)` suffix, to make it clearer.
 
 ### 🛠 Changes Overview
-**Scope:** `.github/workflows/`、`apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `.github/workflows/`, `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[CI Boundary Reset]**: 把 release workflow 里的证书导入步骤移除，`package-npm` 重新明确使用 ad-hoc 打包，恢复 “CI 产物按原方式发布” 的边界。
-- **[Dev App Split]**: 本地非 release 构建统一输出 `Open Computer Use (Dev).app`，display name 改成 `Open Computer Use (Dev)`，bundle identifier 改成 `com.ifuryst.opencomputeruse.dev`，避免和正式发布版继续显示成同名授权对象。
-- **[Permission Routing]**: 权限发现逻辑在 dev bundle 运行时会优先绑定当前 dev app，而 release 运行时仍优先寻找稳定安装的正式 bundle；launch/install 脚本也同步适配新的 `(Dev)` 包名。
-- **[Release Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version、CLI 文档路径与用户可见 release note 统一提升到 `0.1.16`。
+- **[CI Boundary Reset]**: removed the certificate import step from the release workflow, and `package-npm` again explicitly uses ad-hoc packaging, restoring the boundary of "CI artifacts publish the same way as before".
+- **[Dev App Split]**: local non-release builds now uniformly output `Open Computer Use (Dev).app`, with the display name changed to `Open Computer Use (Dev)` and the bundle identifier changed to `com.ifuryst.opencomputeruse.dev`, so it no longer shows up as the same authorization object as the official release.
+- **[Permission Routing]**: the permission discovery logic now prefers binding to the current dev app when running from a dev bundle, while the release runtime still prefers finding the stably installed official bundle; the launch/install scripts were also updated for the new `(Dev)` package name.
+- **[Release Bump]**: unified the plugin manifest, Swift/Go version constants, smoke-suite init version, test MCP client version, CLI doc paths, and the user-visible release note all up to `0.1.16`.
 
 ### 🧠 Design Intent (Why)
-这次目标不是继续强行让本地临时构建和 CI 分发产物共用一条签名链，而是先把“正式发布身份”和“本地开发身份”清晰拆开。CI 继续保持稳定、可重复的 release 入口；本地 dev/debug 构建则明确带上 `(Dev)` 后缀和独立 bundle id，这样既不会误导成和正式版完全等价，也能让系统权限列表里的两个对象一眼可区分。
+The goal this time was not to keep forcing local ad-hoc builds and CI-distributed artifacts to share one signing chain, but to first clearly split the "official release identity" from the "local development identity". CI keeps serving as the stable, repeatable release entry point; local dev/debug builds now explicitly carry the `(Dev)` suffix and a separate bundle id, so they're neither mistaken for being fully equivalent to the official release, nor indistinguishable from it in the system's permission list.
 
 ### 📁 Files Modified
 - `.github/workflows/release.yml`

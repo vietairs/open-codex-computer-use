@@ -1,75 +1,75 @@
 # Visual Cursor Overlay
 
-## 目标
+## Goal
 
-让 `open-computer-use` 在 `click` 路径上具备一套可见的软件 cursor overlay：点击前能沿曲线移动到目标点、点击时有明确的视觉反馈、点击后可以短暂停留并做轻微 idle sway，随后自动隐藏，同时继续保持当前 AX 优先、尽量不抢焦点的执行策略。
+Give `open-computer-use` a visible software cursor overlay on the `click` path: it moves along a curve toward the target point before clicking, gives clear visual feedback on click, lingers briefly afterward with a slight idle sway, then auto-hides — all while preserving the current AX-first, avoid-stealing-focus execution strategy.
 
-## 范围
+## Scope
 
-- 包含：
-- 为 `mcp` 模式补一个可承载 AppKit overlay 的主线程 runtime。
-- 实现独立透明窗口的软件 cursor overlay。
-- 把 `click` 路径接到 overlay，但不改变现有 AX 优先 / HID fallback 的决策。
-- 增加必要测试，并同步 README、架构文档和 history。
-- 不包含：
-- 本轮不复刻官方闭源 cursor 的私有素材、完整 choreography 或私有事件注入链路。
-- 本轮不把 drag、scroll、键盘输入全部接入统一 overlay。
+- Included:
+- Add a main-thread runtime for `mcp` mode capable of hosting an AppKit overlay.
+- Implement a software cursor overlay as an independent transparent window.
+- Wire the `click` path to the overlay without changing the existing AX-first / HID-fallback decision logic.
+- Add necessary tests, and sync the README, architecture docs, and history.
+- Not included:
+- This round does not replicate the official closed-source cursor's private assets, full choreography, or private event-injection pipeline.
+- This round does not wire drag, scroll, or keyboard input into the unified overlay.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
 - `docs/ARCHITECTURE.md`
 - `docs/REPO_COLLAB_GUIDE.md`
 - `docs/references/codex-computer-use-reverse-engineering/software-cursor-overlay.md`
 - `docs/PLANS_GUIDE.md`
-- 相关代码路径：
+- Related code paths:
 - `apps/OpenComputerUse/Sources/OpenComputerUse/OpenComputerUseMain.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/InputSimulation.swift`
-- 已知约束：
-- 当前 `mcp` 模式是同步 `readLine()` 主循环，没有长期运行的 AppKit event loop。
-- 官方实现已有独立 `Software Cursor` 窗口和 Bezier motion 证据，但开源版目前没有 overlay UI。
-- 点击路径已经做过 AX 优先收敛，新增 overlay 不能把这层行为边界改坏。
+- Known constraints:
+- The current `mcp` mode is a synchronous `readLine()` main loop, with no long-running AppKit event loop.
+- The official implementation already has evidence of an independent `Software Cursor` window and Bezier motion, but the open-source version currently has no overlay UI.
+- The click path has already been converged toward AX-first; the new overlay must not break this behavioral boundary.
 
-## 风险
+## Risks
 
-- 风险：为了跑 overlay 而改动 `mcp` runtime，可能影响现有 stdio 读写稳定性。
-- 缓解方式：保留最小变更面；只在 visual cursor 开启时切到 AppKit runtime，并让 stdin 读取仍保持串行。
-- 风险：overlay 的 AppKit UI 可能干扰 smoke suite 或普通 app 点击命中。
-- 缓解方式：overlay window 设为透明、忽略鼠标事件，并给 smoke suite 留显式关闭开关。
-- 风险：视觉动画与真实动作不同步，反而让用户更困惑。
-- 缓解方式：把 overlay 明确设计成“视觉提示层”，动作仍按现有 AX/HID 路径执行，并让点击脉冲只围绕最终目标点展开。
+- Risk: Modifying the `mcp` runtime to support the overlay may affect existing stdio read/write stability.
+- Mitigation: Keep the change surface minimal; only switch to the AppKit runtime when the visual cursor is enabled, and keep stdin reads serialized.
+- Risk: The overlay's AppKit UI may interfere with the smoke suite or hit-testing on ordinary apps.
+- Mitigation: Make the overlay window transparent and mouse-event-ignoring, and provide the smoke suite with an explicit disable switch.
+- Risk: Visual animation may become out of sync with the actual action, confusing the user further.
+- Mitigation: Explicitly design the overlay as a "visual cue layer" — actions still execute via the existing AX/HID path, and the click pulse is centered only on the final target point.
 
-## 里程碑
+## Milestones
 
-1. Runtime 与 overlay 基础设施落地。
-2. `click` 路径接入 visual cursor。
-3. 验证、文档同步与归档。
+1. Runtime and overlay infrastructure land.
+2. The `click` path is wired to the visual cursor.
+3. Verification, doc sync, and archiving.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
 - `swift test`
 - `./scripts/run-tool-smoke-tests.sh`
-- 当前结果：
-- `swift test` 通过。
-- `./scripts/run-tool-smoke-tests.sh` 仍然卡在既有 `list_apps`/fixture 约束：当前 `AppDiscovery.listCatalog()` 只收敛带 bundle-id 的 user-facing app，而 smoke fixture 是直接运行的可执行文件，不会出现在这条输出里；这不是本轮 visual cursor 引入的回归。
-- 后续 follow-up 已继续收敛 cursor 尺寸、官方 asset fallback 和相对目标 window 的排序逻辑；该部分继续保持 `swift test` 通过。
-- 手工检查：
-- 对一个真实 app 连续执行多次 `click`，确认 overlay 会在目标点附近短暂停留并做轻微 idle sway，随后自动消失。
-- 在 AX action 命中场景下，确认点击后前台 app 不会被额外 `activate`。
-- 观测检查：
-- `CGWindowListCopyWindowInfo` 能看到 `open-computer-use` 进程下存在一个透明 overlay window。
+- Current results:
+- `swift test` passes.
+- `./scripts/run-tool-smoke-tests.sh` still hits an existing `list_apps`/fixture constraint: the current `AppDiscovery.listCatalog()` only converges on user-facing apps with a bundle ID, while the smoke fixture is a directly-run executable that doesn't appear in that output; this is not a regression introduced by visual cursor in this round.
+- Subsequent follow-ups have continued converging cursor sizing, official asset fallback, and ordering logic relative to the target window; this part continues to pass `swift test`.
+- Manual checks:
+- Ran `click` repeatedly against a real app, confirming the overlay lingers briefly near the target point with a slight idle sway before auto-disappearing.
+- In AX-action-hit scenarios, confirmed the foreground app is not additionally `activate`d after the click.
+- Observational checks:
+- `CGWindowListCopyWindowInfo` shows a transparent overlay window present under the `open-computer-use` process.
 
-## 进度记录
+## Progress Log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
 
-## 决策记录
+## Decision Log
 
-- 2026-04-17：优先实现“独立 overlay window + 曲线移动 + 点击脉冲 + idle sway”，不试图在这一轮复刻官方的全部私有 choreography。
-- 2026-04-17：`mcp` 模式只在 visual cursor 开启时切到 AppKit runtime，避免把一整轮 runtime 重构强行施加到所有无 UI 场景。
-- 2026-04-17：smoke 继续显式关闭 visual cursor；因为这条回归链路的目标是验证 tools 行为闭环，而不是验证 UI 动画本身。
-- 2026-04-17：对于官方 bundle 资产，优先采用“运行时读取 + 本地处理后绘制”的方式，而不是把闭源图片直接 vendoring 到开源仓库里。
+- 2026-04-17: Prioritize implementing "independent overlay window + curved motion + click pulse + idle sway," without attempting to replicate all of the official private choreography in this round.
+- 2026-04-17: `mcp` mode only switches to the AppKit runtime when the visual cursor is enabled, avoiding forcing a full runtime refactor onto all headless scenarios.
+- 2026-04-17: The smoke suite continues to explicitly disable the visual cursor, since this regression chain's goal is to verify the tools' behavioral closure, not the UI animation itself.
+- 2026-04-17: For official bundle assets, prefer "read at runtime + process locally then draw" over vendoring closed-source images directly into the open-source repo.

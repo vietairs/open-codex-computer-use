@@ -1,26 +1,26 @@
-# 渲染 AX placeholder 值
+# Render the AX placeholder value
 
-## 用户诉求
+## User Ask
 
-继续对齐开源版 `open-computer-use` 和官方 `computer-use` 的 app state 输出，尤其是 Electron / Browser 这类复杂 AX tree 的返回形状。
+Continue aligning the open-source `open-computer-use`'s app-state output with the official `computer-use`, especially the output shape for complex AX trees like Electron / Browser.
 
-## 主要改动
+## Main Changes
 
-- 在 AX renderer 中读取 `AXPlaceholderValue` / `AXPlaceholder`。
-- 当 placeholder 不等于 title、description 或 value 时，在对应元素行追加 `Placeholder: ...`。
-- 增加 placeholder segment 的单元测试，避免重复渲染 description 或已有 value。
+- Read `AXPlaceholderValue` / `AXPlaceholder` in the AX renderer.
+- When the placeholder differs from title, description, or value, append `Placeholder: ...` to the corresponding element row.
+- Added a unit test for the placeholder segment, to avoid re-rendering a description or an existing value redundantly.
 
-## 设计动机
+## Design Intent
 
-官方 Chrome 输出会在地址栏元素上保留 placeholder，例如 `Ask Google or type a URL`。开源版之前只输出 description 和 value，缺少这个语义字段，导致 browser / Electron app state 信息少于官方。
+The official Chrome output keeps the placeholder on address-bar elements, e.g. `Ask Google or type a URL`. The open-source version previously only output description and value, missing this semantic field, so browser / Electron app-state info was less complete than the official one.
 
-## 验证
+## Verification
 
-- Chrome 本地回归确认地址栏行包含 `Placeholder: Ask Google or type a URL`。
+- Local Chrome regression confirms the address-bar row includes `Placeholder: Ask Google or type a URL`.
 - `swift test --filter AccessibilityRendererFormatsPlaceholderSegment`
 - `./scripts/build-open-computer-use-app.sh debug`
 
-## 受影响文件
+## Files Affected
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

@@ -1,4 +1,4 @@
-## [2026-09-22 10:36] | Task: 补齐 compact 视图 index invariant 的渲染器驱动测试
+## [2026-09-22 10:36] | Task: Backfill a renderer-driven test for the compact view's index invariant
 
 ### 🤖 Execution Context
 * **Agent ID**: `cortex -> fullstack-developer`
@@ -6,42 +6,53 @@
 * **Runtime**: `Claude Code, macOS 14+, swift test`
 
 ### 📥 User Query
-> 修复 PR #10 code review 里的 H2：compact 快照的 `treeLineOffsets` 不变量完全没有测试覆盖，
-> 补一个由真实 renderer 驱动的测试。
+> Fix H2 from PR #10's code review: the compact snapshot's `treeLineOffsets` invariant has zero test coverage,
+> add a test driven by a real renderer.
 
 ### 🛠 Changes Overview
 **Scope:** `packages/OpenComputerUseKit`
 
 **Key Actions:**
-- **[新增测试]**: `testTreeLineOffsetsMatchEveryElementRowFromARealRenderer` 通过真实的 fixture
-  renderer 构造快照，断言每个 element index 都有 offset 登记，且
-  `treeLines[treeLineOffsets[i]]` 去掉缩进后恰好以 `"i "` 开头；再用
-  `.compactActionable` 渲染一遍，确认 compact 行与登记行逐行一致。
-- **[可见性调整]**: `SnapshotBuilder.buildFixtureSnapshot` 去掉 `private`，改为 module-internal，
-  以便测试目标经由既有的 `@testable import` 直接驱动渲染器。这是本次唯一的生产代码改动。
-- **[顺序断言]**: 评审推翻了初版的一个说法——"把元素乱序喂进去就能抓到漏掉的排序"并不成立：
-  行文本和缩进只由 `element.index` 决定，offset 之间始终自洽，所以逐行前缀检查在任何发射顺序
-  下都通过，compact 本身也会再排一次升序。改为把 offset 与其升序位置直接比较，该说法才真正成立。
-- **[变异验证]**: 两处变异均如期失败——把记录点改成 `lines.count`（制造 off-by-one）；以及删掉
-  renderer 的 `.sorted(by:)`，报 `[2, 1, 3, 0]` 不等于 `[0, 1, 2, 3]`。还原后全量绿，确认测试
-  非空转。
+- **[New test]**: `testTreeLineOffsetsMatchEveryElementRowFromARealRenderer` builds a snapshot via
+  a real fixture renderer, asserting that every element index has a registered offset, and that
+  `treeLines[treeLineOffsets[i]]`, with indentation stripped, starts exactly with `"i "`; it then
+  renders once more with `.compactActionable`, confirming the compact lines match the registered
+  lines row for row.
+- **[Visibility adjustment]**: Removed `private` from `SnapshotBuilder.buildFixtureSnapshot`, making it
+  module-internal, so the test target can drive the renderer directly via the existing `@testable import`.
+  This is the only production code change in this round.
+- **[Ordering assertion]**: Review overturned a claim from the first draft: that feeding elements in
+  shuffled order would catch a missed sort. It does not hold: line text and indentation are determined
+  solely by `element.index`, and offsets are always self-consistent with each other, so the row-by-row
+  prefix check passes under any emission order; separately, compact itself re-sorts ascending anyway. The
+  assertion was changed to compare each offset directly against its ascending position, and only
+  then does the claim actually hold.
+- **[Mutation verification]**: Both mutations failed as expected — changing the recording point to
+  `lines.count` (introducing an off-by-one); and removing the renderer's `.sorted(by:)`, which reported
+  `[2, 1, 3, 0]` not equal to `[0, 1, 2, 3]`. After reverting, the full suite was green again, confirming
+  the test is not a no-op.
 
 ### 🧠 Design Intent (Why)
-compact 视图的全部价值建立在一个前提上：compact 行开头的数字就是 full-tree 的 `element_index`，
-从不重新编号。原有 13 个 compact 测试全部手写 `treeLineOffsets` 字面量，等于把这个前提当输入而
-不是当被测对象——在记录点引入 off-by-one，或者在 `lines.append` 与 offset 登记之间插一行，整个
-套件依然全绿，而这正是该特性要防的缺陷类别。
+The entire value of the compact view rests on one premise: the number at the start of a compact line
+is the full-tree `element_index`, and it is never renumbered. All 13 prior compact tests hand-wrote
+`treeLineOffsets` literals, which effectively takes this premise as input rather than as the thing
+under test — introduce an off-by-one at the recording point, or insert a line between `lines.append`
+and the offset registration, and the whole suite would still be fully green, which is exactly the class
+of defect this feature is supposed to guard against.
 
-没有走 `FixtureBridge.writeState` + `SnapshotBuilder.build(for:)` 的端到端路径，是因为它只多覆盖
-一次分发跳转，却要写 `NSTemporaryDirectory()` 下的进程间共享文件，可能干扰开发者正在运行的
-fixture app；而真正有风险的不变量完全位于 `buildFixtureSnapshot` 内部。
+The end-to-end path through `FixtureBridge.writeState` + `SnapshotBuilder.build(for:)` was not taken,
+because it would only additionally cover one dispatch hop, while requiring writes to an inter-process
+shared file under `NSTemporaryDirectory()`, which could interfere with a developer's currently running
+fixture app; and the genuinely at-risk invariant sits entirely inside `buildFixtureSnapshot`.
 
-**已知覆盖边界：** 本测试只守住 fixture renderer，H2 因此只算部分关闭。走真实 AX 的
-`TreeRenderer` 在 `AccessibilitySnapshot.swift` 内有自己独立的一处 offset 记录点，需要真实
-`AXUIElement` 和 Accessibility 授权才能驱动，因此仍未被覆盖——而它正是跑在真实 app 上的那条路径。
-多行 span（没有自己 index 的续行，之后由 `compactActionableLines` 合并）同样未被覆盖，fixture
-renderer 从不产生 span 行。彻底的修法是抽一个 `appendIndexedLine(index:text:)` 让两处记录点共用，
-本次刻意未做：它改的是生产的 live-AX 代码，而本仓库没有 PR CI 兜底。
+**Known coverage boundary:** this test only guards the fixture renderer, so H2 counts as only partially
+closed. The real-AX `TreeRenderer` has its own separate offset-recording point inside
+`AccessibilitySnapshot.swift`, which requires a real `AXUIElement` and Accessibility authorization to
+drive, and therefore remains uncovered — and that is exactly the path that runs on a real app. Multi-line
+spans (continuation lines with no index of their own, later merged by `compactActionableLines`) are
+likewise uncovered, since the fixture renderer never produces span lines. The thorough fix would be to
+extract an `appendIndexedLine(index:text:)` shared by both recording points; this was deliberately not
+done in this round: it would touch production live-AX code, and this repo has no PR CI safety net.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

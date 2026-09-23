@@ -1,4 +1,4 @@
-## [2026-04-20 18:45] | Task: 发布 0.1.20
+## [2026-04-20 18:45] | Task: Release 0.1.20
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> bump version git tag推送
+> bump version, push a git tag
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.20`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.20`，说明这次 patch release 的核心是去掉 plugin installer 对 `rsync` 的宿主命令依赖。
-- **[Release Trigger]**: 基于 `rsync -> cpSync` 修复后的 `HEAD` 收口 release 输入，准备用 `v0.1.20` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: Uniformly bumped the plugin manifest, Swift/Go version constants, smoke suite init version, test MCP client version, and CLI doc paths to `0.1.20`.
+- **[Release Notes]**: Added `0.1.20` to the user-visible release record, noting this patch release's core change is removing the plugin installer's host-command dependency on `rsync`.
+- **[Release Trigger]**: Based on `HEAD` after the `rsync -> cpSync` fix, prepared the release input to push a `v0.1.20` tag and trigger a new GitHub Actions release.
 
 ### 🧠 Design Intent (Why)
-`rsync` 在 `install-codex-plugin` 里只是递归复制目录的实现手段，不是业务必需能力。既然前一版已经把安装器的 Python 依赖去掉了，就应该继续把这类非必要外部命令前提收口到 npm/Node 自身，确保用户通过 npm 安装后的接入路径更稳定、也更容易预期。
+`rsync` in `install-codex-plugin` is just an implementation detail for recursively copying a directory, not a business necessity. Since the previous version already removed the installer's Python dependency, this kind of unnecessary external command prerequisite should continue to be consolidated into npm/Node itself, making the access path more stable and predictable for users installing via npm.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

@@ -1,23 +1,23 @@
-## [2026-04-23 11:51] | Task: 三端 npm 安装按 os-arch 选择 native runtime
+## [2026-04-23 11:51] | Task: Select the native runtime by os-arch for the three-platform npm install
 
-## 用户诉求
+## User Request
 
-希望 `npm i -g open-computer-use` 在 macOS、Linux、Windows 上都能安装成功，并根据当前 `os-arch` 调用对应的 `.app`、Linux binary 或 Windows `.exe`。本轮还需要 bump patch version、tag 推送触发 release，并在 Linux VM 上实测 npm 全局安装后的 MCP tools list。
+Wanted `npm i -g open-computer-use` to install successfully on macOS, Linux, and Windows, and to invoke the corresponding `.app`, Linux binary, or Windows `.exe` based on the current `os-arch`. This round also needed a patch version bump, a tag push to trigger a release, and a real test of the MCP tools list after a global npm install on a Linux VM.
 
-## 主要改动
+## Main Changes
 
-- **[NPM Packaging]**: 将 npm staging 从单一 macOS package 改为三个既有 root/alias packages，每个包内置 `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64`、`win32-arm64`、`win32-x64` runtime。
-- **[Runtime Launcher]**: root package 的 `bin/open-computer-use` 改为跨平台 Node launcher，通过 `process.platform` / `process.arch` 解析并执行对应 bundled native runtime；缺少 artifact 时给出明确重装提示。
-- **[Release Flow]**: release package 构建现在会同时构建 macOS app、Linux binaries、Windows exes；publish script 的发布面保持为 `open-computer-use`、`open-computer-use-mcp`、`open-codex-computer-use-mcp` 三个既有包名。
-- **[Plugin Path]**: Codex plugin launcher 和 installer 增加 Linux / Windows native payload fallback，保留 macOS app bundle 路径。
-- **[Version Bump]**: 将插件 manifest、Swift 版本常量、Linux/Windows Go runtime、smoke/test 输入和 CLI helper 文档统一 bump 到 `0.1.35`。
-- **[Docs]**: 同步 README、中文 README、架构文档、CI/CD、质量说明、release guide、feature release notes 和相关 execution plans。
+- **[NPM Packaging]**: Changed npm staging from a single macOS package to the three existing root/alias packages, each bundling the `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, `win32-arm64`, and `win32-x64` runtimes.
+- **[Runtime Launcher]**: Changed the root package's `bin/open-computer-use` to a cross-platform Node launcher that resolves and executes the corresponding bundled native runtime via `process.platform` / `process.arch`; gives a clear reinstall prompt when the artifact is missing.
+- **[Release Flow]**: The release package build now builds the macOS app, Linux binaries, and Windows exes together; the publish script's release surface remains the three existing package names: `open-computer-use`, `open-computer-use-mcp`, and `open-codex-computer-use-mcp`.
+- **[Plugin Path]**: Added Linux / Windows native payload fallback to the Codex plugin launcher and installer, while keeping the macOS app bundle path.
+- **[Version Bump]**: Unified the plugin manifest, Swift version constant, Linux/Windows Go runtime, smoke/test inputs, and CLI helper docs, bumping them all to `0.1.35`.
+- **[Docs]**: Synced the README, the Chinese README, the architecture doc, CI/CD notes, quality notes, the release guide, feature release notes, and related execution plans.
 
-## 设计动机
+## Design Intent
 
-最初实现使用 npm 原生的 `optionalDependencies`、`os`、`cpu` 机制，但 `v0.1.34` CI 在发布新增 platform package 名时被 npm 权限挡住。`v0.1.35` 改为把三端六个 runtime 直接 bundled 到既有三个 npm 包里，避免新增 package 权限问题，同时仍由 launcher 根据 `process.platform` / `process.arch` 做本地选择。
+The initial implementation used npm's native `optionalDependencies`, `os`, and `cpu` mechanism, but `v0.1.34` CI was blocked by npm permissions when publishing the newly added platform package names. `v0.1.35` instead bundles all six platform runtimes directly into the three existing npm packages, avoiding the new-package permission issue, while the launcher still performs local selection based on `process.platform` / `process.arch`.
 
-## 受影响文件
+## Files Affected
 
 - `.github/workflows/release.yml`
 - `scripts/npm/build-packages.mjs`
@@ -30,18 +30,18 @@
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/OpenComputerUseVersion.swift`
 - `docs/`
 
-## 验证
+## Verification
 
-- 通过：`node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check`
-- 通过：`./scripts/release-package.sh`
-- 通过：本地 npm prefix 只安装 `open-computer-use-0.1.35.tgz` 后，`open-computer-use --version` 输出 `0.1.35`。
-- 通过：本地 npm prefix 安装后的 `open-computer-use mcp` raw JSON-RPC `tools/list` 返回 9 个 tools。
-- 通过：`swift test`
-- 通过：`(cd apps/OpenComputerUseLinux && go test ./...)`
-- 通过：`(cd apps/OpenComputerUseWindows && go test ./...)`
-- 通过：`node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging --dry-run`，发布面为三个既有 root/alias packages。
-- 通过：`git diff --check`
-- 通过：GitHub Actions release workflow `24816330343`，`package-npm` 与 `release-cursor-motion-dmg` 均成功。
-- 通过：`npm view open-computer-use@0.1.35`、`open-computer-use-mcp@0.1.35`、`open-codex-computer-use-mcp@0.1.35` 均可见；`open-computer-use@0.1.35` 不再声明 `optionalDependencies` / `os` / `cpu`。
-- 通过：Ubuntu aarch64 VM 里 `npm i -g open-computer-use@0.1.35` 成功，`open-computer-use --version` 输出 `0.1.35`，并确认 `/usr/local/lib/node_modules/open-computer-use/dist/linux/arm64/open-computer-use` 是 aarch64 ELF。
-- 通过：Ubuntu aarch64 VM 里 raw MCP `initialize` / `tools/list` 返回 9 个 tools。
+- Passed: `node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check`
+- Passed: `./scripts/release-package.sh`
+- Passed: after installing only `open-computer-use-0.1.35.tgz` into a local npm prefix, `open-computer-use --version` printed `0.1.35`.
+- Passed: after the local npm prefix install, `open-computer-use mcp`'s raw JSON-RPC `tools/list` returned 9 tools.
+- Passed: `swift test`
+- Passed: `(cd apps/OpenComputerUseLinux && go test ./...)`
+- Passed: `(cd apps/OpenComputerUseWindows && go test ./...)`
+- Passed: `node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging --dry-run`, with the release surface being the three existing root/alias packages.
+- Passed: `git diff --check`
+- Passed: GitHub Actions release workflow `24816330343`, with both `package-npm` and `release-cursor-motion-dmg` succeeding.
+- Passed: `npm view open-computer-use@0.1.35`, `open-computer-use-mcp@0.1.35`, and `open-codex-computer-use-mcp@0.1.35` were all visible; `open-computer-use@0.1.35` no longer declares `optionalDependencies` / `os` / `cpu`.
+- Passed: on an Ubuntu aarch64 VM, `npm i -g open-computer-use@0.1.35` succeeded, `open-computer-use --version` printed `0.1.35`, and `/usr/local/lib/node_modules/open-computer-use/dist/linux/arm64/open-computer-use` was confirmed to be an aarch64 ELF.
+- Passed: on the Ubuntu aarch64 VM, the raw MCP `initialize` / `tools/list` returned 9 tools.

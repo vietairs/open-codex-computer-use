@@ -1,4 +1,4 @@
-## [2026-05-10 11:29] | Task: README Browser Use 引流提示
+## [2026-05-10 11:29] | Task: README Browser Use referral tip
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -6,17 +6,17 @@
 * **Runtime**: `Codex CLI`
 
 ### User Query
-> 在两个 README 的中英文 tag 行下面增加一个提醒框，把对 Browser Use 感兴趣的读者引流到 open-codex-browser-use。
+> Add a callout box below the language-switch line in both the English and Chinese READMEs, directing readers interested in Browser Use to open-codex-browser-use.
 
 ### Changes Overview
-**Scope:** 顶层 README 文档
+**Scope:** top-level README docs
 
 **Key Actions:**
-- **Add Tip Box**: 在 `README.md` 的语言切换链接下方增加 Browser Use 项目提示框。
-- **Add Tip Box**: 在 `README.zh-CN.md` 的语言切换链接下方增加对应中文提示框。
+- **Add Tip Box**: added a Browser Use project tip box below the language-switch links in `README.md`.
+- **Add Tip Box**: added the corresponding Chinese tip box below the language-switch links in `README.zh-CN.md`.
 
 ### Design Intent (Why)
-把 Browser Use 相关项目入口放在 README 首屏更靠前的位置，让读者在进入 open-computer-use 项目时能快速发现相邻项目，同时保持提示内容轻量，不打断原有 Quick Start 结构。
+Placing the Browser Use related project entry point higher up on the README's first screen lets readers quickly discover the adjacent project when they land on open-computer-use, while keeping the tip content lightweight and not disrupting the existing Quick Start structure.
 
 ### Files Modified
 - `README.md`

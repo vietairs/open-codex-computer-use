@@ -1,51 +1,51 @@
-# 稳定性与可运维性
+# Reliability and Operability
 
-## 当前最低验证线
+## Current Minimum Verification Bar
 
-- 构建：`swift build`
-- 单元测试：`swift test`
-- 端到端 smoke：`./scripts/run-tool-smoke-tests.sh`
-- macOS SkyLight 实机回归：`OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`
-- Linux runtime：`(cd apps/OpenComputerUseLinux && go test ./...)`、`./scripts/build-open-computer-use-linux.sh --arch arm64`
-- 本地诊断：
+- Build: `swift build`
+- Unit tests: `swift test`
+- End-to-end smoke: `./scripts/run-tool-smoke-tests.sh`
+- macOS SkyLight live-device regression: `OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`
+- Linux runtime: `(cd apps/OpenComputerUseLinux && go test ./...)`, `./scripts/build-open-computer-use-linux.sh --arch arm64`
+- Local diagnostics:
   - `open-computer-use doctor`
   - `open-computer-use snapshot <app>`
 
-## 已知关键依赖
+## Known Critical Dependencies
 
-- macOS 上必须给 `Open Computer Use.app` 授权 `Accessibility` 与 `Screen Recording`；终端本身不应该再是必需授权对象。
-- macOS `click_method=sky_click` 额外依赖 SkyLight / ApplicationServices 私有符号 `SLEventPostToPid`、`SLEventSetIntegerValueField`、`CGEventSetWindowLocation`、`SLPSPostEventRecordTo` 和 `GetProcessForPID`。运行时会动态探测并 fail closed，但 macOS 更新、签名方式或目标 app 输入策略变化仍可能让后台投递失效。受控实机回归除 DOM、前台 PID、鼠标和 z-order 外，还必须验证前台 AppKit active、key window、first responder 以及 resign/key-loss 计数。
-- smoke suite 依赖本地 GUI session，不能把它当成无头环境命令。
-- 普通 app 的 `get_app_state` 结果依赖 AX tree 和窗口截图，复杂 app 上输出会有差异；Electron/WebView app 的 AX tree 通常很深，当前会压缩空 wrapper 并放宽遍历深度，以优先保留可操作文本、按钮和输入框。
-- Linux runtime 依赖已登录桌面用户 session；缺少 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 或 display 环境时，会尝试从 `/run/user/<uid>` 和常见桌面进程自动发现当前用户的 session env。纯 SSH tty 如果找不到桌面 session 仍不能直接访问 AT-SPI GUI tree。
-- GNOME Wayland 截图可能被 compositor 限制，当前 Linux bridge 会把黑图视为无效截图并省略 image block。
+- On macOS, `Open Computer Use.app` must be granted `Accessibility` and `Screen Recording`; the terminal itself should no longer need to be a required authorization target.
+- macOS `click_method=sky_click` additionally depends on the private SkyLight / ApplicationServices symbols `SLEventPostToPid`, `SLEventSetIntegerValueField`, `CGEventSetWindowLocation`, `SLPSPostEventRecordTo`, and `GetProcessForPID`. The runtime probes for these dynamically and fails closed, but macOS updates, signing changes, or shifts in a target app's input policy can still break background delivery. Beyond DOM, foreground PID, mouse, and z-order, controlled live-device regression must also verify foreground AppKit active state, key window, first responder, and resign/key-loss counts.
+- The smoke suite depends on a local GUI session; it cannot be treated as a headless-environment command.
+- `get_app_state` results for ordinary apps depend on the AX tree and window screenshots, so output varies across complex apps; Electron/WebView apps typically have very deep AX trees, and the current implementation compresses empty wrappers and relaxes traversal depth to prioritize retaining actionable text, buttons, and input fields.
+- The Linux runtime depends on a logged-in desktop user session; when `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, or the display environment is missing, it attempts to auto-discover the current user's session env from `/run/user/<uid>` and common desktop processes. A pure SSH tty still cannot access the AT-SPI GUI tree directly if no desktop session can be found.
+- GNOME Wayland screenshots may be restricted by the compositor; the current Linux bridge treats black images as invalid screenshots and omits the image block.
 
-## 当前故障排查顺序
+## Current Troubleshooting Order
 
-1. 先跑 `open-computer-use doctor`，确认权限状态；如果缺权限，命令会通过 `.app` app agent 拉起权限 onboarding 窗口，已全部授权则只打印状态并退出。
-2. 用 `open-computer-use list-apps` 确认目标 app 是否被发现。
-3. 用 `open-computer-use snapshot <app>` 看是 transport 问题还是 snapshot / action 问题。
-4. 如果只有 `sky_click` 失败，先重新执行 `get_app_state`，确认窗口仍为 on-screen、未隐藏/最小化且没有切换 Space；错误里出现 `missing SkyLight symbols` 时不要改用隐式 fallback，应按当前 macOS 版本重新验证私有 SPI。被遮挡的 Chromium 页面仍无效果时，再用受控页面区分 renderer 策略变化与坐标/window-local 映射问题。
-5. 如果只想验证仓库基线，直接跑 fixture + smoke，不要先在复杂第三方 app 上排查。
-6. 排查 Linux runtime 时，先确认目标命令是否由桌面用户运行，再用 `open-computer-use call list_apps` 和 `open-computer-use snapshot <app>` 区分 session/env 问题与 AT-SPI tree/action 问题。如果是 Codex MCP，重新执行 `open-computer-use install-codex-mcp` 后重启 Codex，确认配置仍是 `open-computer-use mcp`。
+1. Run `open-computer-use doctor` first to check permission status; if permissions are missing, the command launches the permission onboarding window via the `.app` app agent, and if everything is already granted it just prints status and exits.
+2. Use `open-computer-use list-apps` to confirm whether the target app is discovered.
+3. Use `open-computer-use snapshot <app>` to determine whether it's a transport issue or a snapshot/action issue.
+4. If only `sky_click` fails, re-run `get_app_state` first to confirm the window is still on-screen, not hidden/minimized, and hasn't switched Space; if the error mentions `missing SkyLight symbols`, do not silently switch to an implicit fallback — re-verify the private SPI against the current macOS version. If an obscured Chromium page still has no effect, use a controlled page to distinguish renderer policy changes from coordinate/window-local mapping issues.
+5. If you only want to verify the repo baseline, run the fixture + smoke suite directly rather than troubleshooting on a complex third-party app first.
+6. When troubleshooting the Linux runtime, first confirm whether the target command is being run by the desktop user, then use `open-computer-use call list_apps` and `open-computer-use snapshot <app>` to distinguish a session/env issue from an AT-SPI tree/action issue. For Codex MCP, re-run `open-computer-use install-codex-mcp` and restart Codex, confirming the config is still `open-computer-use mcp`.
 
-## Lock Screen / Stale-Target / 状态菜单排查
+## Lock Screen / Stale-Target / Status Menu Troubleshooting
 
-**锁定 session：**
-- 症状：所有 tool（除 `tools/list`）返回 "Session is locked" 或 "Lock state unknown"。
-- 排查：`CGSessionCopyCurrentDictionary` 在用户 session 锁定或不可用时返回 nil；fail-closed 行为是**默认**预期设计，不是 bug。
-- 解决（有人值守）：解锁当前 macOS 用户 session 后重试，或使用已登录桌面 session。
-- 解决（无人值守 agent 需锁屏继续工作）：设置 `OPEN_COMPUTER_USE_ALLOW_LOCKED=1` 开启 best-effort 锁屏放行。开启后 action 仍能经 process-targeted 投递（AX / `postToPid`）驱动可访问性可控的 app；但**窗口截图返回空图**（`get_app_state` 只回 AX tree），coordinate-only 路径不可靠 —— 用 `element_index` 定位的 action。首次放行时 stderr 会打印一次降级提示。默认不开启。
+**Locked session:**
+- Symptom: all tools (except `tools/list`) return "Session is locked" or "Lock state unknown".
+- Diagnosis: `CGSessionCopyCurrentDictionary` returns nil when the user session is locked or unavailable; this fail-closed behavior is the **default**, intended design, not a bug.
+- Fix (attended): unlock the current macOS user session and retry, or use an already-logged-in desktop session.
+- Fix (unattended agent needing to keep working while the screen is locked): set `OPEN_COMPUTER_USE_ALLOW_LOCKED=1` to enable best-effort lock-screen passthrough. Once enabled, actions can still drive an accessible app via process-targeted delivery (AX / `postToPid`); however **window screenshots return an empty image** (`get_app_state` only returns the AX tree), so coordinate-only paths are unreliable — use `element_index`-targeted actions instead. The first time passthrough is used, stderr prints a one-time degradation notice. Disabled by default.
 
-**Stale target（目标窗口发生变化）：**
-- 症状：action tool 返回 "Computer Use target screen changed. Call get_app_state for this app before acting again."
-- 原因：目标 app 的 pid、window ID、bounds 或截图尺寸在上一次 `get_app_state` 之后发生了变化（超过 8pt 容差）。
-- 解决：重新调用 `get_app_state` 取最新快照，再执行 action。
+**Stale target (the target window has changed):**
+- Symptom: an action tool returns "Computer Use target screen changed. Call get_app_state for this app before acting again."
+- Cause: the target app's pid, window ID, bounds, or screenshot dimensions changed (beyond an 8pt tolerance) since the last `get_app_state` call.
+- Fix: call `get_app_state` again to get a fresh snapshot, then perform the action.
 
-**状态菜单 Restart 不可用：**
-- 症状：状态菜单的 "Restart" 菜单项在 direct AppKit MCP 模式下显示为禁用。
-- 原因：`ControlStatusMenuController` 只在 app-agent 模式下启用 Restart；direct 模式需要由宿主重新 launch，无法从 MCP 进程内部触发。
-- 解决：如需在 direct 模式重启，在宿主侧手动重启 `open-computer-use mcp` 进程。Restart 仅对通过 CLI 启动的 app-agent 会话有效。
+**Status menu Restart unavailable:**
+- Symptom: the status menu's "Restart" item shows as disabled in direct AppKit MCP mode.
+- Cause: `ControlStatusMenuController` only enables Restart in app-agent mode; direct mode requires the host to relaunch it, which cannot be triggered from inside the MCP process.
+- Fix: to restart in direct mode, manually restart the `open-computer-use mcp` process on the host side. Restart only works for app-agent sessions launched via the CLI.
 
 ## Background-Only Operation Guarantee
 
@@ -56,10 +56,10 @@ By default, all MCP tool operations target apps by PID using accessibility APIs 
 - Mouse events use `AXUIElement` `performAction` or `CGEvent.postToPid` targeted to the app's PID; no front-most requirement exists.
 - This guarantees MCP tools do not steal focus, move the user's hardware cursor, or interrupt the user's active workflow.
 
-## 后续补强方向
+## Future Hardening Directions
 
-- 增加结构化日志和失败原因分类。
-- 继续补充 screenshot capture / AX traversal 的失败上下文和普通 app 回归样本。
-- 增加普通 app 回归样本，而不是只覆盖 fixture。
+- Add structured logging and failure-reason classification.
+- Continue adding failure context for screenshot capture / AX traversal and regression samples on ordinary apps.
+- Add ordinary-app regression samples, rather than only covering fixtures.
 
-CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD.md`。
+The default structure for CI/CD pipelines and release automation is documented consistently in `docs/CICD.md`.

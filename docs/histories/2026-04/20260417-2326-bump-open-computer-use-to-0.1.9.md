@@ -1,4 +1,4 @@
-## [2026-04-17 23:26] | Task: 发布 0.1.9
+## [2026-04-17 23:26] | Task: Release 0.1.9
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 基于0.1.8再推一个
+> Cut another release based on 0.1.8.
 
 ### 🛠 Changes Overview
-**Scope:** 插件 manifest、版本常量、smoke/test、发布文档
+**Scope:** plugin manifest, version constants, smoke/test, release docs
 
 **Key Actions:**
-- **统一版本号到 `0.1.9`**：同步更新插件 manifest、Swift/Go 侧版本常量、smoke suite 初始化版本和单元测试中的 client version。
-- **补 release 文档**：更新 release workflow 的 tag 示例，并在 feature release notes 中记录 `0.1.9` 这次“修复发布构建失败”的发布目的。
-- **衔接前一轮修复**：基于刚修复的 Xcode 26 编译问题推进新版本，而不是复用已经失败过的 `v0.1.8` tag。
+- **Unify version numbers to `0.1.9`**: synced the plugin manifest, Swift/Go-side version constants, the smoke suite's initialization version, and the client version in unit tests.
+- **Update release docs**: updated the tag example in the release workflow, and recorded `0.1.9`'s release purpose ("fix a release build failure") in the feature release notes.
+- **Build on the previous fix**: moved forward with a new version based on the just-fixed Xcode 26 compile issue, rather than reusing the already-failed `v0.1.8` tag.
 
 ### 🧠 Design Intent (Why)
-`v0.1.7` 和 `v0.1.8` 对应的 release runs 都已经失败，继续复用旧 tag 既不干净，也容易混淆真正包含修复的发布边界。直接发布 `0.1.9` 可以把“修复 CI 构建错误”作为一个明确的新版本切出去，后续排查 npm 和 GitHub release 记录也更清楚。
+The release runs for `v0.1.7` and `v0.1.8` had both already failed. Continuing to reuse the old tag would be neither clean nor easy to reason about as the boundary of the release that actually contains the fix. Releasing `0.1.9` directly lets "fix the CI build error" be cut as a clear, distinct new version, making it easier to trace npm and GitHub release records afterward.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

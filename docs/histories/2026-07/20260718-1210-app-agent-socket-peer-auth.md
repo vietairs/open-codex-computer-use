@@ -1,4 +1,4 @@
-## [2026-07-18 12:10] | Task: app-agent socket 对端认证
+## [2026-07-18 12:10] | Task: app-agent socket peer authentication
 
 ### 🤖 Execution Context
 * **Agent ID**: `/hvn:cortex` follow-up
@@ -6,19 +6,19 @@
 * **Runtime**: Claude Code (background job)
 
 ### 📥 User Query
-> 合并 v0.2.0 + 锁屏放行到 fork 后，开一个 socket peer-auth PR，让 agent 能在锁屏时安全地继续工作。
+> After merging v0.2.0 + lock-screen allowance into the fork, open a socket peer-auth PR so the agent can safely keep working while the screen is locked.
 
 ### 🛠 Changes Overview
-**Scope:** app-agent Unix domain socket 对端认证（peer authentication）
+**Scope:** app-agent Unix domain socket peer authentication
 
 **Key Actions:**
-- **[纯策略]**: 新增 `AppAgentPeerAuthPolicy`（Kit，可单测）—— 依据 peer uid / self uid / agent TeamID / 对端是否满足签名需求，产出 `allow` / `allowUnsignedFallback` / `reject`。
-- **[IO 校验]**: 新增 `SocketPeerAuthenticator`（app）—— `getpeereid` 校验同 uid；`getsockopt(SOL_LOCAL, LOCAL_PEERTOKEN)` 取 audit token → `SecCodeCopyGuestWithAttributes` 还原对端 `SecCode`，用需求 `anchor apple generic and certificate leaf[subject.OU] = "<agent TeamID>"` 校验同开发者签名；`SecCodeCopySelf` 解析 agent 自身 TeamID。
-- **[接入]**: `AppAgentSocketListener.acceptLoop` 在处理连接前认证；reject 则关闭 fd 并记录原因；未签名 dev 构建走 `.allowUnsignedFallback` 并打印一次提示。
-- **[验证]**: +5 策略单测（uid 不符、签名同队放行、签名 agent 拒绝不符对端、未签名回退、未签名仍拒绝异 uid）；共 177 测试全绿；full workspace build 通过。
+- **[Pure policy]**: Added `AppAgentPeerAuthPolicy` (Kit, unit-testable) — based on peer uid / self uid / agent TeamID / whether the peer satisfies the signing requirement, produces `allow` / `allowUnsignedFallback` / `reject`.
+- **[IO verification]**: Added `SocketPeerAuthenticator` (app) — verifies same uid via `getpeereid`; obtains the audit token via `getsockopt(SOL_LOCAL, LOCAL_PEERTOKEN)` → recovers the peer's `SecCode` via `SecCodeCopyGuestWithAttributes` → verifies the same developer signature using the requirement `anchor apple generic and certificate leaf[subject.OU] = "<agent TeamID>"`; resolves the agent's own TeamID via `SecCodeCopySelf`.
+- **[Wiring]**: `AppAgentSocketListener.acceptLoop` authenticates before handling a connection; on reject it closes the fd and logs the reason; unsigned dev builds fall back to `.allowUnsignedFallback` and print a one-time notice.
+- **[Verification]**: +5 policy unit tests (uid mismatch, same-team signature allowed, signed agent rejects mismatched peer, unsigned fallback, unsigned still rejects a different uid); all 177 tests pass; full workspace build succeeds.
 
 ### 🧠 Design Intent (Why)
-锁屏放行（`OPEN_COMPUTER_USE_ALLOW_LOCKED`）让 agent 可在锁屏时驱动 app，但 app-agent 常驻进程持有 TCC 授权、socket 仅靠 0600 同 uid 权限，任意同 uid 进程都可复用其授权（confused deputy）。对端签名认证要求连接方与 agent 同开发者签名，**抬高门槛**——挡掉外部/未签名/异开发者二进制直接连接。但需如实说明其边界（经 codex + Fable-max 交叉复审确认）：签名校验不能区分合法运维方与同 uid 攻击者，后者可 `exec` 那份合法签名 CLI 中转命令，故**未真正关闭**同 uid confused-deputy；不可信主机仍应使用独立登录 session。未签名 dev 退化为同 uid 并提示，且已在 `copyDiagnostics` 暴露该状态。
+Lock-screen allowance (`OPEN_COMPUTER_USE_ALLOW_LOCKED`) lets the agent drive the app while the screen is locked, but the app-agent long-lived process holds the TCC grant, and the socket was only protected by 0600 same-uid permissions — any same-uid process could reuse its grant (confused deputy). Peer signature authentication requires the connecting side to carry the same developer signature as the agent, **raising the bar** — blocking direct connections from external, unsigned, or differently-signed binaries. But its boundary must be stated honestly (confirmed via cross-review with codex + Fable-max): signature verification cannot distinguish a legitimate operator from a same-uid attacker, since the latter could `exec` that legitimately signed CLI to relay commands, so it **does not truly close off** the same-uid confused-deputy issue; an untrusted host should still use a separate login session. Unsigned dev builds degrade to same-uid with a notice, and this state is already exposed in `copyDiagnostics`.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AppAgentPeerAuthPolicy.swift`
@@ -31,5 +31,5 @@
 - `docs/histories/2026-07/20260718-1210-app-agent-socket-peer-auth.md`
 
 ### 🔁 Follow-up
-- 交叉复审跟进项 #2 已落地：release 构建现在 fail-closed —— 签名会回退到 ad-hoc/无签名时，`build-open-computer-use-app.sh` 直接报错拒绝构建，避免发布版本静默退化为仅同 uid trust。
-- override env：`OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1`（设置后脚本打印醒目 WARNING，peer-auth 仍不生效）。
+- Cross-review follow-up item #2 has landed: release builds are now fail-closed — when signing would fall back to ad-hoc/unsigned, `build-open-computer-use-app.sh` errors out and refuses to build, avoiding a released version silently degrading to same-uid-only trust.
+- Override env: `OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1` (when set, the script prints a prominent WARNING; peer-auth still doesn't take effect).

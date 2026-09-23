@@ -1,4 +1,4 @@
-## [2026-04-18 00:14] | Task: 把 README 改成英文版
+## [2026-04-18 00:14] | Task: Switch the README to English
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,17 +6,17 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 现在的 README.md 就放英文版的。
+> Make the current README.md the English version.
 
 ### 🛠 Changes Overview
-**Scope:** `README`、`docs/histories`
+**Scope:** `README`, `docs/histories`
 
 **Key Actions:**
-- **英文重写 README**: 把现有中文 README 改成英文版，保留当前的产品介绍、Quick Start、更多命令和 License 结构。
-- **保留权限说明**: 延续 npm 全局安装路径应作为稳定授权对象的说明，避免英文版丢掉关键使用约束。
+- **Rewrote the README in English**: Rewrote the existing Chinese README in English, keeping the current product intro, Quick Start, additional commands, and License structure.
+- **Kept the permission notes**: Preserved the guidance that the global npm install path should be treated as the stable authorization target, so the English version doesn't lose this key usage constraint.
 
 ### 🧠 Design Intent (Why)
-用户要求把当前主 README 直接作为英文入口文档，因此这次不新增双语文件，而是直接替换为英文内容，同时保持安装路径和权限说明不变。
+The user asked for the main README to serve directly as the English entry-point doc, so this change doesn't add a separate bilingual file — it replaces the content directly with English, while keeping the install path and permission notes unchanged.
 
 ### 📁 Files Modified
 - `README.md`

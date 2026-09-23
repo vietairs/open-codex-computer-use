@@ -1,24 +1,24 @@
-# 恢复隐藏的 Electron 窗口后再采集状态
+# Recover hidden Electron windows before collecting state
 
-## 用户诉求
+## User request
 
-继续对比开源版 `open-computer-use` 和官方 `computer-use` 在 Lark / Electron app 上的工具返回，没达到官方行为的地方继续优化。
+Keep comparing the open-source `open-computer-use` against the official `computer-use` for tool returns on Lark/Electron apps, and keep improving areas that don't yet match official behavior.
 
-## 主要改动
+## Main changes
 
-- 在 `get_app_state` 找到 AX window 但找不到 on-screen CGWindow，或暂时找不到可用 focused window 时，增加 best-effort 窗口恢复流程。
-- 恢复流程会尝试 unhide、activate、`open -b <bundle-id>`、取消最小化、`AXRaise`、设置 main/focused，然后短暂等待并重试窗口匹配。
-- 保留恢复失败后的官方形态错误文本：`Apple event error -10005: cgWindowNotFound`。
-- 更新架构文档，说明隐藏 / 不可见 Electron 窗口会先恢复再采集。
+- Added a best-effort window-recovery flow in `get_app_state` for when an AX window is found but no on-screen CGWindow can be found, or no usable focused window can be found for the moment.
+- The recovery flow tries unhide, activate, `open -b <bundle-id>`, un-minimize, `AXRaise`, setting main/focused, then briefly waits and retries the window match.
+- Kept the official-shape error text for when recovery still fails: `Apple event error -10005: cgWindowNotFound`.
+- Updated the architecture docs to explain that hidden/invisible Electron windows are recovered before state is collected.
 
-## 验证
+## Verification
 
-- 对比观察：开源版第一次请求隐藏的 Feishu 时返回 `cgWindowNotFound`，官方 `computer-use` 会拉起窗口并返回完整状态。
-- 本地回归：隐藏 Feishu 后，使用新构建的 Dev app 直接调用 `get_app_state`，返回 `isError=false`，且包含截图内容块。
+- Comparative observation: the open-source version returned `cgWindowNotFound` on the first request against a hidden Feishu (飞书), while the official `computer-use` brings the window up and returns full state.
+- Local regression: after hiding Feishu, calling `get_app_state` directly against a freshly built Dev app returns `isError=false` and includes a screenshot content block.
 - `swift test --filter NoWindowErrorMessageMatchesOfficialShape`
 - `./scripts/build-open-computer-use-app.sh debug`
 
-## 受影响文件
+## Affected files
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
 - `docs/ARCHITECTURE.md`

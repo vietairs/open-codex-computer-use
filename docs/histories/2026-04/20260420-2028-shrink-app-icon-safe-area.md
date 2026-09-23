@@ -1,4 +1,4 @@
-## [2026-04-20 20:28] | Task: 调整 Cursor Motion 的 Dock 图标尺寸
+## [2026-04-20 20:28] | Task: Adjust Cursor Motion's Dock icon size
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,23 +6,23 @@
 * **Runtime**: `Codex CLI / zsh / macOS`
 
 ### 📥 User Query
-> “我们调整一下吧，和其他APP一样的宽高”
+> "Let's adjust it so it's the same width and height as other apps."
 
 ### 🛠 Changes Overview
-**Scope:** `scripts/`、`apps/`、`docs/`
+**Scope:** `scripts/`, `apps/`, `docs/`
 
 **Key Actions:**
-- **[收缩 icon 有效画布]**: `scripts/render-open-computer-use-icon.swift` 现在会给 `1024x1024` app icon 母版留出 `92px` 的透明安全边，不再让背景 tile 直接顶满整张画布。
-- **[同步 app 内 branding 几何]**: `apps/OpenComputerUse/Sources/OpenComputerUse/PermissionOnboardingApp.swift` 里的 `Branding.makeAppIconImage` 同步采用相同 inset，避免打包 icon 和 app 内品牌图形几何继续分叉。
-- **[按系统 icon 量级校准]**: 额外对比了本机 `Terminal` / `Notes` / `QuickTime Player` 的 `.icns` 内容边界，确认标准 Apple icon 的水平安全边大约在 `7.8%`，因此把 inset 从初版 `6%` 再调整到更接近系统量级的 `8%`。
-- **[落 checked-in 1024 母版]**: 新增仓库内的 `1024x1024` master PNG，并让打包脚本改走 `master PNG -> .iconset -> .icns` 的 CLI 链路，后续如果还要微调 Dock 观感，只需要修改这一张母版。
-- **[微调 2px optical inset]**: 根据后续肉眼检查，把 `1024x1024` 母版的有效内容边界从约 `81...942` 进一步收敛到 `83...940`，等价于上下左右各再减少约 `2px`。
-- **[微调 1px optical inset]**: 根据 Dock 复查反馈，把母版有效内容边界继续从 `83...940` 收敛到 `84...939`，等价于上下左右各再减少 `1px`。
-- **[改用可见步长继续缩小]**: 因为 `1024` 母版里的 `1px` 映射到 Dock 后肉眼几乎不可见，这次把有效内容边界从 `84...939` 直接收敛到 `92...931`，让 Dock 里能看到明确缩小效果。
-- **[补变更留档]**: 新增这份 history，记录这次针对 Dock 图标有效尺寸的收口。
+- **[Shrink the icon's effective canvas]**: `scripts/render-open-computer-use-icon.swift` now leaves a `92px` transparent safe margin around the `1024x1024` app icon master, instead of letting the background tile fill the entire canvas.
+- **[Sync in-app branding geometry]**: `apps/OpenComputerUse/Sources/OpenComputerUse/PermissionOnboardingApp.swift`'s `Branding.makeAppIconImage` now uses the same inset, so the packaged icon and the in-app brand graphic geometry no longer diverge.
+- **[Calibrate against system icon scale]**: Also compared the `.icns` content boundaries of local `Terminal` / `Notes` / `QuickTime Player`, confirming that the standard Apple icon's horizontal safe margin is roughly `7.8%`, so adjusted the inset from the initial `6%` to a more system-scale-matching `8%`.
+- **[Land a checked-in 1024 master]**: Added a `1024x1024` master PNG to the repo, and switched the build script to a `master PNG -> .iconset -> .icns` CLI chain, so future Dock appearance tweaks only require editing this one master.
+- **[Fine-tune 2px optical inset]**: Based on subsequent visual inspection, further tightened the `1024x1024` master's effective content boundary from roughly `81...942` to `83...940`, equivalent to shaving another ~`2px` off each side.
+- **[Fine-tune 1px optical inset]**: Based on Dock review feedback, further tightened the master's effective content boundary from `83...940` to `84...939`, equivalent to shaving another `1px` off each side.
+- **[Switch to a visible step size to keep shrinking]**: Since a `1px` change in the `1024` master is nearly imperceptible once mapped to the Dock, tightened the effective content boundary directly from `84...939` to `92...931`, so the Dock shows a clearly noticeable shrink.
+- **[Archive the change]**: Added this history entry documenting the convergence on the Dock icon's effective size.
 
 ### 🧠 Design Intent (Why)
-Dock 会统一缩放整个 icon 画布，但不会替不同应用做额外的光学校正。之前我们的 icon 背景直接铺满画布，导致在同一排 Dock 图标里看起来明显更高。把有效图形统一内缩一圈，并对齐到本机 Apple app icon 的常见安全边量级，比继续依赖系统显示结果更稳定；同时把 icon 资产链收口到一张 checked-in `1024x1024` 母版，也能避免后续继续在临时几何脚本里追着 Dock 效果做不可追踪的微调。
+The Dock uniformly scales the whole icon canvas, but doesn't apply extra optical correction per app. Previously our icon background filled the canvas edge-to-edge, which made it look noticeably taller than neighboring icons in the same Dock row. Uniformly insetting the effective graphic and aligning it to the common safe-margin scale of local Apple app icons is more stable than continuing to eyeball the Dock rendering; consolidating the icon asset chain down to a single checked-in `1024x1024` master also avoids chasing untraceable micro-adjustments across ad-hoc geometry scripts in the future.
 
 ### 📁 Files Modified
 - `assets/app-icons/open-computer-use-1024.png`

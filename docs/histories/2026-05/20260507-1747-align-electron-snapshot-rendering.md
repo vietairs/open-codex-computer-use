@@ -20,9 +20,9 @@
 - **Sibling preservation**: Replaced global `CFHash(AXUIElement)` de-duplication with ancestor-cycle detection and per-parent `CFEqual` de-duplication, so long WebView traversal no longer hides sibling regions such as `SideEdgeView`.
 - **Boolean tabs**: Rendered settable tab values as `boolean` with `off` / `on`, matching the observed official Feishu/Lark output.
 - **Static text summaries**: Implemented a closer `mergeTextOnlySiblings`-style rule for short sibling runs, while leaving long menu/body content expanded. This keeps chat rows compact without flattening whole WebView regions.
-- **Focused element formatting**: Rendered focused summaries from the same line body used in the tree, preserving WebArea titles and URLs. `AXWebArea` role descriptions now keep official-style `HTML 内容` capitalization.
+- **Focused element formatting**: Rendered focused summaries from the same line body used in the tree, preserving WebArea titles and URLs. `AXWebArea` role descriptions now keep official-style `HTML 内容` (Chinese for "HTML content") capitalization.
 - **Value separators**: Added the official comma separator between `Description:` and `Value:` for settable controls such as Feishu tabs.
-- **App menu bar parity**: Appended the focused app's top-level menu bar after the focused window tree, matching the official `飞书 / 编辑 / 窗口 / 历史记录 / 帮助` tail while filtering the Apple menu and suppressing expanded menu internals.
+- **App menu bar parity**: Appended the focused app's top-level menu bar after the focused window tree, matching the official `飞书 / 编辑 / 窗口 / 历史记录 / 帮助` (Feishu / Edit / Window / History / Help) tail while filtering the Apple menu and suppressing expanded menu internals.
 - **Image formatting**: Promoted image descriptions into the title position and restricted URL rendering to WebArea nodes, so Electron native-resource image URLs are no longer exposed in the readable tree.
 
 ### Design Intent (Why)
@@ -34,9 +34,9 @@ The official `computer-use` Feishu/Lark result preserves deep WebView content, s
   - Returned long Feishu/Lark WebView message content.
   - Returned `text entry area`.
   - Returned `SideEdgeView`, `ProfileButton`, search, and tab bar nodes after the long message body.
-  - Rendered tabs as `(settable, boolean)` with `Description: 消息, Value: off`.
-  - Returned the focused element as `HTML 内容 messenger-chat, URL: ...`, matching the official focused-summary shape.
-  - Returned the top-level app menu bar after window buttons, matching the official tail (`飞书`, `编辑`, `窗口`, `历史记录`, `帮助`).
+  - Rendered tabs as `(settable, boolean)` with `Description: 消息, Value: off` (`消息` = "Messages").
+  - Returned the focused element as `HTML 内容 messenger-chat, URL: ...` (`HTML 内容` = "HTML content"), matching the official focused-summary shape.
+  - Returned the top-level app menu bar after window buttons, matching the official tail (`飞书` "Feishu", `编辑` "Edit", `窗口` "Window", `历史记录` "History", `帮助` "Help").
   - Rendered Electron image descriptions without leaking `native-resource://` URLs.
   - Reduced the sampled Lark menu/chat state to roughly 576 rendered lines / 571 indexed elements while retaining the message list, entry area, sidebar, and app menu bar. The official sample in the same window was roughly 648 indexed elements.
   - Returned zero `Scroll To Visible` entries in the sampled tree.

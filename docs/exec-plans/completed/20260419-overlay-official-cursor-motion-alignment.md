@@ -1,70 +1,70 @@
-# 主线 overlay 对齐官方 cursor motion
+# Align mainline overlay with official cursor motion
 
-## 目标
+## Goal
 
-把主线 `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift` 的 cursor move 行为，从当前的近似单段 Bezier + 固定 duration easing，调整为更接近官方 `Codex Computer Use.app` 的两层模型：
+Adjust the mainline `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift` cursor-move behavior from its current approximate single-segment Bezier + fixed-duration easing to a two-layer model closer to the official `Codex Computer Use.app`:
 
-- 官方 lift 的 `20` 条候选路径、measurement 和 score 选择。
-- 官方 lift 的 `VelocityVerlet` progress 推进与 `closeEnough` 返回时机。
+- The officially lifted `20` candidate paths, measurement, and score selection.
+- The officially lifted `VelocityVerlet` progress advancement and `closeEnough` return timing.
 
-## 范围
+## Scope
 
-- 包含：
-  - 在主线 package 中新增独立的 Swift cursor motion 内核。
-  - 把 overlay 的 path selection 切到官方 lift 的 `CursorMotionPath` / `Segment` / measurement / score。
-  - 把 overlay 的 move timing 切到 binary-backed `VelocityVerlet` progress。
-  - 保留当前仓库已有的 target-window 命中优先策略，但把它降为官方候选集合上的 tie-break，而不是继续使用旧的 7 条固定候选。
-  - 补单元测试、history 和架构文档。
-- 不包含：
-  - 不修改 `experiments/CursorMotion/`。
-  - 不把这次变更扩展到 pulse / fog / idle sway 的完整官方 choreography。
-  - 不宣称已经恢复官方 `finished` gate 的全部字段语义命名。
+- In scope:
+  - Add an independent Swift cursor motion kernel to the mainline package.
+  - Switch the overlay's path selection to the officially lifted `CursorMotionPath` / `Segment` / measurement / score.
+  - Switch the overlay's move timing to the binary-backed `VelocityVerlet` progress.
+  - Keep the repo's existing target-window hit-priority strategy, but demote it to a tie-break on top of the official candidate set, rather than continuing to use the old 7 fixed candidates.
+  - Add unit tests, history, and architecture docs.
+- Out of scope:
+  - Do not modify `experiments/CursorMotion/`.
+  - Do not extend this change to the full official choreography of pulse / fog / idle sway.
+  - Do not claim to have recovered the full field-level naming semantics of the official `finished` gate.
 
-## 背景
+## Background
 
-- 当前主线 overlay 用的是简化版单段 cubic + 固定时长 `easeInOut`。
-- 官方 binary 这两天已经确认到：
-  - `20` 条候选路径。
-  - `CursorMotionPathMeasurement(length, angleChangeEnergy, maxAngleChange, totalTurn, staysInBounds)`。
-  - score 公式与 in-bounds 优先策略。
-  - `SpringAnimation -> VelocityVerletSimulation` 的 `response=1.4`、`dampingFraction=0.9`、`dt=1/240`、`stiffness` / `drag` 公式和单步更新顺序。
-  - `CloseEnoughConfiguration(progressThreshold=1.0, distanceThreshold=0.01)`。
+- The current mainline overlay uses a simplified single-segment cubic with a fixed-duration `easeInOut`.
+- Over the past couple of days, the official binary has been confirmed to have:
+  - `20` candidate paths.
+  - `CursorMotionPathMeasurement(length, angleChangeEnergy, maxAngleChange, totalTurn, staysInBounds)`.
+  - A score formula and an in-bounds-first selection strategy.
+  - The `SpringAnimation -> VelocityVerletSimulation` chain's `response=1.4`, `dampingFraction=0.9`, `dt=1/240`, `stiffness` / `drag` formulas, and single-step update order.
+  - `CloseEnoughConfiguration(progressThreshold=1.0, distanceThreshold=0.01)`.
 
-## 风险
+## Risks
 
-- 风险：一口气把当前 overlay 的候选与 timing 都换掉，可能让“窗口命中优先”的现有行为退化。
-- 缓解方式：保留现有 target-window hit-test，但把它放到官方候选池上做 tie-break。
+- Risk: swapping out both the current overlay's candidates and its timing in one go could regress the existing "window-hit priority" behavior.
+- Mitigation: keep the existing target-window hit-test, but place it as a tie-break on top of the official candidate pool.
 
-- 风险：主线点击调用在 `moveCursor` 结束后立刻执行真实点击，如果直接等到 spring 数值完全静止，体验会变慢。
-- 缓解方式：主线 `moveCursor` 对齐官方 `closeEnough` 语义，到达 `progress >= 1` 且 `abs(target - progress) <= 0.01` 时返回。
+- Risk: mainline click calls execute the real click immediately after `moveCursor` finishes, so if it waits for the spring values to fully settle, the experience would slow down.
+- Mitigation: align mainline `moveCursor` with the official `closeEnough` semantics, returning once `progress >= 1` and `abs(target - progress) <= 0.01`.
 
-- 风险：reverse-engineering 里对 `0x1005934b0` 仍有字段命名级不确定性。
-- 缓解方式：主线只引入已确认的 path / measurement / `VelocityVerlet` / close-enough 逻辑，不把未证实的 finished 命名伪装成 exact。
+- Risk: the reverse-engineering of `0x1005934b0` still has field-naming-level uncertainty.
+- Mitigation: mainline only adopts the already-confirmed path / measurement / `VelocityVerlet` / close-enough logic, and does not disguise the unconfirmed `finished` naming as exact.
 
-## 验证方式
+## Verification
 
 - `swift test`
-- 针对 path 模型补单元测试，至少覆盖：
-  - `CursorMotionPath` 起终点与 straight fallback。
-  - 官方候选数量为 `20`。
-  - 参考样例的 best candidate 与逆向脚本一致。
-  - spring progress 会在 close-enough gate 返回，并出现端点锁定。
+- Add unit tests for the path model, covering at least:
+  - `CursorMotionPath` start/end points and the straight fallback.
+  - The official candidate count is `20`.
+  - The best candidate for the reference sample matches the reverse-engineering script.
+  - Spring progress returns at the close-enough gate, with endpoint locking observed.
 
-## 进度记录
+## Progress Log
 
-- [x] 抽出主线可复用 motion 内核
-- [x] 切换 overlay 到官方候选 + spring progress
-- [x] 文档、history、测试同步完成
+- [x] Extract a reusable mainline motion kernel
+- [x] Switch the overlay to the official candidates + spring progress
+- [x] Docs, history, and tests all synced
 
-## 决策记录
+## Decision Log
 
-- 2026-04-19：主线 overlay 这次只吃进已 binary-confirmed 的几何与 timing 内核，不等待 `finished` predicate 剩余字段命名完全坐实。
-- 2026-04-19：target-window 命中策略保留，但从“旧 7 候选的主选择器”改成“官方候选池之上的 tie-break”。
-- 2026-04-19：主线 runtime 直接复用官方 `closeEnough` spring shape，但不把 `1.429166...` 当作真实 wall-clock move duration；实际耗时继续按当前仓库已验证的本地校准公式映射。
+- 2026-04-19: This round, the mainline overlay only ingests the geometry and timing kernel already binary-confirmed; it does not wait for the remaining field naming of the `finished` predicate to be fully nailed down.
+- 2026-04-19: The target-window hit strategy is kept, but changed from "the primary selector among the old 7 candidates" to "a tie-break on top of the official candidate pool."
+- 2026-04-19: The mainline runtime directly reuses the official `closeEnough` spring shape, but does not treat `1.429166...` as the true wall-clock move duration; actual elapsed time continues to be mapped via this repo's already-validated local calibration formula.
 
-## 结果记录
+## Results
 
-- 已在 `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift` 新增主线可复用 motion 内核，包含 `CursorMotionPath`、candidate measurement/score、`VelocityVerlet` progress animator 和官方候选生成逻辑。
-- 已在 `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift` 切换到官方候选池选路，并把 target-window 命中采样降级为 tie-break。
-- 已在 `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift` 补充候选数量、参考样例 best candidate 和 `closeEnoughTime` 回归测试。
-- 已执行 `swift test`，当前通过。
+- Added a reusable mainline motion kernel to `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/CursorMotionModel.swift`, including `CursorMotionPath`, candidate measurement/score, the `VelocityVerlet` progress animator, and the official candidate-generation logic.
+- Switched `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift` to select paths from the official candidate pool, and demoted the target-window hit sampling to a tie-break.
+- Added candidate-count, reference-sample best-candidate, and `closeEnoughTime` regression tests to `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`.
+- Ran `swift test`; currently passing.

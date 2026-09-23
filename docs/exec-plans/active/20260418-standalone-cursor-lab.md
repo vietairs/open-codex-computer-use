@@ -1,107 +1,107 @@
 # Cursor Motion
 
-## 目标
+## Goal
 
-在当前仓库内落一个与主 `OpenComputerUseKit` 解耦的独立目录，用 Swift 实现一版可调参的软件 cursor motion demo，用来逼近官方视频里的手感，并为后续单独开源做准备。
+Land an independent directory in the current repo, decoupled from the main `OpenComputerUseKit`, implementing a tunable software cursor motion demo in Swift, used to approximate the feel seen in the official videos, and to prepare for a later separate open-source release.
 
-## 范围
+## Scope
 
-- 包含：
-- 新建独立目录承载 cursor motion 实验，不直接污染主 MCP runtime。
-- 把 motion model 拆成参数层、路径层、时间模拟层、渲染层。
-- 做一个本地可运行的 demo，至少支持起点/终点、轨迹预览、参数滑杆和点击触发。
-- 把本轮逆向分析沉淀到 `docs/references/`。
-- 不包含：
-- 本轮不要求接入真实 `click` tool。
-- 本轮不要求完全复刻官方闭源素材。
-- 本轮不要求把 demo 立即发布成独立仓库。
+- Included:
+- Create a new independent directory to hold the cursor motion experiment, without directly polluting the main MCP runtime.
+- Split the motion model into a parameter layer, a path layer, a time-simulation layer, and a render layer.
+- Build a locally runnable demo, supporting at minimum start/end points, path preview, parameter sliders, and click-to-trigger.
+- Capture this round's reverse-engineering findings into `docs/references/`.
+- Not included:
+- This round does not require wiring into the real `click` tool.
+- This round does not require fully replicating the official closed-source material.
+- This round does not require publishing the demo as a standalone repo immediately.
 
-## 背景
+## Background
 
-- 用户提供了 X 视频样本，明确出现 `START HANDLE`、`END HANDLE`、`ARC SIZE`、`ARC FLOW`、`SPRING` 调参项。
-- `SkyComputerUseService` 字符串已出现 `BezierParameters`、`SpringParameters`、`arcHeight`、`arcIn`、`arcOut`、`cursorMotionProgressAnimation` 等证据。
-- 当前仓库已有 `SoftwareCursorOverlay.swift`，但它更像产品内近似实现，不适合继续承载大量调参与实验 UI。
+- The user provided X video samples, which clearly show `START HANDLE`, `END HANDLE`, `ARC SIZE`, `ARC FLOW`, `SPRING` tuning parameters.
+- The `SkyComputerUseService` strings already show evidence of `BezierParameters`, `SpringParameters`, `arcHeight`, `arcIn`, `arcOut`, `cursorMotionProgressAnimation`.
+- The repo already has `SoftwareCursorOverlay.swift`, but it is more of an approximate in-product implementation, and is not well suited to continuing to carry a large amount of parameter tuning and experimental UI.
 
-## 风险
+## Risks
 
-- 风险：过早把实验代码下沉到主包，导致主线 overlay 行为反复波动。
-- 缓解方式：先放独立目录，稳定后再抽公共模块。
-- 风险：只凭视频调参，可能把“视觉像”误当成“结构对”。
-- 缓解方式：优先围绕已确认字段名建模，不做纯拍脑袋参数命名。
-- 风险：demo UI 和未来独立开源边界不清。
-- 缓解方式：第一阶段只做最小可运行 lab，避免提前引入和 MCP/tool 相关的耦合。
+- Risk: sinking experimental code into the main package too early, causing the mainline overlay behavior to keep fluctuating.
+- Mitigation: keep it in an independent directory first, and extract shared modules only once it stabilizes.
+- Risk: tuning purely from video could mistake "looks visually right" for "structurally correct."
+- Mitigation: prioritize modeling around already-confirmed field names, avoiding purely made-up parameter naming.
+- Risk: unclear boundary between the demo UI and a future standalone open-source release.
+- Mitigation: in the first phase, build only a minimal runnable lab, avoiding introducing MCP/tool-related coupling prematurely.
 
-## 里程碑
+## Milestones
 
-1. 建立独立目录与 README，明确模块边界。
-2. 实现纯参数化路径生成与可视化。
-3. 补 spring/timing 模拟。
-4. 在独立 lab 中完成一版按最新逆向结果重构的官方风格路径/姿态模型。
+1. Establish an independent directory and README, clarifying module boundaries.
+2. Implement pure parameterized path generation and visualization.
+3. Add spring/timing simulation.
+4. In the independent lab, complete a version of the official-style path/pose model rebuilt from the latest reverse-engineering results.
 
-## 验证方式
+## Verification
 
-- 能独立运行本地 demo。
-- 能通过 slider 实时改变轨迹几何和停驻手感。
-- 仓库文档能说明该目录与主产品代码的边界。
+- Able to run the local demo independently.
+- Able to change trajectory geometry and dwell feel in real time via sliders.
+- Repo docs can explain the boundary between this directory and the main product code.
 
-## 进度记录
+## Progress Log
 
-- [x] 里程碑 1
-- [x] 里程碑 2
-- [x] 里程碑 3
-- [x] 里程碑 4
+- [x] Milestone 1
+- [x] Milestone 2
+- [x] Milestone 3
+- [x] Milestone 4
 
-## 最新进展
+## Latest Progress
 
-- 2026-04-18：已补齐点击任意位置触发候选路径预览，不再局限于 replay。
-- 2026-04-18：已修正 click capture 的坐标系和事件覆盖问题，底部区域不再因为额外矩形排除区而出现隐藏死区。
-- 2026-04-18：已把 `DEBUG` toggle 的开启态改成明显高亮，并把 controls 改成最小 overlay 布局，避免透明容器阻挡画布点击。
-- 2026-04-18：已把路径模型升级为“line direction + cursor heading”混合约束，并新增 `turn` / `brake` 候选族，选中的主路径开始具备更明显的先顺头部方向、再回咬目标的走势。
-- 2026-04-18：已把 timing 从 spring + `easeInOut` 改为 minimum-jerk bell-shaped profile，并移除位置层末端 overshoot；cursor 在运动中持续跟随切线朝向，到点阶段再平滑回正。
-- 2026-04-19：已为路径建立 curvature / heading-change 加权的 effort lookup，进度推进不再直接绑定 Bezier 参数 `t`，从而让高曲率转向段更慢、直线段更快。
-- 2026-04-19：已把 standalone lab 的 cursor 切到资源化 PNG asset，并改成 tip-anchor 驱动的命中点对齐；静止姿态与运动姿态共用一套 heading calibration，运动中持续朝向当前切线方向。
-- 2026-04-19：已新增更偏“launch/甩头”的候选路径族，并引入 path quality 评分，显式衡量起步朝向贴合度、早段转头力度、末段切线对齐和 terminal straightness。
-- 2026-04-19：已把 timing edge weighting 拆成 start/end 两侧，分别加重起步掉头和末段刹车阶段，从而让速度分配更接近官方视频里“先甩头、后收束”的节奏。
-- 2026-04-19：已把 lab 从 speculative slider 驱动的曲线/收尾模型，重构为 recovered 的 `20` candidate path + 官方风格 spring progress + 独立 visual dynamics；收尾不再靠 endpoint 锁住后原地翻角。
-- 2026-04-19：在对照官方视频后发现 guide/arc 相关常量不能直接按屏幕坐标向量使用；当前已改成先投到 start→end 的局部基底，再生成候选路径，默认样例和反向斜移都不再出现起点附近打结式的扭曲回环。
-- 2026-04-19：继续对照官方视频后，确认 lab 主线不能直接拿 raw reverse-engineered `20` candidates 当 chooser；当前已改成 heading-driven 选路，把当前可见朝向和最终 resting pose 一起参与选路，主路径重新收敛到“需要掉头时走单侧 C 形，不需要掉头时近直线”的分布。
-- 2026-04-20：在对照 `scripts/render-synthesized-software-cursor.swift` 与用户截图后，确认上一版亮白 asset 风格并不对；当前已把 lab 改成优先显示仓库里的官方 `252x252` runtime baseline 图，fallback 才走脚本同款 procedural pointer/fog，同时把 idle 从 XY 漂移收紧为中心固定的小幅摆角。
-- 2026-04-20：曾按用户反馈把“内部 heading”与“可见箭头角度”分离，短暂把 moving 阶段的可见箭头收紧成轻微 lean；这层假设随后已在对照官方抽帧后撤回。
-- 2026-04-20：按用户反馈把左上角 5 个 slider 恢复回来，并重新接到 heading-driven 路径几何与 progress spring；当前 slider 明确只作为本地调参入口，不宣称是已完全确认的官方字段映射。
-- 2026-04-20：继续按用户反馈把左上角控件区裁成纯 slider，并把 slider label / panel accent 收回当前中性灰紫主色系；不再保留 `REPLAY` / `RESET` 按钮和额外 metrics 文案，避免信息噪音和低对比白字。
-- 2026-04-20：修正窗口 resize 时的状态重置 bug；`proxy.size` 变化现在只更新 canvas bounds，不再重新走 `configure + snap(to: start)`，因此调整窗口大小不会把 cursor 强行拉回起始点。
-- 2026-04-20：基于 `Codex Computer Use.app` 的新一轮 timing 逆向，确认默认 move 的 wall-clock endpoint-lock 是固定的 `343 / 240 = 1.4291667s`；lab 现已移除距离驱动的 travel-duration 压缩，默认档直接按官方 spring timeline 走，`SPRING` slider 只再改变 spring 本身的 response / damping 与对应时长。
-- 2026-04-20：对照用户提供的官方视频抽帧后，确认 moving 阶段的可见箭头确实会持续跟随当前 move heading，而不是只保留一个轻微 lean；lab 现已撤回那层 `displayRotation` 分离，glyph 渲染重新直接使用 visual dynamics 的主 `rotation`。
-- 2026-04-20：继续对照 `official-software-cursor-window-252.png` 与独立脚本的静止朝向后，确认 lab 之前额外加的 `-26.5°` glyph 补偿会让 moving heading 固定偏掉；当前已把静止基线收敛到和主运行时一致的“零旋转即左上朝向”，也就是 y-down 画布里的 `-3π/4`。
-- 2026-04-20：继续排查“屁股超前”后，确认真正的问题是 lab 的 motion/heading 运行在 SwiftUI 的 y-down 坐标，但 glyph 渲染落在 AppKit 默认 y-up `NSView`；当前已在 glyph 渲染层对 angle、body offset 和 fog offset 统一做 y-down -> y-up 转换，避免 moving 姿态被垂直镜像。
-- 2026-04-20：把刚确认的 slider 语义进一步收回到 `CursorMotion` 主线上；`START HANDLE` 现在主要调起步段的 guide / reach / normal，`END HANDLE` 主要调收尾段的 guide / reach / normal，不再只是对整条曲线做对称缩放。同时移除了过紧的 corridor clipping，改用内缩 canvas bounds，避免默认样例里 `END HANDLE` 被提前裁没。
-- 2026-04-20：继续按同样方法收紧 `ARC SIZE`；当前它明确表示轨迹弧度而不是 cursor 大小，并且已经同时接到局部 path 的弧高/控制点侧向偏移，以及 chooser 对 `direct` 和 `arched` family 的偏好。默认点位采样下，`arcSize=0.04 -> 0.12` 会让 `curveScale` 从约 `10.3` 提升到 `47.7`，中段 `y` 也从约 `326.8` 抬到 `345.5`。
-- 2026-04-20：继续收紧 `ARC FLOW`；当前它明确表示“最宽弧段在 chord 上更靠前还是更靠后”，实现上不再只是改 start/end reach 的抽象 bias，而是改到单段 cubic 控制点的前后相位偏置。
-- 2026-04-20：继续收紧 `SPRING`；当前它明确表示 progress spring 的 `response / damping` 与 endpoint-lock 时间，默认 `spring=0.5` 会精确回到官方 `.official` 配置。采样下，`spring=0.25 / 0.5 / 0.75` 分别对应约 `1.0958s / 1.4292s / 1.8750s` 的 endpoint-lock，语义已经收成稳定的“左快右慢”。
-- 2026-04-20：修正 `ARC FLOW` 首轮实现引入的中段“节点感”；问题不在 `SPRING`，而在那版显式中间锚点的双段曲线把路径本身做出了 join，叠加 debug overlay 又把这个中点强调出来。当前已经收回到单段 cubic，相位控制继续保留，但几何上不再存在中间 join。
-- 2026-04-20：继续修正 slider 调参状态流；当前已把“当前 cursor 位置”和“当前会话的 reference path”拆开，slider 重算时用最近一次真实 move 的 origin / startRotation + `queuedTarget` 更新整条调试曲线，同时只把 cursor snap 在当前位置，因此 settled 后调参也不会把 DEBUG 线重建成 `target -> target` 的零长度路径。
-- 2026-04-20：继续收口右上角控件；当前只保留 `DEBUG` 一个 switch，`MAIL` / `CLICK` 已移除，click pulse 默认常开，同时把 switch 的 on/off 底色拉开到和左侧 slider 一致的高对比语义。
-- 2026-04-20：继续收口左右 panel 的容器样式；当前左上 slider 面板和右上 `DEBUG` 面板已经统一复用同一套 card shell，不再分别维护不同的 padding / frame 包装。
-- 2026-04-20：继续修正 panel 在浅背景上的识别度；当前 card fill 已收成更实的灰白底，并加强描边和阴影，减少背景渐变直接透到 panel 上导致的“看起来像不同底色”问题。
-- 2026-04-20：已把独立 demo 的对外命名统一收口到 `Cursor Motion` / `CursorMotion`；Swift Package product、实验目录、README 入口和相关文档现在都以 `swift run CursorMotion` 为准，不再保留 `StandaloneCursorLab` 旧名。
-- 2026-04-20：已补一条 tag 驱动的 `Cursor Motion` 分发链路；本地可以通过 `scripts/build-cursor-motion-dmg.sh` 构建 DMG，GitHub Actions 在推送 release tag 后会自动生成 `CursorMotion-<version>.dmg` 并上传到 GitHub Releases。
-- 2026-04-20：继续修正“打包版和 `swift run CursorMotion` 观感不一致”的问题；当前已确认 release app 之前没把官方 `252x252` baseline cursor PNG 带进 bundle，导致退回 procedural glyph。现在 `.app` 会优先从 `Bundle.main` 读官方 cursor 图，DMG 打包脚本也会把这张图复制进 `Contents/Resources`，并显式打开 `NSHighResolutionCapable`。
-- 2026-04-20：继续修正 packaged `Cursor Motion` 的 app icon 资产链；当前已经收口到仓库内 checked-in 的 `1024x1024` master PNG，并在 DMG 打包阶段通过 `sips + iconutil` 生成 `CursorMotion.icns`，避免继续把 Dock 光学尺寸调校耦合在临时 icon render 脚本里。
+- 2026-04-18: Added click-anywhere-to-trigger candidate path preview, no longer limited to replay.
+- 2026-04-18: Fixed the click-capture coordinate system and event-coverage issue; the bottom area no longer has a hidden dead zone caused by an extra excluded rectangle.
+- 2026-04-18: Changed the `DEBUG` toggle's on-state to be clearly highlighted, and changed the controls to a minimal overlay layout, avoiding a transparent container blocking clicks on the canvas.
+- 2026-04-18: Upgraded the path model to a "line direction + cursor heading" hybrid constraint, and added `turn` / `brake` candidate families; the selected main path now shows a clearer tendency to first follow the head direction, then bite back toward the target.
+- 2026-04-18: Changed timing from spring + `easeInOut` to a minimum-jerk bell-shaped profile, and removed the position layer's end overshoot; the cursor continuously follows the tangent heading during motion, then smoothly straightens out on arrival.
+- 2026-04-19: Built a curvature/heading-change-weighted effort lookup for the path, so progress advancement is no longer directly tied to the Bezier parameter `t`, making high-curvature turn segments slower and straight segments faster.
+- 2026-04-19: Switched the standalone lab's cursor to a resource-based PNG asset, and changed to tip-anchor-driven hit-point alignment; the resting pose and the moving pose share one heading calibration, continuously facing the current tangent direction during motion.
+- 2026-04-19: Added a new candidate path family leaning more toward a "launch/whip" feel, and introduced a path quality score, explicitly measuring starting-heading fit, early-segment turn strength, end-segment tangent alignment, and terminal straightness.
+- 2026-04-19: Split timing edge weighting into start/end sides, separately weighting the starting whip-around and the end-segment braking phase, making the speed distribution closer to the "whip first, settle later" rhythm seen in the official videos.
+- 2026-04-19: Rebuilt the lab from a speculative-slider-driven curve/settle model into a recovered `20`-candidate path + official-style spring progress + independent visual dynamics; the settle phase no longer relies on the endpoint locking and then rotating in place.
+- 2026-04-19: After comparing against the official video, found that the guide/arc-related constants cannot be used directly as screen-coordinate vectors; changed to first project into a local basis from start→end, then generate candidate paths — the default sample and the reverse diagonal case no longer show a knot-like distortion loop near the start point.
+- 2026-04-19: After continuing to compare against the official video, confirmed the lab mainline cannot directly use the raw reverse-engineered `20` candidates as the chooser; changed to heading-driven path selection, factoring both the currently visible heading and the final resting pose into path choice — the main path now re-converges onto the distribution of "take a one-sided C-shape when a turn is needed, near-straight when it isn't."
+- 2026-04-20: After comparing `scripts/render-synthesized-software-cursor.swift` against the user's screenshots, confirmed the previous bright-white asset style was wrong; changed the lab to prioritize the official `252x252` runtime baseline image checked into the repo, with the same script's procedural pointer/fog as fallback, and tightened idle from XY drift to a small centered rocking angle.
+- 2026-04-20: Per user feedback, briefly separated "internal heading" from "visible arrow angle" and tightened the visible arrow during the moving phase to a slight lean; this assumption was subsequently retracted after comparing against official frame extracts.
+- 2026-04-20: Per user feedback, restored the 5 sliders in the top-left corner, and reconnected them to the heading-driven path geometry and progress spring; the sliders are now explicitly only a local tuning entry point, not a claim of fully confirmed official field mapping.
+- 2026-04-20: Continuing per user feedback, trimmed the top-left control area down to pure sliders, and pulled the slider label/panel accent back to the current neutral gray-purple palette; no longer keeping the `REPLAY` / `RESET` buttons or extra metrics copy, avoiding information noise and low-contrast white text.
+- 2026-04-20: Fixed a state-reset bug on window resize; `proxy.size` changes now only update the canvas bounds, no longer re-running `configure + snap(to: start)`, so resizing the window no longer forcibly pulls the cursor back to the start point.
+- 2026-04-20: Based on a new round of timing reverse-engineering on `Codex Computer Use.app`, confirmed the default move's wall-clock endpoint-lock is fixed at `343 / 240 = 1.4291667s`; the lab has now removed the distance-driven travel-duration compression — the default tier follows the official spring timeline directly, and the `SPRING` slider now only changes the spring's own response/damping and the corresponding duration.
+- 2026-04-20: After comparing against official video frame extracts provided by the user, confirmed the visible arrow during the moving phase does continuously follow the current move heading, rather than only keeping a slight lean; the lab has now retracted that `displayRotation` separation layer, and glyph rendering again directly uses the visual dynamics' main `rotation`.
+- 2026-04-20: After continuing to compare `official-software-cursor-window-252.png` against the standalone script's resting orientation, confirmed the extra `-26.5°` glyph compensation the lab previously added was causing the moving heading to be consistently off; the resting baseline is now converged to match the main runtime — "zero rotation means facing top-left," i.e. `-3π/4` in a y-down canvas.
+- 2026-04-20: While continuing to investigate the "tail leading" issue, confirmed the real problem is that the lab's motion/heading runs in SwiftUI's y-down coordinates, but glyph rendering lands in AppKit's default y-up `NSView`; the glyph render layer now uniformly applies a y-down -> y-up conversion to angle, body offset, and fog offset, avoiding the moving pose being vertically mirrored.
+- 2026-04-20: Pulled the just-confirmed slider semantics further back onto the `CursorMotion` mainline; `START HANDLE` now primarily adjusts the starting segment's guide/reach/normal, `END HANDLE` primarily adjusts the ending segment's guide/reach/normal, no longer just applying symmetric scaling to the entire curve. Also removed overly tight corridor clipping in favor of inset canvas bounds, avoiding `END HANDLE` being clipped away prematurely in the default sample.
+- 2026-04-20: Continuing with the same approach, tightened `ARC SIZE`; it now clearly represents trajectory arc curvature rather than cursor size, and is now wired into both the local path's arc height/control-point lateral offset and the chooser's preference between the `direct` and `arched` families. Under default sample points, `arcSize=0.04 -> 0.12` raises `curveScale` from about `10.3` to `47.7`, and the midpoint `y` also rises from about `326.8` to `345.5`.
+- 2026-04-20: Continuing to tighten `ARC FLOW`; it now clearly represents "whether the widest arc segment sits further forward or further back along the chord" — implementation-wise it no longer just changes an abstract bias on start/end reach, but instead changes the fore/aft phase offset of a single cubic segment's control point.
+- 2026-04-20: Continuing to tighten `SPRING`; it now clearly represents the progress spring's `response / damping` and endpoint-lock time, with the default `spring=0.5` exactly matching the official `.official` config. Under sampling, `spring=0.25 / 0.5 / 0.75` correspond respectively to endpoint-locks of about `1.0958s / 1.4292s / 1.8750s`, and the semantics have converged into a stable "fast on the left, slow on the right."
+- 2026-04-20: Fixed the mid-segment "joint feel" introduced by the first `ARC FLOW` implementation; the problem wasn't in `SPRING`, but in that version's explicit mid-anchor two-segment curve creating a real join in the path, which the debug overlay then emphasized further. This has now been pulled back to a single cubic segment — phase control is retained, but geometrically there is no longer a mid join.
+- 2026-04-20: Continuing to fix the slider-tuning state flow; "current cursor position" and "the current session's reference path" are now decoupled — when recalculating from a slider change, the entire debug curve is rebuilt from the most recent real move's origin/startRotation + `queuedTarget`, while only the cursor itself is snapped to its current position, so tuning after settling no longer rebuilds the DEBUG line into a zero-length `target -> target` path.
+- 2026-04-20: Continuing to tighten the top-right controls; only the `DEBUG` switch remains, `MAIL` / `CLICK` have been removed, click pulse defaults to always-on, and the switch's on/off background color has been pulled apart into the same high-contrast semantics as the left-side sliders.
+- 2026-04-20: Continuing to tighten the left/right panel container styling; the top-left slider panel and the top-right `DEBUG` panel now share one unified card shell, no longer separately maintaining different padding/frame wrapping.
+- 2026-04-20: Continuing to fix panel legibility against a light background; the card fill is now a more solid gray-white base, with stronger stroke and shadow, reducing the "looks like a different background color" problem caused by the background gradient showing through the panel directly.
+- 2026-04-20: Unified the standalone demo's public naming to `Cursor Motion` / `CursorMotion`; the Swift Package product, the experiment directory, the README entry point, and related docs now all standardize on `swift run CursorMotion`, no longer retaining the old `StandaloneCursorLab` name.
+- 2026-04-20: Added a tag-driven `Cursor Motion` distribution pipeline; locally, a DMG can be built via `scripts/build-cursor-motion-dmg.sh`, and GitHub Actions automatically generates `CursorMotion-<version>.dmg` and uploads it to GitHub Releases after a release tag is pushed.
+- 2026-04-20: Continuing to fix the "packaged build and `swift run CursorMotion` look inconsistent" issue; confirmed the release app previously did not bundle the official `252x252` baseline cursor PNG, causing it to fall back to the procedural glyph. Now the `.app` prioritizes reading the official cursor image from `Bundle.main`, the DMG packaging script also copies this image into `Contents/Resources`, and explicitly turns on `NSHighResolutionCapable`.
+- 2026-04-20: Continuing to fix the packaged `Cursor Motion`'s app icon asset chain; now converged onto the checked-in `1024x1024` master PNG in the repo, generating `CursorMotion.icns` via `sips + iconutil` during the DMG packaging step, avoiding continuing to couple Dock optical-size tuning into an ad hoc icon-render script.
 
-## 决策记录
+## Decision Log
 
-- 2026-04-18：先把这项工作定义为 standalone lab，而不是继续直接堆进 `OpenComputerUseKit`.
-- 2026-04-18：参数命名优先采用视频 UI 与官方字符串的交集：`start/end handle`、`arc size/flow`、`spring`。
-- 2026-04-18：第一版 demo 先用独立 SwiftUI target + `CVDisplayLink` 驱动模拟，优先验证参数语义和轨迹手感，再考虑与主 overlay 合流。
-- 2026-04-19：在拿到更完整的 binary-backed 路径与视觉层实现后，lab 改为直接演示 recovered 结构，不再把未经确认的 slider 语义继续当成主实现。
-- 2026-04-19：对 `swift_once` 恢复出的 guide 系数，当前默认采用“常量已确认、世界坐标解释不成立、局部基底投影更贴近官方视频”的实现策略；后续如果拿到更强的二进制级证据，再继续下沉这层解释。
-- 2026-04-19：raw binary lift 的 `20` candidate pool 保留在 `StandaloneCursor` 这条分析线；`CursorMotion` 和主 runtime overlay 则统一切到 heading-driven 主线，实现上优先保证“朝向约束 + 单侧转弯”这个更贴近官方视频的结构行为。
-- 2026-04-20：恢复 slider UI 时，继续把“调参入口”和“binary-confirmed 结构”分开表述；lab 可以暴露 `start/end handle`、`arc size/flow`、`spring` 这些测试旋钮，但文档和代码都不把它们说成官方一一字段对照。
-- 2026-04-20：对 `start/end handle` 这两个旋钮，当前实验线采用“作用在局部 start/end control 几何，而不是全局统一缩放”的策略；这更接近 binary lift 里 `startControl/endControl` 与 `startExtent/endExtent` 的边界。
-- 2026-04-20：对 `ARC SIZE`，当前实验线采用“作用在局部 arc height / normal bias / family chooser，而不是 cursor glyph 尺寸”的策略；这更接近 binary lift 里 `handleExtent / arcExtent / tableA / tableB` 对曲线宽度的作用边界。
-- 2026-04-20：对 `ARC FLOW`，当前实验线采用“作用在单段 cubic 控制点的前后相位，而不是单纯抽象 reach bias”的策略；这更接近 reverse-engineering 里“最宽弧段被沿 guide 方向推前/推后”的边界。
-- 2026-04-20：对 `SPRING`，当前实验线采用“围绕官方 `.official` 的 centered response/damping remap，而不是再叠加额外 distance-based duration 层”的策略；这更接近当前 binary-backed 证据里“主链直接吃 `1.4 / 0.9` spring config”的边界。
-- 2026-04-20：调左上角 slider 时，path 重建现在统一基于当前会话里最近一次 move 的 reference origin / startRotation / `queuedTarget`，而不是外层 `@State start/end` 或 settled 后的 live endpoint；这样参数调节既不会把曲线起点误拉回初始位置，也不会把 DEBUG 反馈线消成零长度。
-- 2026-04-20：对 `Cursor Motion` 的对外交付，当前采用“源码运行 + GitHub Releases 分发 ad-hoc signed DMG”的策略；先把 tag 驱动的可复现封装链路稳定下来，不在这一轮提前引入 notarization 和 Developer ID 签名复杂度。
-- 2026-04-20：对 packaged `Cursor Motion` 的 glyph 资源，当前采用“bundle 内官方 baseline 图优先，仓库 reference 路径兜底”的策略；这样 release app 不再因为缺资源而静默退回低保真的 procedural glyph。
-- 2026-04-20：对 packaged `Cursor Motion` 的 app icon，当前采用“先直接复用 `Open Computer Use` 的现有 `.icns` 渲染脚本”的策略；先解决 Finder / DMG 里的无图标问题，后续如果需要再单独设计专属 icon。
+- 2026-04-18: Defined this work as a standalone lab up front, rather than continuing to pile directly into `OpenComputerUseKit`.
+- 2026-04-18: Parameter naming prioritizes the intersection of the video UI and the official strings: `start/end handle`, `arc size/flow`, `spring`.
+- 2026-04-18: The first demo version first uses an independent SwiftUI target + `CVDisplayLink`-driven simulation, prioritizing verifying parameter semantics and trajectory feel before considering merging with the main overlay.
+- 2026-04-19: After obtaining a more complete binary-backed path and visual-layer implementation, changed the lab to directly demonstrate the recovered structure, no longer treating unconfirmed slider semantics as the main implementation.
+- 2026-04-19: For the guide coefficients recovered from `swift_once`, the current default implementation strategy is "the constants are confirmed, the world-coordinate interpretation does not hold, a local-basis projection is a closer fit to the official video"; if stronger binary-level evidence is obtained later, this interpretation layer will continue to be revisited.
+- 2026-04-19: The raw binary-lift `20`-candidate pool remains on the `StandaloneCursor` analysis track; `CursorMotion` and the main runtime overlay are both unified onto the heading-driven mainline, with the implementation prioritizing "heading constraint + one-sided turning" as the structural behavior closer to the official video.
+- 2026-04-20: When restoring the slider UI, continued to describe "the tuning entry point" and "the binary-confirmed structure" separately; the lab can expose `start/end handle`, `arc size/flow`, `spring` as testing knobs, but neither the docs nor the code claim they are a one-to-one match to official fields.
+- 2026-04-20: For the `start/end handle` knobs, the current experimental line adopts the strategy of "acting on the local start/end control geometry, not a global uniform scale"; this is closer to the boundary between `startControl/endControl` and `startExtent/endExtent` in the binary lift.
+- 2026-04-20: For `ARC SIZE`, the current experimental line adopts the strategy of "acting on the local arc height / normal bias / family chooser, not the cursor glyph size"; this is closer to how `handleExtent / arcExtent / tableA / tableB` bound curve width in the binary lift.
+- 2026-04-20: For `ARC FLOW`, the current experimental line adopts the strategy of "acting on the fore/aft phase of a single cubic segment's control point, not merely an abstract reach bias"; this is closer to the reverse-engineered boundary of "the widest arc segment is pushed forward/backward along the guide direction."
+- 2026-04-20: For `SPRING`, the current experimental line adopts the strategy of "a centered response/damping remap around the official `.official`, rather than layering on an additional distance-based duration layer"; this is closer to the current binary-backed evidence's boundary of "the main chain directly consumes the `1.4 / 0.9` spring config."
+- 2026-04-20: When adjusting the top-left sliders, path reconstruction is now uniformly based on the current session's most recent move's reference origin/startRotation/`queuedTarget`, rather than the outer `@State start/end` or the live endpoint after settling; this way parameter adjustment neither mistakenly pulls the curve start back to the initial position, nor collapses the DEBUG feedback line to zero length.
+- 2026-04-20: For the external delivery of `Cursor Motion`, the current strategy adopted is "run from source + distribute an ad-hoc signed DMG via GitHub Releases"; stabilize the tag-driven reproducible packaging pipeline first, without prematurely introducing notarization and Developer ID signing complexity in this round.
+- 2026-04-20: For the packaged `Cursor Motion`'s glyph resource, the current strategy adopted is "prioritize the official baseline image inside the bundle, fall back to the repo reference path"; this way the release app no longer silently falls back to the low-fidelity procedural glyph due to a missing resource.
+- 2026-04-20: For the packaged `Cursor Motion`'s app icon, the current strategy adopted is "directly reuse `Open Computer Use`'s existing `.icns` render script for now"; fix the no-icon issue in Finder/DMG first, and design a dedicated icon separately later if needed.

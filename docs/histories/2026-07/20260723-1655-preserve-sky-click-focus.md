@@ -1,4 +1,4 @@
-## [2026-07-23 16:55] | Task: 修复 sky_click 前台焦点丢失
+## [2026-07-23 16:55] | Task: Fix sky_click losing foreground focus
 
 ### 🤖 Execution Context
 * **Agent ID**: `/root`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex desktop / macOS arm64`
 
 ### 📥 User Query
-> 修复 `sky_click` 虽然不置顶目标窗口，但会让当前应用失去输入焦点的问题，并对照 Codex 的行为补强验证。
+> Fix the issue where `sky_click`, even though it doesn't raise the target window to the front, still causes the current application to lose input focus, and strengthen verification against Codex's behavior.
 
 ### 🛠 Changes Overview
-**Scope:** macOS SkyLight click runtime、snapshot recovery、fixture focus probe、测试和文档。
+**Scope:** macOS SkyLight click runtime, snapshot recovery, fixture focus probe, tests, and docs.
 
 **Key Actions:**
-- **Target-only synthetic focus**: 移除对真实前台应用的 defocus / restore record，只让目标应用短暂进入 synthetic-active 状态，renderer settle 后只撤销目标状态。
-- **Non-invasive refresh**: `sky_click` 的 action-result snapshot 使用 read-only recovery policy，禁止通过 `NSRunningApplication.activate` 或 `AXRaise` 恢复目标窗口。
-- **Focus regression**: 扩展 fixture 状态，记录 AppKit active、key window、first responder、`resignActive` 和 `resignKey` 累计次数；隔离 Chrome 实机回归对这些状态建立断言。
-- **Compatibility boundary**: 不改变 Chromium primer、PID/window event fields、SkyLight/public 双通道投递、`auto` 默认行为或显式 fail-closed 语义。
+- **Target-only synthetic focus**: Removed the defocus/restore record sent to the real foreground application; now only the target application briefly enters a synthetic-active state, and only the target's state is reverted after the renderer settles.
+- **Non-invasive refresh**: `sky_click`'s action-result snapshot now uses a read-only recovery policy, disallowing recovering the target window via `NSRunningApplication.activate` or `AXRaise`.
+- **Focus regression**: Extended the fixture state to record AppKit active, key window, first responder, and cumulative `resignActive`/`resignKey` counts; the isolated Chrome real-machine regression now asserts on these states.
+- **Compatibility boundary**: Did not change the Chromium primer, PID/window event fields, SkyLight/public dual-channel delivery, `auto`'s default behavior, or explicit fail-closed semantics.
 
 ### 🧠 Design Intent (Why)
-*旧实现把“without raise”误当成“保持焦点”：它没有改变 WindowServer frontmost PID 或 z-order，却主动向真实前台应用发送 `focused=false`，足以触发 AppKit resign/key/first-responder 副作用。新的 session 数据结构不再保存前台 PSN/window，从结构上禁止这类投递；后台目标如果需要兼容状态，只能获得独立的 target-only synthetic focus。*
+*The old implementation mistook "without raise" for "keeps focus": it never changed the WindowServer frontmost PID or z-order, yet it actively sent `focused=false` to the real foreground application, which was enough to trigger AppKit resign/key/first-responder side effects. The new session data structure no longer stores a foreground PSN/window, structurally disallowing this kind of delivery; if a background target needs compatibility state, it can only get an independent, target-only synthetic focus.*
 
 ### ✅ Verification
 - `swift build` passes.

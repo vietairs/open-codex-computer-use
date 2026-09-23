@@ -6,7 +6,7 @@
 * **Runtime**: `Codex CLI`
 
 ### User Query
-> 希望 npm / brew 安装后除了 `open-computer-use`，也能像 `open-browser-use` 的 `obu` 一样提供 `ocu` 短别名。
+> Wanted the npm / brew install to provide an `ocu` short alias too, alongside `open-computer-use`, similar to how `open-browser-use` provides `obu`.
 
 ### Changes Overview
 **Scope:** npm package staging and docs

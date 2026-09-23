@@ -1,4 +1,4 @@
-## [2026-04-17 21:30] | Task: 收敛 visual cursor 的窗口感知轨迹
+## [2026-04-17 21:30] | Task: Converge the visual cursor's window-aware trajectory
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,19 +6,19 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 继续深挖官方 `Codex Computer Use.app` 里的 cursor / overlay 实现，因为当前开源版效果还不够好；希望把能挖出来的行为迁回我们自己的实现里。
+> Keep digging into the cursor/overlay implementation inside the official `Codex Computer Use.app`, since the current open-source version still isn't good enough; I want to bring back whatever behavior we can dig out into our own implementation.
 
 ### 🛠 Changes Overview
 **Scope:** `packages/OpenComputerUseKit`, `docs/references`, `docs/histories`
 
 **Key Actions:**
-- **[Window-aware path selection]**: 给 `SoftwareCursorOverlay` 增加多候选 Bezier 路径选择；当 snapshot 带有目标 `windowID` 时，会对候选路径的控制点和关键采样点做 window hit-test，优先选择仍然落在目标 window 上的路径。
-- **[Conservative fallback]**: 增加严格直线的保守 fallback，避免所有曲线路径都偏离目标窗口时继续硬播夸张轨迹。
-- **[Ordering resilience]**: overlay 现在会在排序前校验目标 window 是否仍存在，并在移动动画与 idle sway 期间持续检查目标 window 是否失效，失效后回退到普通前置排序。
-- **[Docs sync]**: 更新逆向分析文档，补充官方实现里“绑定具体 target window id”和“轨迹窗口命中检查”的推断，并把这轮实现沉淀到 history。
+- **[Window-aware path selection]**: Added multi-candidate Bezier path selection to `SoftwareCursorOverlay`; when the snapshot carries a target `windowID`, it runs a window hit-test against the candidate paths' control points and key sample points, preferring a path that still lands on the target window.
+- **[Conservative fallback]**: Added a strict-straight-line conservative fallback, to avoid still hard-playing an exaggerated trajectory when every curved path drifts off the target window.
+- **[Ordering resilience]**: The overlay now validates whether the target window still exists before ordering, and keeps checking whether the target window has become invalid during the move animation and idle sway, falling back to normal front-ordering once it becomes invalid.
+- **[Docs sync]**: Updated the reverse-engineering docs to add the inference about the official implementation's "binding to a specific target window id" and "trajectory window hit-check," and recorded this round of implementation into history.
 
 ### 🧠 Design Intent (Why)
-这轮不是继续把 overlay 做得更花，而是补上官方实现里更关键的一层约束：cursor 轨迹和目标窗口之间的关系。仅仅“排到目标 window 上面”还不够，如果控制点和中间采样点明显飘出目标窗口，观感就会和官方差很多。把路径选择改成 window-aware 之后，能在不动输入注入链路的前提下，先把最明显的视觉偏差收回来。
+This round isn't about making the overlay flashier — it's about filling in a more critical constraint present in the official implementation: the relationship between the cursor trajectory and the target window. Simply "ordering above the target window" isn't enough; if the control points and intermediate sample points visibly drift outside the target window, the look will differ a lot from the official one. By making path selection window-aware, the most obvious visual deviation can be pulled back in without touching the input-injection pipeline.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift`

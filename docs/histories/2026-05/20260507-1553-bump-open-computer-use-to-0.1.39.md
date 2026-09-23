@@ -1,4 +1,4 @@
-## [2026-05-07 15:53] | Task: 发布 0.1.39
+## [2026-05-07 15:53] | Task: Release 0.1.39
 
 ### 🤖 Execution Context
 * **Agent ID**: `primary`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI + SwiftPM`
 
 ### 📥 User Query
-> 提交推送发版。
+> Commit, push, and release.
 
 ### 🛠 Changes Overview
 **Scope:** `release`, `plugins/open-computer-use`, `apps`, `packages`, `scripts`, `docs`
 
 **Key Actions:**
-- **[Version bump]**: 将 Open Computer Use 版本源从 `0.1.38` bump 到 `0.1.39`。
-- **[Release notes]**: 补充 `0.1.39` 用户可见发布记录，说明 macOS app denylist 收缩到密码管理器。
-- **[Release prep]**: 准备 `v0.1.39` tag 对应的 npm / GitHub Release 验证材料。
+- **[Version bump]**: Bumped the Open Computer Use version source from `0.1.38` to `0.1.39`.
+- **[Release notes]**: Added the `0.1.39` user-facing release entry, noting the macOS app denylist has been narrowed down to password managers.
+- **[Release prep]**: Prepared the npm / GitHub Release verification material corresponding to the `v0.1.39` tag.
 
 ### 🧠 Design Intent (Why)
-本次发版把 app 安全阻止策略从宽泛的硬编码高风险列表收缩到密码管理器，减少 Chrome、终端和系统组件这类常规自动化目标被误拦的情况。版本源、发布记录和 history 需要与 tag 一起保持一致，避免 npm 产物和 GitHub Release 版本漂移。
+This release narrows the app safety-blocking policy from a broad hardcoded high-risk list down to password managers, reducing false blocks on routine automation targets like Chrome, terminals, and system components. The version source, release notes, and history need to stay consistent with the tag to avoid version drift between the npm artifact and the GitHub Release.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

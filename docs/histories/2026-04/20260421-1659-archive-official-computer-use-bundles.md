@@ -1,4 +1,4 @@
-## [2026-04-21 16:59] | Task: 归档官方 computer-use bundle zip
+## [2026-04-21 16:59] | Task: Archive official computer-use bundle zips
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 将本地 bundled plugin cache 里的两个官方 `computer-use` 版本 zip 包加入仓库某个特定目录，并使用 Git LFS 管理。
+> Add the two official `computer-use` version zips from the local bundled plugin cache into a specific directory in the repo, and manage them with Git LFS.
 
 ### 🛠 Changes Overview
-**Scope:** 官方 `computer-use` 逆向参考资料归档
+**Scope:** official `computer-use` reverse-engineering reference material archive
 
 **Key Actions:**
-- **[Archive]**: 新增 `official-bundles/computer-use/` 目录，归档 `1.0.750.zip` 和 `1.0.755.zip`。
-- **[LFS]**: 新增 `.gitattributes` 规则，让该目录下的 zip 通过 Git LFS 跟踪。
-- **[Docs]**: 补充资产目录说明和 SHA-256 校验信息，方便后续复现与版本对比。
+- **[Archive]**: Added `official-bundles/computer-use/` directory, archiving `1.0.750.zip` and `1.0.755.zip`.
+- **[LFS]**: Added `.gitattributes` rules so zips under this directory are tracked via Git LFS.
+- **[Docs]**: Added asset directory documentation and SHA-256 checksum info to facilitate future reproduction and version comparison.
 
 ### 🧠 Design Intent (Why)
-将官方 zip 放在逆向资料资产目录下，可以明确它们是参考输入而不是源码或构建依赖；使用 Git LFS 避免大二进制污染普通 Git object，同时保留可追溯的版本样本。
+Placing the official zips under the reverse-engineering asset directory makes clear they are reference inputs, not source code or build dependencies; using Git LFS avoids polluting normal Git objects with large binaries, while keeping a traceable version sample.
 
 ### 📁 Files Modified
 - `.gitattributes`

@@ -6,26 +6,26 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> README 里的 YouTube 链接渲染后看起来像普通图片，不容易让人意识到它其实是视频；希望说明原因并把展示改得更明确。
+> The YouTube links in the README render like plain images, which makes it hard to tell they're actually videos; wanted this explained and the presentation made clearer.
 
-> 后续又要求把显式说明收敛成更简洁的样式，改为在视频缩略图下方放一个居中的 caption。
+> A follow-up request asked to condense the explicit explanation into something more concise, changing it to a centered caption below the video thumbnail.
 
-> 之后又提出已经做了一张 base64 图片，希望给 README 留一个可替换的占位，并说明该怎么接入。
+> Then a further request said a base64 image had already been prepared, and wanted a replaceable placeholder left in the README along with instructions on how to wire it in.
 
-> 最后提供了两张本地 PNG，希望直接移到仓库里作为正式封面图使用。
+> Finally, two local PNGs were provided, to be moved directly into the repo to serve as the official cover images.
 
 ### 🛠 Changes Overview
 **Scope:** `repository docs`
 
 **Key Actions:**
-- **[Centered captions]**: 在中英文 README 的两个演示区保留原有缩略图链接，并把说明文字改成图片下方居中的 caption。
-- **[Less visual noise]**: 去掉图片上方额外的说明行，避免 README 顶部和章节之间被重复文案打断。
-- **[Custom cover placeholder]**: 在中英文 README 顶部 demo 区增加注释式占位，约定把 base64 解码到仓库内固定路径后再替换图片引用。
-- **[Repo-local covers]**: 把用户提供的两张 `1280x720` PNG 移到 `docs/generated/readme-assets/`，并把中英文 README 的两处视频封面都切到仓库内相对路径。
-- **[History sync]**: 新增本次文档改动 history，保持 README 展示策略的变更可追踪。
+- **[Centered captions]**: Kept the existing thumbnail links in both demo sections of the English and Chinese READMEs, and changed the explanatory text into a centered caption below the image.
+- **[Less visual noise]**: Removed the extra explanation line above the image, avoiding repeated text breaking up the top of the README and between sections.
+- **[Custom cover placeholder]**: Added a comment-style placeholder at the top demo section of both READMEs, documenting the convention of decoding the base64 to a fixed path in the repo and then swapping in the image reference.
+- **[Repo-local covers]**: Moved the two user-provided `1280x720` PNGs into `docs/generated/readme-assets/`, and switched both video covers in the English and Chinese READMEs to repo-relative paths.
+- **[History sync]**: Added a history entry for this doc change, keeping the README presentation strategy change traceable.
 
 ### 🧠 Design Intent (Why)
-GitHub README 不会把普通外链视频缩略图自动渲染成带播放键或 YouTube 角标的嵌入式卡片；在不引入 iframe 的前提下，用自定义封面图加下方 caption 是更直接的表达。最终封面资源落到仓库内固定目录，并通过相对路径引用，既符合 GitHub README 的稳定渲染方式，也比继续保留 base64 占位或外链缩略图更可维护。
+GitHub README doesn't auto-render a plain external video-thumbnail link as an embedded card with a play button or a YouTube badge. Without introducing an iframe, a custom cover image plus a caption below it is a more direct way to communicate this. Landing the final cover assets in a fixed in-repo directory and referencing them via relative paths matches GitHub README's stable rendering behavior, and is more maintainable than keeping a base64 placeholder or an external thumbnail link.
 
 ### 📁 Files Modified
 - `README.md`

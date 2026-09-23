@@ -1,4 +1,4 @@
-## [2026-04-22 10:15] | Task: 发布 0.1.24
+## [2026-04-22 10:15] | Task: Release 0.1.24
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 提交 click 修正相关改动，bump version 并推送。
+> Commit the click-fix-related changes, bump the version, and push.
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.24`。
-- **[Release Notes]**: 在用户可见发布记录中增加 `0.1.24`，说明本次 patch release 聚焦 `click` 的非侵入默认行为和全局物理指针 fallback opt-in。
-- **[Release Trigger]**: 基于 click 全局指针 fallback 修正提交，准备用 `v0.1.24` tag 推送触发新的 GitHub Actions release。
+- **[Version Bump]**: bumped the plugin manifest, Swift/Go version constants, smoke suite initialization version, the test MCP client version, and the CLI doc path all to `0.1.24`.
+- **[Release Notes]**: added `0.1.24` to the user-facing release records, noting this patch release focuses on `click`'s non-intrusive default behavior and the opt-in global physical-pointer fallback.
+- **[Release Trigger]**: committed based on the click global-pointer-fallback fix, preparing to push a `v0.1.24` tag to trigger a new GitHub Actions release.
 
 ### 🧠 Design Intent (Why)
-`v0.1.23` 之后 main 已经包含 click 行为修正：AX 可处理的多次点击不会再直接落入全局鼠标路径，AX 失败后的物理指针 fallback 也默认关闭。发布前需要把 npm manifest、CLI 版本、测试输入和文档中的版本源一起提升，避免 tag 与实际 npm staging 包版本不一致。
+Since `v0.1.23`, main has included the click behavior fix: multi-clicks that AX can handle no longer fall straight into the global mouse path, and the physical-pointer fallback after AX failure is now off by default. Before releasing, the npm manifest, CLI version, test inputs, and every version source in the docs need to be bumped together, to avoid the tag diverging from the actual npm staging package version.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

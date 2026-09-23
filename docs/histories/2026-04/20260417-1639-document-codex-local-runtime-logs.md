@@ -1,4 +1,4 @@
-## [2026-04-17 16:39] | Task: 补充 Codex 本地日志观测文档
+## [2026-04-17 16:39] | Task: Document Codex local log observability
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 把“优先看 LLM call dump，不足时再查 Codex 自己日志”的结论写进 `docs/references/`，单独建一份放在 `codex-network-capture.md` 旁边，并更新 `docs/references/README.md`。
+> Write the conclusion "check the LLM call dump first, and only fall back to Codex's own logs if that's insufficient" into `docs/references/`, as a standalone file placed next to `codex-network-capture.md`, and update `docs/references/README.md`.
 
 ### 🛠 Changes Overview
-**Scope:** `docs/references`、`docs/histories`
+**Scope:** `docs/references`, `docs/histories`
 
 **Key Actions:**
-- **[独立 Runbook]**: 新增 `docs/references/codex-local-runtime-logs.md`，说明何时补查 Codex 本地 `logs_2.sqlite`，以及如何查询 `computer-use` 这类本地 `stdio` MCP 的参数与结果。
-- **[优先级说明]**: 在 `docs/references/codex-network-capture.md` 补充“先看上游抓包、再看本地日志”的默认顺序。
-- **[索引更新]**: 在 `docs/references/README.md` 增加新文档入口，并明确它是抓包文档的补充路径，而不是默认入口。
+- **[Standalone runbook]**: Added `docs/references/codex-local-runtime-logs.md`, explaining when to additionally check Codex's local `logs_2.sqlite`, and how to query the parameters and results of a local `stdio` MCP such as `computer-use`.
+- **[Priority note]**: Added a "check upstream capture first, then local logs" default order note to `docs/references/codex-network-capture.md`.
+- **[Index update]**: Added an entry for the new doc in `docs/references/README.md`, making clear it's a supplementary path to the capture doc, not the default entry point.
 
 ### 🧠 Design Intent (Why)
-上游抓包和本地日志解决的问题不同。把两条观测路径拆成独立文档，并明确优先级，可以避免后续一遇到本地 MCP / `computer-use` 问题就直接走高侵入的拦截路线；多数场景先看 LLM call dump 已经足够，只有不足时才需要补看 Codex 宿主日志。
+Upstream capture and local logs solve different problems. Splitting the two observability paths into separate docs and making the priority explicit avoids reaching for the highly invasive interception route as soon as a local MCP / `computer-use` issue comes up; in most cases, checking the LLM call dump first is already enough, and the Codex host logs are only needed when that falls short.
 
 ### 📁 Files Modified
 - `docs/references/codex-local-runtime-logs.md`

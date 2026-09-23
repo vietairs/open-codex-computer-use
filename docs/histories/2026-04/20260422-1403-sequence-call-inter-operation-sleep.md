@@ -6,7 +6,7 @@
 * **Runtime**: `Codex CLI`
 
 ### User Query
-> 给 `swift run OpenComputerUse call --calls-file examples/textedit-overlay-seq.json` 这类 sequence call 加一个固定间隔，做成可选参数，默认值 1 秒。
+> Add a fixed interval to sequence calls like `swift run OpenComputerUse call --calls-file examples/textedit-overlay-seq.json`, as an optional parameter with a default value of 1 second.
 
 ### Changes Overview
 **Scope:** `OpenComputerUseKit` CLI parsing, sequence execution, tests, docs

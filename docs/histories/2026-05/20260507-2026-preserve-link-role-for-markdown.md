@@ -1,29 +1,29 @@
-# Markdown 链接保留 link role
+# Preserve the link role for Markdown links
 
-## 用户诉求
+## User request
 
-继续对齐官方 `computer-use` 的 state renderer，让 Lark / Electron app 的返回既可读又保留可操作元素语义。
+Keep aligning with the official `computer-use` state renderer, so Lark/Electron app returns stay readable while still preserving actionable-element semantics.
 
-## 主要改动
+## Main changes
 
-- 修正 `AXLink` 在 suppress children 后被泛化成 `container` 的问题。
-- Markdown 链接行现在保留 `link [label](url)` 形态，而不是 `container [label](url)`。
-- 补充单测覆盖 `AXLink` 压平后仍保留 `link` role 的边界。
+- Fixed `AXLink` being generalized into `container` after children are suppressed.
+- Markdown link lines now keep the `link [label](url)` form instead of `container [label](url)`.
+- Added a unit test covering the boundary that `AXLink` still keeps the `link` role after flattening.
 
-## 设计动机
+## Design intent
 
-上一轮将带 URL 的链接压平成 Markdown 文本后，Lark 回归显示行头变成了 `container`。这提升了可读性，但弱化了元素语义。官方 renderer 逆向中同时存在 `flattenLinksIntoMarkdownText` 和 `role` / `roleDescription` 字段，因此更合理的形态是保留 link role 并压平文本。
+After the previous pass flattened URL-bearing links into Markdown text, the Lark regression showed the row prefix had become `container`. That improved readability but weakened element semantics. The reverse-engineered official renderer has both `flattenLinksIntoMarkdownText` and `role`/`roleDescription` fields at the same time, so the more sensible shape is to keep the link role while still flattening the text.
 
-## 验证
+## Verification
 
-- Lark 本地回归确认链接行输出为 `link [label](url)`。
+- Local Lark regression confirms link lines render as `link [label](url)`.
 - `swift test`
 - `./scripts/build-open-computer-use-app.sh debug`
 - `./scripts/run-tool-smoke-tests.sh`
 - `./scripts/check-docs.sh`
 - `git diff --check`
 
-## 受影响文件
+## Affected files
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

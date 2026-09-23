@@ -1,30 +1,30 @@
-# 2026-09-21 23:35 同步上游 v0.3.5 并发布 fork 版本 0.3.6-vietairs.1
+# 2026-09-21 23:35 Sync upstream v0.3.5 and release fork version 0.3.6-vietairs.1
 
-## 背景
+## Background
 
-fork 停留在 `v0.2.1`，上游已经发布到 `v0.3.5`，中间累积了 SkyLight 后台点击、App Agent socket 命名空间隔离、真实窗口服务器拖拽、secondary action 映射修复和应用解析排序等变更。fork 自身也带着一批上游没有的能力：锁屏工作守卫与 opt-in 无人值守策略、app-screen session 校验、菜单栏状态项、app-agent socket 代码签名对端认证，以及 Stage Manager 后台点击回退。
+The fork had been stuck at `v0.2.1`, while upstream had already released up to `v0.3.5`, accumulating changes in the interim such as SkyLight background clicking, App Agent socket namespace isolation, real windowserver drag, secondary-action mapping fixes, and app-resolution ranking. The fork itself also carries a batch of capabilities upstream doesn't have: the lock-screen work guard with an opt-in unattended policy, app-screen session validation, the menu-bar status item, code-signing peer authentication for the app-agent socket, and a Stage Manager background-click fallback.
 
-这一轮的目标是把上游 `v0.3.5` 合进来，同时一条 fork 能力都不丢，然后给 fork 自己打一个版本。
+This round's goal was to merge upstream `v0.3.5` in without losing a single fork capability, then cut a version for the fork itself.
 
-## 变更
+## Changes
 
-合并 `v0.3.5`，77 个文件、3627 行新增。自动合并处理了绝大部分，只有两个冲突，都是双方各自新增、语义不重叠，因此两边都保留：
+Merged `v0.3.5`: 77 files, 3627 lines added. Auto-merge handled the vast majority; only two conflicts occurred, both cases where each side had added something new with non-overlapping semantics, so both sides were kept:
 
-- `InputSimulation.swift`：fork 的 `clickBackgrounded`（通过运行时解析 `CGEventSetWindowLocation`，服务于非 AX 回退路径）与上游的 `clickWithSkyLight`（服务于显式 `click_method: sky_click`）在 `ComputerUseService` 里分别有各自的调用点，两个函数都仍然可达。冲突块把两侧函数的收尾大括号共用了，所以除了删除标记还补了一个 `}`。
-- `AccessibilitySnapshot.swift`：fork 新增的 `firstAnyWindow` 回退放在上游 `recoveryPolicy` 门之前，并且**不**受 `recoveryPolicy` 约束——读取后台窗口的 AX 树不会抢焦点，所以它在 `.denyActivation` 下也应该生效；上游那条基于激活的 `recoverVisibleWindow` 恢复继续只在 `.allowActivation` 下执行。
+- `InputSimulation.swift`: the fork's `clickBackgrounded` (resolves `CGEventSetWindowLocation` at runtime, serving the non-AX fallback path) and upstream's `clickWithSkyLight` (serving the explicit `click_method: sky_click`) each have their own call sites in `ComputerUseService`, and both functions remain reachable. The conflict block had the two functions' closing braces merged together, so besides removing the conflict markers, an extra `}` was added back.
+- `AccessibilitySnapshot.swift`: the fork's added `firstAnyWindow` fallback sits before upstream's `recoveryPolicy` gate, and is **not** subject to `recoveryPolicy` — reading a background window's AX tree doesn't steal focus, so it should still apply under `.denyActivation`; upstream's activation-based `recoverVisibleWindow` recovery still only runs under `.allowActivation`.
 
-版本从 `0.2.1` 跳到 `0.3.6-vietairs.1`，按 `docs/releases/RELEASE_GUIDE.md` 列出的七个版本源全部同步。
+The version jumped from `0.2.1` to `0.3.6-vietairs.1`, synced across all seven version sources listed in `docs/releases/RELEASE_GUIDE.md`.
 
-## 为什么用 `0.3.6-vietairs.1` 而不是 `0.3.5`
+## Why `0.3.6-vietairs.1` instead of `0.3.5`
 
-fork 的内容是「上游 0.3.5 加上 fork 自己的能力」，直接复用 `v0.3.5` 会和已经 fetch 下来的上游同名 tag 冲突。选 `0.3.6-vietairs.1` 有三个好处：按 semver 它大于 `0.3.5`、小于将来上游可能发布的 `0.3.6`，语义正确；带 `-vietairs` 前缀段永远不会和上游 tag 撞名；`scripts/validate-github-release-notes.mjs` 的 tag 正则已经接受 prerelease 后缀，无需改动发布校验。
+The fork's content is "upstream 0.3.5 plus the fork's own capabilities," so directly reusing `v0.3.5` would conflict with the same-named tag already fetched from upstream. `0.3.6-vietairs.1` has three benefits: by semver it is greater than `0.3.5` and less than a future upstream `0.3.6`, which is semantically correct; the `-vietairs` prefix segment will never collide with an upstream tag name; and `scripts/validate-github-release-notes.mjs`'s tag regex already accepts a prerelease suffix, so no change to release validation is needed.
 
-## 验证
+## Verification
 
-- `swift build`：通过。
-- `swift test`：221 个测试通过，0 失败（2 个按设计跳过，其中 `SkyClickLiveTests` 需要 `OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1`）。其中 fork 自己的测试仍在：`MacSessionGuard` 6 个、`AppScreenSession` 11 个、`ControlActivity` 5 个、peer auth 5 个。
-- `scripts/check-docs.sh`、`scripts/check-action-pinning.sh`、全部 shell 与 mjs 语法检查、Linux Python 回归、Windows 与 Linux `go test`：全部通过。
+- `swift build`: passed.
+- `swift test`: 221 tests passed, 0 failed (2 skipped by design, of which `SkyClickLiveTests` requires `OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1`). The fork's own tests are still present among these: `MacSessionGuard` 6, `AppScreenSession` 11, `ControlActivity` 5, peer auth 5.
+- `scripts/check-docs.sh`, `scripts/check-action-pinning.sh`, all shell and mjs syntax checks, the Linux Python regression, Windows and Linux `go test`: all passed.
 
-## 已知遗留
+## Known Remaining Items
 
-`scripts/check-repo-hygiene.sh` 报告缺少 `.editorconfig`、`.markdownlint.json` 和若干 `.github/` 模板与 workflow。这在合并前的 `main` 上同样失败，上游从来没有把这些文件纳入版本控制，因此不是这一轮引入的问题，本轮也没有处理。
+`scripts/check-repo-hygiene.sh` reports missing `.editorconfig`, `.markdownlint.json`, and several `.github/` templates and workflows. This was already failing on `main` before the merge; upstream never checked these files into version control, so it isn't an issue introduced by this round, and this round did not address it either.

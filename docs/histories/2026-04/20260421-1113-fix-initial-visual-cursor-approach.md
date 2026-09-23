@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### User Query
-> 自己运行 direct call-seq 并用截图排查，修复 `set_value` 一开始看起来倒退过去的问题。
+> Run the direct call-seq myself and troubleshoot with screenshots, fixing the issue where `set_value` initially appears to move backward.
 
 ### Changes Overview
 **Scope:** `OpenComputerUseKit` visual cursor runtime
 
 **Key Actions:**
-- **Initial cursor approach**: 将首次显示时的默认出现点从固定屏幕偏移改为基于 resting forward 的反向偏移，保证第一段 travel vector 和 cursor 朝向一致。
-- **Regression coverage**: 增加默认出现点单测，锁定“从 resting forward 背后侧出现”的几何约束。
-- **Documentation**: 更新架构文档里的 overlay 行为说明。
+- **Initial cursor approach**: Changed the default appearance point on first display from a fixed screen offset to a resting-forward-based reverse offset, ensuring the first travel vector is consistent with the cursor's facing direction.
+- **Regression coverage**: Added a unit test for the default appearance point, locking down the geometric constraint of "appearing from behind the resting-forward side."
+- **Documentation**: Updated the overlay behavior description in the architecture doc.
 
 ### Design Intent (Why)
-固定 `target + (72, -54)` 偏移和当前 runtime resting forward 不一致，会让首次 `set_value` 的移动阶段看起来像侧向或倒退切入目标。默认出现点应由 cursor 自身的 resting forward 决定，而不是硬编码屏幕方向。
+A fixed `target + (72, -54)` offset is inconsistent with the current runtime's resting forward, making the first `set_value` movement phase look like it's approaching the target from the side or backward. The default appearance point should be determined by the cursor's own resting forward, not a hardcoded screen direction.
 
 ### Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift`
@@ -26,9 +26,9 @@
 
 ### Follow-up (2026-04-21, align runtime glyph with CursorMotion)
 
-- **Reference glyph**: `OpenComputerUseKit` 现在和 `CursorMotion` 一样优先加载 `official-software-cursor-window-252.png`，避免程序化 fallback 在主路径上暴露锯齿。
-- **Packaged app resource**: `scripts/build-open-computer-use-app.sh` 会把同一张 cursor baseline PNG 复制进 `Open Computer Use.app/Contents/Resources/`，并声明 `NSHighResolutionCapable`。
-- **Fallback boundary**: 程序化 pointer/fog 继续保留为资源缺失时的 fallback，但不再是 runtime 默认视觉路径。
+- **Reference glyph**: `OpenComputerUseKit` now prioritizes loading `official-software-cursor-window-252.png` just like `CursorMotion`, avoiding the programmatic fallback exposing jagged edges on the main path.
+- **Packaged app resource**: `scripts/build-open-computer-use-app.sh` now copies the same cursor baseline PNG into `Open Computer Use.app/Contents/Resources/`, and declares `NSHighResolutionCapable`.
+- **Fallback boundary**: The programmatic pointer/fog remains as the fallback for when the resource is missing, but is no longer the runtime's default visual path.
 
 **Follow-up Files:**
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorGlyphRenderer.swift`

@@ -1,21 +1,21 @@
 ## [2026-04-23 12:36] | Task: Linux runtime should auto-detect desktop session env
 
-## 用户诉求
+## User Request
 
-希望 Linux 上也能直接按 `npm i -g open-computer-use`、`open-computer-use install-codex-mcp`、`codex` 的路径使用，不需要手动把 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 等桌面 session 环境变量写进 Codex 配置。
+Wanted Linux to also work directly through the `npm i -g open-computer-use`, `open-computer-use install-codex-mcp`, `codex` path, without manually writing desktop session environment variables such as `XDG_RUNTIME_DIR` and `DBUS_SESSION_BUS_ADDRESS` into the Codex config.
 
-## 主要改动
+## Key Changes
 
-- **[Linux Runtime]**: Go runtime 在调用 Python AT-SPI bridge 前会补齐缺失的 Linux 桌面 session env，从当前用户的 `/proc` 桌面进程和 `/run/user/<uid>` 自动发现 session bus、Wayland / X11 display、X authority 和 AT-SPI 相关环境。
-- **[Codex Install]**: `install-codex-mcp` 继续写入简单的 `open-computer-use mcp`，不把 session 相关变量固化到 `~/.codex/config.toml`。
-- **[Docs]**: README、中文 README、架构、可靠性文档和 release notes 同步说明 Linux runtime 的动态 session env 发现行为。
-- **[Version Bump]**: 将 Open Computer Use bump 到 `0.1.36`，用于发布包含 installer 修复的新 npm 版本。
+- **[Linux Runtime]**: Before calling the Python AT-SPI bridge, the Go runtime now fills in any missing Linux desktop session env, auto-discovering the session bus, Wayland / X11 display, X authority, and AT-SPI-related environment from the current user's `/proc` desktop processes and `/run/user/<uid>`.
+- **[Codex Install]**: `install-codex-mcp` continues to write the plain `open-computer-use mcp` command, without hardcoding session-related variables into `~/.codex/config.toml`.
+- **[Docs]**: README, the Chinese README, architecture, reliability docs, and release notes were updated to describe the Linux runtime's dynamic session-env discovery behavior.
+- **[Version Bump]**: Bumped Open Computer Use to `0.1.36`, for a new npm release including the installer fix.
 
-## 设计动机
+## Design Intent
 
-Linux AT-SPI 不是无环境的后台系统服务，它挂在已登录桌面用户的 D-Bus session 下。`tools/list` 可以只暴露 schema，但真实 `list_apps` / `get_app_state` 需要 bridge 进程带着桌面 session 环境启动。把探测逻辑放进 runtime，而不是写死到 Codex config，更适合 session 重启、不同 shell / terminal 和不同主流发行版的默认体验。
+Linux AT-SPI is not an environment-free background system service; it hangs off the D-Bus session of a logged-in desktop user. `tools/list` can expose the schema alone, but real `list_apps` / `get_app_state` calls require the bridge process to be started with the desktop session environment attached. Putting the detection logic in the runtime, instead of hardcoding it into the Codex config, works better across session restarts, different shells/terminals, and the default experience of different mainstream distros.
 
-## 受影响文件
+## Files Affected
 
 - `apps/OpenComputerUseLinux/main.go`
 - `apps/OpenComputerUseLinux/main_test.go`
@@ -25,28 +25,28 @@ Linux AT-SPI 不是无环境的后台系统服务，它挂在已登录桌面用�
 - `docs/RELIABILITY.md`
 - `docs/releases/RELEASE_GUIDE.md`
 - `docs/releases/feature-release-notes.md`
-- 版本源相关文件
+- Version-source-related files
 
-## 验证
+## Verification
 
-- 通过：`bash -n scripts/install-codex-mcp.sh`
-- 通过：`node --check scripts/install-config-helper.mjs`
-- 通过：`node --check scripts/npm/build-packages.mjs`
-- 通过：`(cd apps/OpenComputerUseLinux && go test ./...)`
-- 通过：`(cd apps/OpenComputerUseWindows && go test ./...)`
-- 通过：`swift test`
-- 通过：`./scripts/build-open-computer-use-linux.sh --arch arm64`
-- 通过：`./scripts/build-open-computer-use-linux.sh --arch amd64`
-- 通过：`node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check`
-- 通过：`./scripts/release-package.sh`
-- 通过：临时 `CODEX_HOME` 安装配置检查，确认 Codex config 仍为 `command = "open-computer-use"` / `args = ["mcp"]`，没有写入 session env。
-- 通过：Linux VM 中按 `leo` 用户用 `env -i` 清空桌面环境后执行 `/tmp/open-computer-use-0.1.36-test call list_apps`，成功列出 `gnome-shell`、`gnome-text-editor` 和 `ptyxis`。
-- 通过：Linux VM 中按 `leo` 用户用 `env -i` 启动 MCP，`initialize`、`tools/list` 和 `tools/call(list_apps)` 均成功。
-- 通过：Linux VM 中按 `leo` 用户用 `env -i` 对 9 个工具执行 sequence smoke：`list_apps`、`get_app_state`、`click`、`set_value`、`type_text`、`press_key`、`scroll`、`drag`、`perform_secondary_action` 均返回 `isError=false`。
-- 通过：GitHub Actions release workflow `24817430041`，`package-npm` 与 `release-cursor-motion-dmg` 均成功。
-- 通过：`npm view open-computer-use@0.1.36`、`open-computer-use-mcp@0.1.36`、`open-codex-computer-use-mcp@0.1.36` 均可见。
-- 通过：GitHub Release `v0.1.36` 已补充 `What's Changed`，并保留 `Full Changelog`。
-- 通过：Ubuntu aarch64 VM 中 `leo` 用户执行 `npm i -g open-computer-use@0.1.36` 成功；`open-computer-use -v` 和 package.json 均为 `0.1.36`，安装包内 `dist/linux/arm64/open-computer-use` 是 aarch64 ELF。
-- 通过：Ubuntu aarch64 VM 中 `open-computer-use install-codex-mcp` 后，`~/.codex/config.toml` 仍为 `command = "open-computer-use"` / `args = ["mcp"]`，没有写入 session env。
-- 通过：Ubuntu aarch64 VM 中 `codex mcp list` / `codex mcp get open-computer-use` 显示 server enabled，command 为 `open-computer-use mcp`。
-- 通过：Ubuntu aarch64 VM 中按 `leo` 用户用 npm 安装版 `open-computer-use` 在 `env -i` 下执行 `call list_apps` 成功；raw MCP `tools/list` 返回 9 个 tools。
+- Passed: `bash -n scripts/install-codex-mcp.sh`
+- Passed: `node --check scripts/install-config-helper.mjs`
+- Passed: `node --check scripts/npm/build-packages.mjs`
+- Passed: `(cd apps/OpenComputerUseLinux && go test ./...)`
+- Passed: `(cd apps/OpenComputerUseWindows && go test ./...)`
+- Passed: `swift test`
+- Passed: `./scripts/build-open-computer-use-linux.sh --arch arm64`
+- Passed: `./scripts/build-open-computer-use-linux.sh --arch amd64`
+- Passed: `node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check`
+- Passed: `./scripts/release-package.sh`
+- Passed: a temporary `CODEX_HOME` install-config check confirming the Codex config is still `command = "open-computer-use"` / `args = ["mcp"]`, with no session env written.
+- Passed: in a Linux VM, as user `leo`, clearing the desktop environment with `env -i` and running `/tmp/open-computer-use-0.1.36-test call list_apps`, which successfully listed `gnome-shell`, `gnome-text-editor`, and `ptyxis`.
+- Passed: in a Linux VM, as user `leo`, starting MCP with `env -i`; `initialize`, `tools/list`, and `tools/call(list_apps)` all succeeded.
+- Passed: in a Linux VM, as user `leo`, with `env -i`, running a sequence smoke test across all 9 tools — `list_apps`, `get_app_state`, `click`, `set_value`, `type_text`, `press_key`, `scroll`, `drag`, `perform_secondary_action` — all returned `isError=false`.
+- Passed: GitHub Actions release workflow `24817430041`, with both `package-npm` and `release-cursor-motion-dmg` succeeding.
+- Passed: `npm view open-computer-use@0.1.36`, `open-computer-use-mcp@0.1.36`, `open-codex-computer-use-mcp@0.1.36` were all visible.
+- Passed: GitHub Release `v0.1.36` had `What's Changed` added, with `Full Changelog` retained.
+- Passed: in an Ubuntu aarch64 VM, user `leo` ran `npm i -g open-computer-use@0.1.36` successfully; `open-computer-use -v` and package.json both showed `0.1.36`, and `dist/linux/arm64/open-computer-use` in the installed package was an aarch64 ELF.
+- Passed: in an Ubuntu aarch64 VM, after `open-computer-use install-codex-mcp`, `~/.codex/config.toml` was still `command = "open-computer-use"` / `args = ["mcp"]`, with no session env written.
+- Passed: in an Ubuntu aarch64 VM, `codex mcp list` / `codex mcp get open-computer-use` showed the server enabled, with command `open-computer-use mcp`.
+- Passed: in an Ubuntu aarch64 VM, as user `leo`, running the npm-installed `open-computer-use` under `env -i` with `call list_apps` succeeded; the raw MCP `tools/list` returned 9 tools.

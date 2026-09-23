@@ -1,4 +1,4 @@
-## [2026-04-22 14:52] | Task: 收口示例路径并脱敏样例应用名
+## [2026-04-22 14:52] | Task: Consolidate example paths and sanitize sample app names
 
 ### Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### User Query
-> 清理 `computer-use-cli` 相关示例和文档引用，统一改成仓库根目录样例路径，并避免继续在 README、测试和参考日志里出现真实产品名。
+> Clean up `computer-use-cli`-related examples and doc references, unify them to the repo-root sample path, and avoid continuing to reference real product names in the README, tests, and reference logs.
 
 ### Changes Overview
-**Scope:** 示例路径、helper 文档、测试样例、参考日志
+**Scope:** example paths, helper docs, test samples, reference logs
 
 **Key Actions:**
-- **[Example path consolidation]**: 删除 `scripts/computer-use-cli/` 下重复的 sequence JSON，统一改为引用根目录 `examples/textedit-overlay-seq.json`。
-- **[Sample name sanitization]**: 将 helper README、Go 测试、Swift 测试和参考日志里的具体应用名改成 `TextEdit` 或 `Sample Chat` 这类通用样例。
-- **[History sync]**: 同步修正既有 history 中已经过时的样例路径描述，避免文档继续指向已删除位置。
+- **[Example path consolidation]**: Removed the duplicate sequence JSON under `scripts/computer-use-cli/`, switching uniformly to reference the root-level `examples/textedit-overlay-seq.json`.
+- **[Sample name sanitization]**: Changed specific app names in the helper README, Go tests, Swift tests, and reference logs to generic samples like `TextEdit` or `Sample Chat`.
+- **[History sync]**: Synced corrections into existing history entries whose sample-path descriptions had gone stale, so the docs no longer point to a removed location.
 
 ### Design Intent (Why)
-这些样例本来只是为了说明调用形状，不应该继续绑定到某个真实产品名，也不应该在仓库里维护两份内容重复的 sequence 文件。把路径和命名统一后，后续手工验证、README 示例和测试断言会更稳定，也更适合开源仓库继续演进。
+These samples were only ever meant to illustrate call shapes; they shouldn't stay tied to a specific real product name, and the repo shouldn't maintain two sequence files with duplicate content. Unifying the paths and naming makes future manual verification, README examples, and test assertions more stable, and better suits an open-source repo's continued evolution.
 
 ### Files Modified
 - `scripts/computer-use-cli/README.md`

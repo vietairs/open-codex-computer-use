@@ -1,4 +1,4 @@
-## [2026-04-20 18:08] | Task: 发布 0.1.17
+## [2026-04-20 18:08] | Task: Release 0.1.17
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI on macOS`
 
 ### 📥 User Query
-> 可以，bump 小版本 tag 推，然后看看结果
+> Sure, bump the patch version, push the tag, and check the outcome.
 
 ### 🛠 Changes Overview
-**Scope:** `apps/`、`docs/`、`packages/`、`plugins/`、`scripts/`
+**Scope:** `apps/`, `docs/`, `packages/`, `plugins/`, `scripts/`
 
 **Key Actions:**
-- **[Version Bump]**: 将插件 manifest、Swift/Go 版本常量、smoke suite 初始化版本、测试 MCP client version 与 CLI 文档路径统一提升到 `0.1.17`。
-- **[Release Notes]**: 在用户可见发布记录里补充 `0.1.17`，说明这次 release 的核心是接通 `Developer ID Application` 统一签名与 `Cursor Motion` notarization / staple。
-- **[Release Trigger]**: 基于当前 `HEAD`（包含 release 签名公证链与 README 中新增的 `Cursor Motion` 视频入口）收口 release 输入，准备用 `v0.1.17` tag 推送触发 GitHub Actions。
+- **[Version Bump]**: Uniformly raised the plugin manifest, Swift/Go version constants, smoke suite init version, test MCP client version, and CLI doc paths to `0.1.17`.
+- **[Release Notes]**: Added `0.1.17` to the user-facing release notes, describing this release's core change as wiring up unified `Developer ID Application` signing and `Cursor Motion` notarization/staple.
+- **[Release Trigger]**: Finalized the release inputs based on the current `HEAD` (which includes the release signing/notarization chain and the new `Cursor Motion` video entry in the README), ready to push the `v0.1.17` tag to trigger GitHub Actions.
 
 ### 🧠 Design Intent (Why)
-这次不是单纯的版本滚动，而是把前面已经落到 `main` 的分发链路增强真正送进外部 release。只有把 `Developer ID` 签名、`Cursor Motion` notarization，以及与之对应的版本源统一到一个新 patch release，GitHub Actions 才会在 tag 发布时按新流程构建并暴露对外产物。
+This wasn't a plain version bump, but actually shipping the distribution-pipeline improvements already on `main` into an external release. Only by unifying `Developer ID` signing, `Cursor Motion` notarization, and their corresponding version sources into a single new patch release would GitHub Actions build with the new flow and expose the outward-facing artifacts on tag publish.
 
 ### 📁 Files Modified
 - `plugins/open-computer-use/.codex-plugin/plugin.json`

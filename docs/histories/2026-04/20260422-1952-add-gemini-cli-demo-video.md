@@ -1,4 +1,4 @@
-## [2026-04-22 19:52] | Task: 增加 Gemini CLI MCP demo 视频到 README
+## [2026-04-22 19:52] | Task: Add a Gemini CLI MCP demo video to the README
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -9,15 +9,15 @@
 > Copy the provided `output.mp4` into the repo for demo use, rename it if needed, and add it to the README with a description showing Gemini CLI using our MCP.
 
 ### 🛠 Changes Overview
-**Scope:** README 文档、history
+**Scope:** README docs, history
 
 **Key Actions:**
-- **[Attachment Link]**: 更新 `README.md` 和 `README.zh-CN.md`，直接使用用户提供的 GitHub `user-attachments` 视频链接，让 README 引用外部托管的视频资源，而不是把视频文件收进仓库。
-- **[Storage Cleanup]**: 清理这次任务里引入的本地视频 / GIF 资源提交，避免把大体积二进制文件继续留在分支历史里占用仓库存储。
-- **[History]**: 继续维护同一份 history，把最终的 README 呈现方式和存储取舍记录清楚。
+- **[Attachment Link]**: updated `README.md` and `README.zh-CN.md` to use the user-provided GitHub `user-attachments` video link directly, so the README references the externally hosted video resource instead of committing the video file into the repo.
+- **[Storage Cleanup]**: cleaned up the local video/GIF asset commits introduced during this task, avoiding leaving large binary files sitting in the branch history taking up repo storage.
+- **[History]**: kept maintaining this same history entry to clearly record the final README presentation approach and the storage trade-off.
 
 ### 🧠 Design Intent (Why)
-这次任务的重点是让 README 直接引用 GitHub 已托管的视频，同时不把 `.mp4` / GIF 二进制继续塞进仓库历史里。这样既保留了 README 顶部的演示入口，也避免为了展示视频而给仓库长期增加不必要的存储负担。
+The focus of this task was to have the README reference the video already hosted on GitHub directly, while not continuing to stuff `.mp4` / GIF binaries into the repo history. This keeps the demo entry point at the top of the README while avoiding an unnecessary, ongoing storage burden on the repo just to show a video.
 
 ### 📁 Files Modified
 - `README.md`

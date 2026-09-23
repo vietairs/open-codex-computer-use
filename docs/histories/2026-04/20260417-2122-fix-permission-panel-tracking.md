@@ -1,4 +1,4 @@
-## [2026-04-17 21:22] | Task: 修正权限引导 panel 跟随逻辑
+## [2026-04-17 21:22] | Task: Fix permission-onboarding panel tracking logic
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI / Swift 6.2.4 / macOS`
 
 ### 📥 User Query
-> 打开授权页面后，点 `Allow` 时辅助窗口的跟随有问题；它会一直跟在 `System Settings` 的 `Accessibility` 窗口里 `+ / -` 下面，需要修复。
+> After opening the permission page, when clicking `Allow` the assist window's tracking is off; it keeps following the `+ / -` row under `System Settings`' `Accessibility` window, and needs fixing.
 
 ### 🛠 Changes Overview
 **Scope:** `apps/OpenComputerUse`, `docs/`
 
 **Key Actions:**
-- **[补回控件级垂直锚点]**: 通过 `System Settings` 的 Accessibility 树扫描 `+ / -` 按钮行，优先用该控制行作为 panel 的垂直跟随目标。
-- **[保留内容区水平对齐]**: panel 仍然按 `System Settings` 右侧内容区居中，只有在拿不到 `+ / -` 控件几何时才回退到窗口底边。
-- **[同步文档]**: 更新架构说明和权限 onboarding execution plan，反映“优先跟随 `+ / -` 行、失败再回退”的最新行为。
+- **[Restored control-level vertical anchor]**: scan the `+ / -` button row in `System Settings`' Accessibility tree, and prefer that control row as the panel's vertical tracking target.
+- **[Kept content-area horizontal alignment]**: the panel still centers on `System Settings`' right-side content area, falling back to the window's bottom edge only when the `+ / -` control geometry can't be obtained.
+- **[Synced docs]**: updated the architecture notes and the permission-onboarding execution plan to reflect the latest behavior of "prefer following the `+ / -` row, fall back otherwise".
 
 ### 🧠 Design Intent (Why)
-这次修复的重点不是单纯继续拉大窗口级容错，而是把水平和垂直锚点拆开处理。panel 继续维持内容区居中，避免随着局部布局左右漂移；但垂直位置重新跟随 `+ / -` 控制行，这样在 `Screen & System Audio Recording` 这类长页面里也不会被错误钳到底部。
+The focus of this fix is not simply widening the window-level tolerance further, but separating the horizontal and vertical anchors. The panel keeps centering on the content area to avoid drifting left/right with local layout changes; but its vertical position now follows the `+ / -` control row again, so it doesn't get incorrectly pinned to the bottom on long pages like `Screen & System Audio Recording`.
 
 ### 📁 Files Modified
 - `apps/OpenComputerUse/Sources/OpenComputerUse/PermissionOnboardingApp.swift`

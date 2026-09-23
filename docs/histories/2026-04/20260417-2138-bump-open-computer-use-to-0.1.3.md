@@ -1,4 +1,4 @@
-## [2026-04-17 21:38] | Task: 发布 0.1.3
+## [2026-04-17 21:38] | Task: Release 0.1.3
 
 ### 🤖 Execution Context
 * **Agent ID**: `codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex CLI`
 
 ### 📥 User Query
-> 可以，加个版本发
+> Sure, cut a version release.
 
 ### 🛠 Changes Overview
-**Scope:** `plugins/`、`packages/`、`apps/`、`scripts/`、`docs/`
+**Scope:** `plugins/`, `packages/`, `apps/`, `scripts/`, `docs/`
 
 **Key Actions:**
-- **统一版本号**：把插件 manifest、MCP server version、smoke suite client version 和 `computer-use-cli` 版本统一 bump 到 `0.1.3`。
-- **更新文档示例**：把 CLI 文档里引用插件缓存目录的版本路径从 `0.1.2` 更新到 `0.1.3`。
-- **准备发布**：让 npm 分发链路基于新的插件版本号生成 `0.1.3` 包并发布。
+- **Unified version number**: Bumped the plugin manifest, MCP server version, smoke suite client version, and `computer-use-cli` version all to `0.1.3`.
+- **Updated doc examples**: Updated the CLI doc's example plugin cache directory path from `0.1.2` to `0.1.3`.
+- **Prepared the release**: Had the npm distribution pipeline generate and publish the `0.1.3` package based on the new plugin version.
 
 ### 🧠 Design Intent (Why)
-上一轮 README 改动需要同步到 npm 页面，最直接的方式就是做一次 patch release。把版本来源保持单点一致，可以避免 npm 包、MCP server 自报版本和插件缓存路径样例之间再次漂移。
+The previous round's README changes needed to reach the npm page, and the most direct way to do that is a patch release. Keeping the version source as a single point of consistency avoids the npm package, the MCP server's self-reported version, and the plugin cache path example drifting apart again.
 
 ### 📁 Files Modified
 - `apps/OpenComputerUseSmokeSuite/Sources/OpenComputerUseSmokeSuite/main.swift`

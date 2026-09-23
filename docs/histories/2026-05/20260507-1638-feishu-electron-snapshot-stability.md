@@ -6,7 +6,7 @@
 * **Runtime**: `macOS local CLI/MCP`
 
 ### User Query
-> 对比 `computer-use` 与 `open-computer-use` 操作 Feishu 是否正常，重点验证给 xuyusong 发消息、排查 `open-computer-use` UI tree / screenshot 偶发不稳定，并先验证再修复、修复后再验证。
+> Compare whether `computer-use` and `open-computer-use` operate Feishu correctly; focus on verifying sending a message to xuyusong and investigating `open-computer-use`'s intermittent UI tree / screenshot instability, verifying first, then fixing, then verifying again.
 
 ### Changes Overview
 **Scope:** macOS snapshot rendering in `OpenComputerUseKit`

@@ -1,30 +1,30 @@
-# list_apps 标记前台应用
+# list_apps marks the frontmost app
 
-## 用户诉求
+## User Request
 
-继续对齐官方 `computer-use` 工具返回，优先收敛 `list_apps` 与官方输出的可见差异。
+Continue aligning with official `computer-use` tool output, prioritizing convergence of the visible differences between `list_apps` and the official output.
 
-## 主要改动
+## Main Changes
 
-- `ListedAppDescriptor` 增加 `isFrontmost` 状态。
-- `list_apps` 输出在前台 app 上渲染 `frontmost`，并放在 `running` 前面。
-- 排序时优先把前台 app 放在运行中 app 列表顶部。
-- 增加单测覆盖 `frontmost` 渲染顺序和排序优先级。
+- Added `isFrontmost` state to `ListedAppDescriptor`.
+- `list_apps` output now renders `frontmost` for the frontmost app, placing it before `running`.
+- Sorting now prioritizes putting the frontmost app at the top of the running-apps list.
+- Added unit tests covering both `frontmost` render ordering and sort priority.
 
-## 设计动机
+## Design Rationale
 
-官方 `computer-use` 的 `list_apps` 会明确标出当前前台应用，例如 `[frontmost, running, ...]`。这个标记能帮助 host 判断当前桌面上下文，也减少后续行动工具对目标窗口状态的猜测。
+The official `computer-use`'s `list_apps` explicitly flags the current frontmost app, e.g. `[frontmost, running, ...]`. This flag helps the host determine the current desktop context, and also reduces guesswork by downstream action tools about the target window's state.
 
-## 验证
+## Verification
 
 - `swift test`
 - `./scripts/build-open-computer-use-app.sh debug`
 - `./scripts/run-tool-smoke-tests.sh`
 - `./scripts/check-docs.sh`
 - `git diff --check`
-- Dev app CLI 直连确认第一行包含 `frontmost`
+- Confirmed via direct Dev app CLI connection that the first line includes `frontmost`
 
-## 受影响文件
+## Files Affected
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AppDiscovery.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`

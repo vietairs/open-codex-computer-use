@@ -1,4 +1,4 @@
-## [2026-08-28 17:25] | Task: 修复 Web 链接动作节点解析
+## [2026-08-28 17:25] | Task: Fix web link action-node parsing
 
 ### 🤖 Execution Context
 * **Agent ID**: `Codex`
@@ -6,18 +6,18 @@
 * **Runtime**: `Codex desktop`
 
 ### 📥 User Query
-> 执行修复：BOSS 页面“职位管理”被解析成没有独立 link 的 button，导致无法点击跳转。
+> Apply the fix: on the BOSS page, "Job Management" (职位管理) is parsed as a button with no independent link, so it can't be clicked to navigate.
 
 ### 🛠 Changes Overview
 **Scope:** `OpenComputerUseKit` macOS Accessibility snapshot renderer
 
 **Key Actions:**
-- **[保留导航语义]**: 通用动作节点包含带 URL 的 `AXLink` 后代时，不再提升为 compact `button`，也不再合并其文本摘要。
-- **[保持通用按钮能力]**: 没有 URL 链接后代的紧凑 `AXGroup` / `AXUnknown` 仍按原规则保留为可操作 `button`。
-- **[补回归覆盖]**: 增加带链接后代的 compact action 节点测试，防止 BOSS 导航链接再次被父摘要吞掉。
+- **[Preserve navigation semantics]**: a generic action node that contains an `AXLink` descendant with a URL is no longer promoted to a compact `button`, and its text summary is no longer merged.
+- **[Keep generic button behavior]**: a compact `AXGroup` / `AXUnknown` with no URL-link descendant is still kept as an actionable `button` under the original rule.
+- **[Added regression coverage]**: added a test for a compact action node with a link descendant, to prevent BOSS navigation links from being swallowed by the parent summary again.
 
 ### 🧠 Design Intent (Why)
-Chrome/BOSS 的 Accessibility tree 可能同时暴露通用父动作和真实 URL 链接子节点。父动作适合 icon-only 控件，但对导航链接必须保留子节点的独立 `element_index`，否则 AX 点击可能只触发父 wrapper 而不发生 URL 导航。
+Chrome/BOSS's Accessibility tree can expose both a generic parent action and a real URL-link child node at the same time. The parent action suits icon-only controls, but for a navigation link the child's independent `element_index` must be preserved — otherwise an AX click may only trigger the parent wrapper and never navigate to the URL.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`

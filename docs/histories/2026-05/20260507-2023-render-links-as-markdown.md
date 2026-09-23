@@ -1,27 +1,27 @@
-# 将 AXLink 渲染为 Markdown 链接
+# Render AXLink as a Markdown link
 
-## 用户诉求
+## User Ask
 
-继续结合官方 `computer-use` 逆向线索优化复杂 app state，尤其是 Lark / Electron 和 browser 场景中的 AX tree 输出形状。
+Continue optimizing complex app-state output using clues from reverse-engineering the official `computer-use`, especially the AX-tree output shape for Lark / Electron and browser scenarios.
 
-## 主要改动
+## Main Changes
 
-- 对带 `AXURL` 的 `AXLink` 生成 Markdown 形态的 `[label](url)` 文本。
-- 将 `AXLink` role 文案固定为英文 `link`，避免受系统语言影响输出为本地化 role。
-- 对已转为 Markdown 的 link 抑制重复的 description / child text。
-- 没有 URL 的 link 仍按普通 link 节点保留 description。
+- Generate Markdown-style `[label](url)` text for `AXLink` elements that have an `AXURL`.
+- Fix the `AXLink` role text to the English word `link`, so it isn't affected by system language into a localized role string.
+- Suppress duplicate description / child text for links that have already been converted to Markdown.
+- Links without a URL still keep their description as an ordinary link node.
 
-## 设计动机
+## Design Intent
 
-官方 `SkyComputerUseService` 1.0.770 binary 中有 `flattenLinksIntoMarkdownText` transform。Lark / Chrome 实测也显示官方更倾向把链接语义并入可读文本，而不是输出本地化 `链接 Description: ...` 结构。这个改动让链接目标 URL 更直接出现在 state 里，同时保留元素记录用于后续点击。
+The `SkyComputerUseService` 1.0.770 binary contains a `flattenLinksIntoMarkdownText` transform. Live testing in Lark / Chrome also shows the official app prefers folding link semantics into readable text, rather than emitting a localized `链接 Description: ...` (`链接` = "link") structure. This change puts the link target URL more directly into the state, while still keeping the element record for later clicks.
 
-## 验证
+## Verification
 
-- Lark 本地回归确认链接从 `链接 Description: ...` 变为 Markdown 链接文本。
-- Chrome 本地回归确认带 URL 的 link 被渲染为 Markdown，缺 URL 的 link 继续保留普通 `link Description`。
+- Local Lark regression confirms links change from `链接 Description: ...` (`链接` = "link") to Markdown link text.
+- Local Chrome regression confirms links with a URL render as Markdown, while links without a URL still keep the plain `link Description`.
 - `swift test --filter AccessibilityRenderer`
 - `./scripts/build-open-computer-use-app.sh debug`
 
-## 受影响文件
+## Files Affected
 
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`

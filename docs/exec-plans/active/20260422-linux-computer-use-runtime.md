@@ -1,100 +1,100 @@
 # Linux Computer Use Runtime
 
-## 目标
+## Goal
 
-把 `open-computer-use` 从 macOS / Windows 扩展到 Linux 桌面，优先让同一组 9 个 Computer Use tools 能在 Ubuntu GNOME 桌面 session 里通过独立二进制跑通，并把 Linux 桌面自动化的能力边界记录清楚。
+Extend `open-computer-use` from macOS / Windows to Linux desktop, prioritizing getting the same set of 9 Computer Use tools running in an Ubuntu GNOME desktop session via a standalone binary, and clearly documenting the capability boundaries of Linux desktop automation.
 
-## 范围
+## Scope
 
-- 包含：
-  - Linux 独立 runtime，不耦合 Swift `.app`。
-  - Go CLI / MCP / `call --calls` 入口。
-  - `list_apps`、`get_app_state`、`click`、`perform_secondary_action`、`scroll`、`drag`、`type_text`、`press_key`、`set_value` 的功能性实现。
-  - Linux arm64/amd64 构建脚本和基础 Go 单测。
-  - Ubuntu GNOME VM 上的 9-tool 实机 smoke。
-  - 架构文档、README、质量说明和 history。
-- 不包含：
-  - 替换 macOS Swift 主线。
-  - Linux installer、desktop entry、system package 或 code signing。
-  - visual cursor overlay。
-  - 完整 Linux fixture / 可重复 smoke runner。
+- In scope:
+  - Standalone Linux runtime, not coupled to the Swift `.app`.
+  - Go CLI / MCP / `call --calls` entry points.
+  - Functional implementation of `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, `set_value`.
+  - Linux arm64/amd64 build scripts and basic Go unit tests.
+  - Live 9-tool smoke test on an Ubuntu GNOME VM.
+  - Architecture docs, README, quality notes, and history.
+- Out of scope:
+  - Replacing the macOS Swift mainline.
+  - Linux installer, desktop entry, system package, or code signing.
+  - Visual cursor overlay.
+  - Full Linux fixtures / a repeatable smoke runner.
 
-## 背景
+## Background
 
-- 相关文档：
+- Related docs:
   - `docs/ARCHITECTURE.md`
   - `docs/QUALITY_SCORE.md`
   - `docs/SECURITY.md`
   - `docs/RELIABILITY.md`
-- 相关代码路径：
+- Related code paths:
   - `apps/OpenComputerUseLinux/`
   - `scripts/build-open-computer-use-linux.sh`
   - `scripts/ci.sh`
   - `apps/OpenComputerUseWindows/`
-- 已知约束：
-  - Linux 上最接近 macOS AX 的桌面接口是 AT-SPI2，经由 D-Bus 暴露 app/window/accessibility tree、actions、editable text 和 value 接口。
-  - Ubuntu GNOME 默认 Wayland session 下，任意后台坐标键鼠和截图都不是一套等价于 macOS AX 的通用模型。
-  - 第一版策略是 AT-SPI semantic action / editable text / value 优先，coordinate click / drag / key synthesis 仅作为 best-effort fallback。
-  - SSH tty 默认没有 `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` / display 环境；runtime 会尝试为当前 Unix 用户自动发现已登录桌面 session，但跨用户 root 进程不应该被当作普通用户桌面的控制入口。
+- Known constraints:
+  - On Linux, the desktop interface closest to macOS AX is AT-SPI2, which exposes the app/window/accessibility tree, actions, editable text, and value interfaces via D-Bus.
+  - Under Ubuntu GNOME's default Wayland session, arbitrary background coordinate keyboard/mouse input and screenshots have no unified model equivalent to macOS AX.
+  - The first version's strategy prioritizes AT-SPI semantic action / editable text / value, with coordinate click / drag / key synthesis only as a best-effort fallback.
+  - SSH ttys have no `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` / display environment by default; the runtime will try to auto-discover a logged-in desktop session for the current Unix user, but cross-user root processes should not be treated as an entry point for controlling a normal user's desktop.
 
-## 风险
+## Risks
 
-- 风险：不同 toolkit 暴露的 AT-SPI tree 深度、role、action 名称差异大。
-  - 缓解方式：Linux bridge 单独放宽 tree traversal depth，并保留字段级容错。
-- 风险：Wayland 下 screenshot 可能返回黑图或被 portal/ compositor 拒绝。
-  - 缓解方式：截图只做 best-effort；检测到全黑采样时不回传 image block，避免误导调用方。
-- 风险：coordinate click / drag / key synthesis 可能影响当前 foreground context。
-  - 缓解方式：MCP instructions 和 README 明确写出 Linux background input boundary；优先使用 element-targeted AT-SPI action。
+- Risk: the AT-SPI tree depth, role, and action names exposed differ greatly across toolkits.
+  - Mitigation: the Linux bridge separately relaxes tree traversal depth and keeps field-level tolerance.
+- Risk: under Wayland, screenshots may return black images or be rejected by the portal/compositor.
+  - Mitigation: screenshots are best-effort only; when an all-black sample is detected, the image block is not returned, to avoid misleading the caller.
+- Risk: coordinate click / drag / key synthesis may affect the current foreground context.
+  - Mitigation: MCP instructions and the README clearly state the Linux background input boundary; prefer element-targeted AT-SPI actions.
 
-## 里程碑
+## Milestones
 
-1. 确认 Linux 可用接口和边界。
-2. 完成 Linux Go runtime、Python AT-SPI bridge 和 9-tool 功能性实现。
-3. 完成本地单测、交叉编译和 Ubuntu GNOME VM 9-tool smoke。
-4. 后续补 Linux fixture、可重复 smoke runner、system package 和更稳定截图方案。
+1. Confirm the available interfaces and boundaries on Linux.
+2. Complete the Linux Go runtime, Python AT-SPI bridge, and functional implementation of the 9 tools.
+3. Complete local unit tests, cross-compilation, and 9-tool smoke test on an Ubuntu GNOME VM.
+4. Follow up with Linux fixtures, a repeatable smoke runner, system packages, and a more stable screenshot approach.
 
-## 验证方式
+## Verification
 
-- 命令：
+- Commands:
   - `(cd apps/OpenComputerUseLinux && go test ./...)`
   - `./scripts/build-open-computer-use-linux.sh --arch arm64`
   - `./scripts/build-open-computer-use-linux.sh --arch amd64`
   - `open-computer-use mcp`
   - `open-computer-use call list_apps`
   - `open-computer-use call --calls-file <9-tool smoke json>`
-- 手工检查：
-  - 在 Ubuntu GNOME desktop session 里打开 `gnome-text-editor`。
-  - 运行 `get_app_state -> set_value -> type_text -> press_key -> perform_secondary_action -> click -> scroll -> drag` sequence。
-  - 确认每个 tool 返回 `isError=false`，并且 Text Editor 内容包含 marker。
-- 观测检查：
-  - 当前桌面用户缺少桌面环境变量时，runtime 应先尝试自动发现同用户 session env；如果找不到已登录 session，再返回明确错误，而不是误判为 AT-SPI 逻辑失败。
+- Manual checks:
+  - Open `gnome-text-editor` in an Ubuntu GNOME desktop session.
+  - Run the `get_app_state -> set_value -> type_text -> press_key -> perform_secondary_action -> click -> scroll -> drag` sequence.
+  - Confirm each tool returns `isError=false`, and that the Text Editor content contains the marker.
+- Observational checks:
+  - When the current desktop user lacks desktop environment variables, the runtime should first try to auto-discover the same user's session env; if no logged-in session is found, it should return a clear error instead of mistakenly attributing it to an AT-SPI logic failure.
 
-## 进度记录
+## Progress Log
 
-- [x] 确认 Ubuntu GNOME VM 有已登录 `leo` Wayland session、AT-SPI bus、Python GI、Atspi、Gdk/GdkPixbuf。
-- [x] 新增 `apps/OpenComputerUseLinux`，用 Go 实现 CLI、MCP、tool schema、`call --calls` 和 snapshot cache。
-- [x] 嵌入 Python AT-SPI bridge，实现 app/window discovery、tree rendering、semantic action、editable text、value、key/mouse fallback 和 best-effort screenshot。
-- [x] 新增 Linux arm64/amd64 构建脚本。
-- [x] 新增 Go 单测，并接入仓库基础 CI。
-- [x] 本地通过 `(cd apps/OpenComputerUseLinux && go test ./...)`。
-- [x] 本地通过 `./scripts/build-open-computer-use-linux.sh --arch arm64` 和 `--arch amd64`。
-- [x] 上传 arm64 二进制到 Ubuntu VM，验证 `--version` 为 `0.1.33`。
-- [x] 在 Ubuntu VM 中验证 `call list_apps` 返回 `isError=false` 并包含 `gnome-text-editor`。
-- [x] 在 Ubuntu VM 中验证 MCP `initialize` / `tools/list`，tool count 为 9。
-- [x] 在 Ubuntu VM 中验证 8-tool sequence：`get_app_state`、`set_value`、`type_text`、`press_key`、`perform_secondary_action`、`click`、`scroll`、`drag` 均 `isError=false`。
-- [x] 在 Ubuntu VM 中验证 `0.1.36` 预发布二进制可在 `leo` 用户 `env -i` 下自动发现 session env，并跑通 MCP `tools/list`、`tools/call(list_apps)` 和 9-tool sequence。
-- [x] 在 Ubuntu VM 中验证 `npm i -g open-computer-use@0.1.36` 后，npm launcher 选择 Linux arm64 binary，`codex mcp list` 显示 `open-computer-use mcp` enabled，raw MCP `tools/list` 返回 9 个 tools，`call list_apps` 返回 `isError=false`。
-- [ ] 增加 Linux fixture 和可重复 smoke runner。
-- [ ] 评估 xdg-desktop-portal / compositor-specific screenshot 路径，补非黑图 capture。
-- [x] 将 Linux artifact 接入 npm release packaging，作为既有 npm root/alias packages 的 bundled artifacts 分发。
-- [ ] 评估用原生 Go D-Bus/libatspi 替换 Python GI bridge 的收益和风险。
+- [x] Confirmed the Ubuntu GNOME VM has a logged-in `leo` Wayland session, AT-SPI bus, Python GI, Atspi, Gdk/GdkPixbuf.
+- [x] Added `apps/OpenComputerUseLinux`, implementing the CLI, MCP, tool schema, `call --calls`, and snapshot cache in Go.
+- [x] Embedded a Python AT-SPI bridge implementing app/window discovery, tree rendering, semantic action, editable text, value, key/mouse fallback, and best-effort screenshot.
+- [x] Added Linux arm64/amd64 build scripts.
+- [x] Added Go unit tests and wired them into the repo's base CI.
+- [x] Passed `(cd apps/OpenComputerUseLinux && go test ./...)` locally.
+- [x] Passed `./scripts/build-open-computer-use-linux.sh --arch arm64` and `--arch amd64` locally.
+- [x] Uploaded the arm64 binary to the Ubuntu VM and confirmed `--version` reports `0.1.33`.
+- [x] Confirmed `call list_apps` on the Ubuntu VM returns `isError=false` and includes `gnome-text-editor`.
+- [x] Confirmed MCP `initialize` / `tools/list` on the Ubuntu VM, with tool count 9.
+- [x] Confirmed the 8-tool sequence on the Ubuntu VM: `get_app_state`, `set_value`, `type_text`, `press_key`, `perform_secondary_action`, `click`, `scroll`, `drag` all return `isError=false`.
+- [x] Confirmed on the Ubuntu VM that the `0.1.36` pre-release binary can auto-discover session env under `env -i` for the `leo` user, and successfully runs MCP `tools/list`, `tools/call(list_apps)`, and the 9-tool sequence.
+- [x] Confirmed on the Ubuntu VM that after `npm i -g open-computer-use@0.1.36`, the npm launcher selects the Linux arm64 binary, `codex mcp list` shows `open-computer-use mcp` enabled, raw MCP `tools/list` returns 9 tools, and `call list_apps` returns `isError=false`.
+- [ ] Add Linux fixtures and a repeatable smoke runner.
+- [ ] Evaluate xdg-desktop-portal / compositor-specific screenshot paths to fix non-black captures.
+- [x] Wired the Linux artifact into npm release packaging, distributed as a bundled artifact alongside the existing npm root/alias packages.
+- [ ] Evaluate the benefit and risk of replacing the Python GI bridge with native Go D-Bus/libatspi.
 
-## 决策记录
+## Decision Log
 
-- 2026-04-22：Linux runtime 不复用 Swift `.app` 或 Windows `.exe` bridge，采用独立 Go binary，避免把 macOS / Windows 的权限和输入模型强行带到 Linux。
-- 2026-04-22：第一版用 Go 管协议、状态和分发边界，用嵌入式 Python GI 调 AT-SPI/GDK，优先完成 9-tool 功能性闭环。
-- 2026-04-22：Linux 默认使用 AT-SPI semantic action / editable text / value；coordinate mouse、drag、keyboard synthesis 作为 best-effort fallback，并在 MCP instructions 中明确不是通用 Wayland background input。
-- 2026-04-22：GNOME Text Editor 的 AT-SPI tree 深度超过 Windows runtime 沿用的 16 层，Linux bridge 单独把 traversal depth 放宽到 64。
-- 2026-04-22：GNOME Wayland 下 GDK root capture 在 VM 上返回黑图；Linux bridge 检测全黑采样后省略 image block，后续再评估 portal/compositor-specific capture。
-- 2026-04-23：Linux release artifact 接入 npm package bundled artifacts，不新增系统 installer；root `open-computer-use` package 通过 launcher 按 `linux-arm64` / `linux-x64` 自动选择 binary。
-- 2026-04-23：Linux runtime 不把 session env 写入 Codex config 或 shell profile；Go runtime 在每次启动 Python AT-SPI bridge 前为当前 Unix 用户动态发现 `/run/user/<uid>`、session bus、Wayland / X11 display 和 AT-SPI 相关环境。
+- 2026-04-22: The Linux runtime does not reuse the Swift `.app` or the Windows `.exe` bridge, and instead uses a standalone Go binary, to avoid forcibly carrying macOS / Windows permission and input models onto Linux.
+- 2026-04-22: The first version uses Go to manage the protocol, state, and distribution boundary, and calls AT-SPI/GDK via an embedded Python GI, prioritizing a functional closed loop for the 9 tools.
+- 2026-04-22: Linux uses AT-SPI semantic action / editable text / value by default; coordinate mouse, drag, and keyboard synthesis serve as best-effort fallback, and the MCP instructions explicitly state this is not a general-purpose Wayland background input mechanism.
+- 2026-04-22: GNOME Text Editor's AT-SPI tree depth exceeds the 16 layers the Windows runtime uses, so the Linux bridge separately relaxes the traversal depth to 64.
+- 2026-04-22: Under GNOME Wayland, GDK root capture returns a black image on the VM; the Linux bridge detects all-black samples and omits the image block, to be revisited later with portal/compositor-specific capture.
+- 2026-04-23: The Linux release artifact is wired into npm package bundled artifacts, with no new system installer added; the root `open-computer-use` package auto-selects the binary via the launcher based on `linux-arm64` / `linux-x64`.
+- 2026-04-23: The Linux runtime does not write session env into the Codex config or shell profile; before each launch of the Python AT-SPI bridge, the Go runtime dynamically discovers `/run/user/<uid>`, the session bus, the Wayland / X11 display, and AT-SPI-related environment for the current Unix user.

@@ -6,7 +6,7 @@
 * **Runtime**: `macOS local CLI`
 
 ### User Query
-> 先修改 默认统一为 1200/64。
+> First change the defaults to be unified at 1200/64.
 
 ### Changes Overview
 **Scope:** Linux and Windows snapshot tree rendering defaults, tests, and docs.
