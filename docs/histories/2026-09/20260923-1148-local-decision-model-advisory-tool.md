@@ -75,3 +75,17 @@ operation/target, pruned targets) are documented so hosts know when not to trust
 - **Files**: the Kit sources and tests above plus `DecisionSidecarVerifierTests.swift`;
   `scripts/decision-model/{start-sidecar.sh,stop-sidecar.sh,sidecar-pid-lib.sh,check-readout.mjs,eval-run.mjs,eval-metrics.mjs}`
   and their `*.test.mjs`; `fixtures/readout-pin.json`; `eval-data/summary.json`; the exec plan and skill reference.
+
+### Review fixes (2026-09-23, round 2)
+- **Readout gate through a symlink**: Node realpaths `import.meta.url` but not `process.argv[1]`, so the
+  "run main only as a script" guard was false whenever a script was reached through a symlinked path (a symlinked
+  checkout, or `/tmp` on macOS). `check-readout.mjs` then exited 0 with no output, and `start-sidecar.sh` printed the
+  export line without the readout check. The guard now compares real paths (`run-as-script.mjs`, shared by
+  `check-readout.mjs`, `eval-run.mjs`, and `eval-dataset.mjs`), and `start-sidecar.sh` passes the check only when
+  `check-readout.mjs` exits 0 and prints its "all readout assertions passed" line. The sidecar script tests now also
+  run `start-sidecar.sh` through a symlinked path.
+- **Override lock on the CLI path**: a proxied single `open-computer-use call decide_next_action` now runs outside the
+  app agent's environment-override lock, like the MCP `tools/call`
+  (`openComputerUseCLIReadsOnlyCallEnvironment` in `OpenComputerUseCLI.swift`, `MacOSAppAgentProxy.swift`). A
+  `call --calls` sequence that contains it still holds the lock, because its other tools may read the process
+  environment.

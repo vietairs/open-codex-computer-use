@@ -207,3 +207,9 @@ or stage-2 paging (K11, cut for v1). Both are outside this phase.
 - 2026-09-23 (review fixes): in the shared app agent, `decide_next_action`, `tools/list`, and `initialize` read the
   decision-model URL from the calling host's per-call environment only, and `decide_next_action` runs outside the
   agent's process-wide environment-override lock, so its network wait no longer blocks other hosts' calls.
+- 2026-09-23 (review fixes, round 2): a proxied single `open-computer-use call decide_next_action` also runs outside
+  that lock. A `call --calls` sequence that contains it still holds the lock for the whole sequence, because its other
+  tools may read the process environment. The Node CLIs (`check-readout.mjs`, `eval-run.mjs`, `eval-dataset.mjs`)
+  now detect that they were run as a script by comparing real paths, so running them through a symlinked path no
+  longer skips `main()` and exits 0 silently; `start-sidecar.sh` also requires `check-readout.mjs`'s success line,
+  not just exit 0, before it prints the export line.

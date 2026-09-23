@@ -424,8 +424,15 @@ private final class AppAgentConnection: @unchecked Sendable {
             case "cli":
                 let arguments = request["arguments"] as? [String] ?? []
                 let environment = sanitizedPeerEnvironment(request["environment"] as? [String: String] ?? [:])
-                let response = AppAgentEnvironment.withOverrides(environment) {
-                    runCLI(arguments: arguments, environment: environment)
+                // Same rule as the "mcp" kind: runCLI hands the per-call environment to the call explicitly, and a
+                // single `call decide_next_action` reads nothing else, so its model round trip skips the lock.
+                let response: CLIProxyResponse
+                if openComputerUseCLIReadsOnlyCallEnvironment(arguments: arguments) {
+                    response = runCLI(arguments: arguments, environment: environment)
+                } else {
+                    response = AppAgentEnvironment.withOverrides(environment) {
+                        runCLI(arguments: arguments, environment: environment)
+                    }
                 }
                 return [
                     "stdout": response.stdout,

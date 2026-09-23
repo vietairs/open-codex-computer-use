@@ -508,6 +508,24 @@ final class DecisionAdvisorTests: XCTestCase {
         ))
     }
 
+    func testCLIReadsOnlyCallEnvironmentIsTrueOnlyForASingleDecideNextActionCall() {
+        XCTAssertTrue(openComputerUseCLIReadsOnlyCallEnvironment(
+            arguments: ["call", "decide_next_action", "--args", #"{"app":"x","goal":"y"}"#]
+        ))
+        XCTAssertTrue(openComputerUseCLIReadsOnlyCallEnvironment(
+            arguments: ["call", "decide_next_action", "--args-file", "/nonexistent/args.json"]
+        ))
+        XCTAssertFalse(openComputerUseCLIReadsOnlyCallEnvironment(arguments: ["call", "click", "--args", #"{"app":"x"}"#]))
+        // A sequence may mix in tools that read the process environment, so it keeps the override lock.
+        XCTAssertFalse(openComputerUseCLIReadsOnlyCallEnvironment(
+            arguments: ["call", "--calls", #"[{"tool":"decide_next_action","args":{"app":"x","goal":"y"}}]"#]
+        ))
+        XCTAssertFalse(openComputerUseCLIReadsOnlyCallEnvironment(arguments: ["list-apps"]))
+        XCTAssertFalse(openComputerUseCLIReadsOnlyCallEnvironment(arguments: ["snapshot", "decide_next_action"]))
+        XCTAssertFalse(openComputerUseCLIReadsOnlyCallEnvironment(arguments: ["call", "decide_next_action", "--bogus"]))
+        XCTAssertFalse(openComputerUseCLIReadsOnlyCallEnvironment(arguments: []))
+    }
+
     // MARK: - ComputerUseToolDispatcher wiring (no AX, no network — resolution never reaches a real app)
 
     private func makeDispatcher(environment: @escaping @Sendable () -> [String: String]) -> ComputerUseToolDispatcher {
