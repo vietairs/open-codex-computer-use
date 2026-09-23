@@ -15,3 +15,6 @@ __pycache__/
 
 # Agent-managed git worktrees
 .claude/worktrees/
+
+# Local decision-model eval captures (real-app content, never committed)
+artifacts/decision-eval/
