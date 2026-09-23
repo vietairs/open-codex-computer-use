@@ -42,8 +42,11 @@ Environment:
     "skip" never notarizes. Notarization needs a "Developer ID Application"
     signing identity (a 40-hex SHA-1 identity is mapped to its name) and
     credentials; otherwise "auto" skips and "required" fails. The decision is
-    made before signing, and codesign only requests a secure timestamp
-    (--timestamp, which contacts Apple) when the build will be notarized.
+    made before signing. A build that will be notarized always requests a
+    secure timestamp (--timestamp, which contacts Apple); debug builds pass
+    --timestamp=none so they never need the network; other release builds
+    keep codesign's default. The API-key path supports Team API keys (the
+    issuer ID is required); use a keychain profile for an Individual key.
     Credentials are resolved in this order:
       1. OPEN_COMPUTER_USE_NOTARY_PROFILE=<keychain profile name>
       2. An App Store Connect API key: APPLE_NOTARY_KEY_PATH=/path/to/key.p8
@@ -472,12 +475,13 @@ codesign_app_bundle() {
   fi
 
   # A secure timestamp requires contacting Apple's timestamp server, and
-  # codesign requests one by default for Developer ID signatures. Ask for it
-  # only when this build will be notarized; otherwise disable it explicitly so
-  # debug builds and offline dev loops never touch the network.
+  # codesign requests one by default for Developer ID signatures. Force it when
+  # this build will be notarized, disable it for debug builds so offline dev
+  # loops never touch the network, and leave codesign's default for other
+  # release builds so they keep the timestamp they always had.
   if [[ "${will_notarize}" -eq 1 ]]; then
     args+=(--timestamp)
-  elif [[ "${identity}" != "-" ]]; then
+  elif [[ "${identity}" != "-" && "${configuration}" == "debug" ]]; then
     args+=(--timestamp=none)
   fi
 
@@ -552,7 +556,7 @@ notarize_app_bundle() {
   ditto -c -k --keepParent "${app_path}" "${zip_path}"
 
   local submit_status=0
-  xcrun notarytool submit "${zip_path}" "${notary_auth_args[@]}" --wait --output-format json --no-progress \
+  xcrun notarytool submit "${zip_path}" "${notary_auth_args[@]}" --wait --timeout 30m --output-format json --no-progress \
     >"${submit_stdout_path}" 2>"${submit_stderr_path}" || submit_status=$?
   cat "${submit_stderr_path}" >&2
   cat "${submit_stdout_path}" >&2

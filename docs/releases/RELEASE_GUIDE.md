@@ -152,7 +152,7 @@ Minimum requirements:
 - `required` notarizes any configuration and fails the build when the identity is not Developer ID Application or no credentials resolve.
 - `skip` never notarizes.
 
-The script makes this decision once, before signing. A 40-hex SHA-1 value in `OPEN_COMPUTER_USE_CODESIGN_IDENTITY` is mapped to its certificate name through `security find-identity` (using `OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN` when set), so a hash-pinned Developer ID identity is recognized. `codesign` receives `--timestamp` only when the build will be notarized; every other signed build gets `--timestamp=none`, so debug builds, `skip`, and credential-less `auto` builds never contact Apple and keep working offline. After signing, the script confirms that `codesign -dvv` reports `Authority=Developer ID Application:` before it submits; in `required` mode a mismatch fails the build.
+The script makes this decision once, before signing. A 40-hex SHA-1 value in `OPEN_COMPUTER_USE_CODESIGN_IDENTITY` is mapped to its certificate name through `security find-identity` (using `OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN` when set), so a hash-pinned Developer ID identity is recognized. `codesign` receives `--timestamp` when the build will be notarized and `--timestamp=none` for debug builds, so the dev loop never contacts Apple and keeps working offline. Other release builds keep `codesign`'s default, which timestamps Developer ID signatures as it did before notarization existed. After signing, the script confirms that `codesign -dvv` reports `Authority=Developer ID Application:` before it submits; in `required` mode a mismatch fails the build.
 
 ### One-time local setup
 
@@ -174,7 +174,7 @@ OPEN_COMPUTER_USE_NOTARIZE=required OPEN_COMPUTER_USE_NOTARY_PROFILE=open-comput
 Credentials are resolved in this order, first match wins:
 
 1. `OPEN_COMPUTER_USE_NOTARY_PROFILE=<keychain profile name>`: an explicit keychain profile.
-2. An App Store Connect API key: `APPLE_NOTARY_KEY_PATH=/path/to/key.p8` (must exist and be readable) or `APPLE_NOTARY_API_KEY_P8_BASE64=<base64-encoded .p8 contents>`, together with `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID` (`APPLE_DEVELOPER_TEAM_ID` optional). A base64 key is decoded into a `0600` temporary file that is removed when the script exits; invalid base64 or an empty result fails the build.
+2. An App Store Connect API key: `APPLE_NOTARY_KEY_PATH=/path/to/key.p8` (must exist and be readable) or `APPLE_NOTARY_API_KEY_P8_BASE64=<base64-encoded .p8 contents>`, together with `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID` (`APPLE_DEVELOPER_TEAM_ID` optional). This path supports Team API keys, which need the issuer ID; store an Individual API key as a keychain profile instead. A base64 key is decoded into a `0600` temporary file that is removed when the script exits; invalid base64 or an empty result fails the build.
 3. In `auto` mode only, and only for a release build signed with Developer ID, when neither of the above is set: the keychain profile `open-computer-use-notary`, if `xcrun notarytool history` can use it.
 
 ### CI secrets
@@ -196,7 +196,7 @@ The secret values are passed as `env:` only to the "Build npm release artifacts"
 
 ### Submission and stapling
 
-The script zips the bundle with `ditto`, then runs `xcrun notarytool submit --wait --output-format json`. It reads stdout (JSON) and stderr separately and treats only `"status": "Accepted"` as success; any other status fails the build even when `notarytool` exits 0. On failure it prints the submission id and status and fetches `xcrun notarytool log <id>`. After acceptance, `xcrun stapler staple` is tried up to 3 times (waiting 10s, then 20s) to allow for ticket propagation. `xcrun stapler validate` is fatal, and `spctl -a -vvv -t exec` is printed as evidence only.
+The script zips the bundle with `ditto`, then runs `xcrun notarytool submit --wait --timeout 30m --output-format json`. A submission still in progress after 30 minutes fails the build like any other non-accepted status. It reads stdout (JSON) and stderr separately and treats only `"status": "Accepted"` as success; any other status fails the build even when `notarytool` exits 0. On failure it prints the submission id and status and fetches `xcrun notarytool log <id>`. After acceptance, `xcrun stapler staple` is tried up to 3 times (waiting 10s, then 20s) to allow for ticket propagation. `xcrun stapler validate` is fatal, and `spctl -a -vvv -t exec` is printed as evidence only.
 
 ### Verification
 
@@ -208,7 +208,7 @@ spctl -a -vvv -t exec "dist/Open Computer Use.app"
 codesign -dvv "dist/Open Computer Use.app" 2>&1 | grep -E '^(Authority|Timestamp)='
 ```
 
-A notarized bundle shows a `Timestamp=` line. A Developer ID build that was not notarized shows only `Signed Time=`.
+A notarized bundle shows a `Timestamp=` line. A debug Developer ID build shows only `Signed Time=`.
 
 ## Debugging a release failure
 
@@ -244,7 +244,7 @@ gh run view -R vietairs/open-codex-computer-use <run-id> --log-failed
 
 - `Open Computer Use` npm release artifacts still fall back to ad-hoc signing when `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` and related secrets are not configured; when configured, the workflow imports the `Developer ID Application` certificate first, then signs uniformly with that identity, and (with notary secrets also configured) notarizes and staples the app bundle.
 - `Cursor Motion`'s current release asset reuses `OPEN_COMPUTER_USE_CODESIGN_*` to sign the app with `Developer ID Application` first; if `APPLE_NOTARY_API_KEY_P8_BASE64`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_DEVELOPER_TEAM_ID` are also configured, the workflow proceeds to notarize and staple the `.dmg`.
-- If the secrets above are missing, the workflow falls back to ad-hoc signing or skips notarization respectively, rather than blocking the whole release.
+- If the signing secrets are missing, the workflow falls back to ad-hoc signing. If none of the notary secrets are set, notarization is skipped; a partial set fails the `package-npm` job.
 - The `open-computer-use` npm root package bundles six `os-arch` native artifacts, so the package size is larger than a macOS-only build; before releasing, confirm the staging package includes `dist/Open Computer Use.app`, `dist/linux/`, and `dist/windows/`, and confirm the launcher does not declare `optionalDependencies`.
 
 ## If the tag was already pushed wrong
