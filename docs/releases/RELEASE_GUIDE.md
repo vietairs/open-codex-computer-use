@@ -146,7 +146,13 @@ Minimum requirements:
 
 ## Notarization
 
-`Open Computer Use.app` supports notarization via `xcrun notarytool`, controlled by `OPEN_COMPUTER_USE_NOTARIZE=auto|required|skip` (default `auto`) in `scripts/build-open-computer-use-app.sh`. Notarization only runs against a bundle signed with a "Developer ID Application" identity, hardened runtime, and a secure timestamp; any other signing outcome (ad-hoc, Apple Development, or unsigned) is skipped in `auto` and fails the build in `required`.
+`scripts/build-open-computer-use-app.sh` notarizes `Open Computer Use.app` with `xcrun notarytool` and staples the ticket. `OPEN_COMPUTER_USE_NOTARIZE=auto|required|skip` (default `auto`) controls it:
+
+- `auto` notarizes **release** builds only, and only when the bundle will be signed with a "Developer ID Application" identity and credentials resolve. Anything else skips notarization with one line on stderr; debug builds skip silently.
+- `required` notarizes any configuration and fails the build when the identity is not Developer ID Application or no credentials resolve.
+- `skip` never notarizes.
+
+The script makes this decision once, before signing. A 40-hex SHA-1 value in `OPEN_COMPUTER_USE_CODESIGN_IDENTITY` is mapped to its certificate name through `security find-identity` (using `OPEN_COMPUTER_USE_CODESIGN_KEYCHAIN` when set), so a hash-pinned Developer ID identity is recognized. `codesign` receives `--timestamp` only when the build will be notarized; every other signed build gets `--timestamp=none`, so debug builds, `skip`, and credential-less `auto` builds never contact Apple and keep working offline. After signing, the script confirms that `codesign -dvv` reports `Authority=Developer ID Application:` before it submits; in `required` mode a mismatch fails the build.
 
 ### One-time local setup
 
@@ -156,28 +162,41 @@ Store a keychain profile once per machine:
 xcrun notarytool store-credentials open-computer-use-notary --apple-id <your-apple-id> --team-id 3HB354R355
 ```
 
-You will be prompted for an app-specific password for that Apple ID. Afterward, a local `auto` build automatically picks up this profile with no further configuration when no other credential is set (see resolution order below).
+You will be prompted for an app-specific password for that Apple ID. A local `auto` release build then picks up this profile automatically. `required` mode never probes for it, so set it explicitly:
+
+```bash
+OPEN_COMPUTER_USE_NOTARIZE=required OPEN_COMPUTER_USE_NOTARY_PROFILE=open-computer-use-notary \
+  ./scripts/build-open-computer-use-app.sh --configuration release
+```
 
 ### Environment variables (local / CI)
 
 Credentials are resolved in this order, first match wins:
 
-1. `OPEN_COMPUTER_USE_NOTARY_PROFILE=<keychain profile name>` — an explicit keychain profile.
-2. An App Store Connect API key: `APPLE_NOTARY_KEY_PATH=/path/to/key.p8` or `APPLE_NOTARY_API_KEY_P8_BASE64=<base64-encoded .p8 contents>`, together with `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID` (`APPLE_DEVELOPER_TEAM_ID` optional).
-3. In `auto` mode only, when neither of the above is set: the keychain profile `open-computer-use-notary`, if it has been stored locally (see one-time setup above).
-
-With no credentials configured, `auto` behaves exactly as before, aside from one informational skip line on stderr.
+1. `OPEN_COMPUTER_USE_NOTARY_PROFILE=<keychain profile name>`: an explicit keychain profile.
+2. An App Store Connect API key: `APPLE_NOTARY_KEY_PATH=/path/to/key.p8` (must exist and be readable) or `APPLE_NOTARY_API_KEY_P8_BASE64=<base64-encoded .p8 contents>`, together with `APPLE_NOTARY_KEY_ID` and `APPLE_NOTARY_ISSUER_ID` (`APPLE_DEVELOPER_TEAM_ID` optional). A base64 key is decoded into a `0600` temporary file that is removed when the script exits; invalid base64 or an empty result fails the build.
+3. In `auto` mode only, and only for a release build signed with Developer ID, when neither of the above is set: the keychain profile `open-computer-use-notary`, if `xcrun notarytool history` can use it.
 
 ### CI secrets
 
-The `package-npm` job in `.github/workflows/release.yml` reads these secrets in its "Prepare Open Computer Use notarization config" step and forwards them to the build via an API key (decoded to a `0600` file under `RUNNER_TEMP`, matching the existing Cursor Motion DMG notarization step's pattern):
+The `package-npm` job in `.github/workflows/release.yml` uses these secrets:
 
 - `APPLE_NOTARY_API_KEY_P8_BASE64`
 - `APPLE_NOTARY_KEY_ID`
 - `APPLE_NOTARY_ISSUER_ID`
 - `APPLE_DEVELOPER_TEAM_ID` (optional)
 
-If any of the required three secrets is missing, the step logs a notice and the npm release app bundle build falls back to `auto` with notarization skipped; it does not block the rest of the release.
+The "Prepare Open Computer Use notarization config" step only chooses the mode and writes nothing else to `GITHUB_ENV`:
+
+- All three required secrets set: `OPEN_COMPUTER_USE_NOTARIZE=required`, so a release that cannot be notarized (for example, because no Developer ID signing certificate is configured) fails instead of shipping unnotarized.
+- None set: `OPEN_COMPUTER_USE_NOTARIZE=auto` plus a `::notice::`. The release proceeds without notarization.
+- Some but not all set: the step fails with an `::error::` naming the missing secret(s).
+
+The secret values are passed as `env:` only to the "Build npm release artifacts" step, where the build script decodes the key itself.
+
+### Submission and stapling
+
+The script zips the bundle with `ditto`, then runs `xcrun notarytool submit --wait --output-format json`. It reads stdout (JSON) and stderr separately and treats only `"status": "Accepted"` as success; any other status fails the build even when `notarytool` exits 0. On failure it prints the submission id and status and fetches `xcrun notarytool log <id>`. After acceptance, `xcrun stapler staple` is tried up to 3 times (waiting 10s, then 20s) to allow for ticket propagation. `xcrun stapler validate` is fatal, and `spctl -a -vvv -t exec` is printed as evidence only.
 
 ### Verification
 
@@ -186,9 +205,10 @@ After a notarized build, confirm the ticket is valid:
 ```bash
 xcrun stapler validate "dist/Open Computer Use.app"
 spctl -a -vvv -t exec "dist/Open Computer Use.app"
+codesign -dvv "dist/Open Computer Use.app" 2>&1 | grep -E '^(Authority|Timestamp)='
 ```
 
-`scripts/build-open-computer-use-app.sh` already runs `stapler staple`, `stapler validate`, and `spctl -a -vvv -t exec` (the last one as evidence only, non-fatal) as part of the notarization step; a failed `stapler validate` fails the build.
+A notarized bundle shows a `Timestamp=` line. A Developer ID build that was not notarized shows only `Signed Time=`.
 
 ## Debugging a release failure
 
