@@ -13,11 +13,11 @@ Continue optimizing complex app-state output using clues from reverse-engineerin
 
 ## Design Intent
 
-The `SkyComputerUseService` 1.0.770 binary contains a `flattenLinksIntoMarkdownText` transform. Live testing in Lark / Chrome also shows the official app prefers folding link semantics into readable text, rather than emitting a localized `链接 Description: ...` structure. This change puts the link target URL more directly into the state, while still keeping the element record for later clicks.
+The `SkyComputerUseService` 1.0.770 binary contains a `flattenLinksIntoMarkdownText` transform. Live testing in Lark / Chrome also shows the official app prefers folding link semantics into readable text, rather than emitting a localized `链接` (link) `Description: ...` structure. This change puts the link target URL more directly into the state, while still keeping the element record for later clicks.
 
 ## Verification
 
-- Local Lark regression confirms links change from `链接 Description: ...` to Markdown link text.
+- Local Lark regression confirms links change from `链接` (link) `Description: ...` to Markdown link text.
 - Local Chrome regression confirms links with a URL render as Markdown, while links without a URL still keep the plain `link Description`.
 - `swift test --filter AccessibilityRenderer`
 - `./scripts/build-open-computer-use-app.sh debug`

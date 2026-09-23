@@ -17,7 +17,7 @@
 - **Kept deliberate Chinese**: `README.zh-CN.md` (the Chinese translation of the README), the README language-switch badge, and literal on-screen UI strings or test input quoted from real apps (for example Feishu (飞书) menu labels), each glossed in English.
 
 ### 🧠 Design Intent (Why)
-The fork's maintainer works in English, and `AGENTS.md`, the entry point every agent reads first, was Chinese. A mechanical check confirmed that every translated file keeps the original's heading count, code-fence count and link targets, and that every remaining line containing CJK (28 lines in 13 files) is intentional literal data.
+The fork's maintainer works in English, and `AGENTS.md`, the entry point every agent reads first, was Chinese. A mechanical check confirmed that every translated file keeps the original's heading count, code-fence count and link targets, and that every remaining line containing CJK (30 lines in 13 files) is intentional literal data.
 
 Trade-off accepted: any of these files that upstream later edits will conflict on the next upstream sync.
 

@@ -25,7 +25,8 @@
   shuffled order would catch a missed sort. It does not hold: line text and indentation are determined
   solely by `element.index`, and offsets are always self-consistent with each other, so the row-by-row
   prefix check passes under any emission order; separately, compact itself re-sorts ascending anyway. The
-  claim only actually holds once the offset is compared directly against its ascending position.
+  assertion was changed to compare each offset directly against its ascending position, and only
+  then does the claim actually hold.
 - **[Mutation verification]**: Both mutations failed as expected — changing the recording point to
   `lines.count` (introducing an off-by-one); and removing the renderer's `.sorted(by:)`, which reported
   `[2, 1, 3, 0]` not equal to `[0, 1, 2, 3]`. After reverting, the full suite was green again, confirming
