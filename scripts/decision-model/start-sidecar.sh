@@ -7,6 +7,8 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=sidecar-pid-lib.sh
+. "${script_dir}/sidecar-pid-lib.sh"
 manifest_path="${script_dir}/model-manifest.json"
 state_dir="${HOME}/Library/Application Support/OpenComputerUse/decision-model"
 models_dir="${state_dir}/models"
@@ -26,11 +28,17 @@ check-readout.mjs against it, then prints:
 
 Port default: ${OCU_DECISION_MODEL_PORT:-$((39000 + $(id -u) % 1000))}.
 
+Only one sidecar runs per user. An already-running sidecar recorded in the pid
+file is reused only if it listens on the requested port and passes the same
+check-readout.mjs run (which also asserts the served model file) as a fresh one.
+
 Exit codes:
   0  started (or already running) and the readout check passed
   3  the model file is missing or fails sha256 verification
-  4  the port is already held by a different process
+  4  the port is held by another process, or a recorded sidecar is still running
+     on another port or cannot be verified (stop it first)
   5  check-readout.mjs failed against the newly started server (server stopped)
+  6  check-readout.mjs failed against the already-running sidecar (left running)
 USAGE
 }
 
@@ -130,11 +138,9 @@ llama_server_bin="$(resolve_llama_server)" || {
   exit 1
 }
 llama_server_dir="$(dirname "${llama_server_bin}")"
-
-pid_is_llama_server() {
-  local pid="$1"
-  ps -p "${pid}" -o command= 2>/dev/null | grep -q "llama-server"
-}
+# The pid file records the resolved binary: the kernel reports the real path for
+# the running process, not the /opt/homebrew/bin symlink.
+llama_server_real="$(sidecar_canonical_path "${llama_server_bin}")"
 
 port_owner_pid() {
   # lsof exits non-zero when nothing matches; that is a normal "port is free"
@@ -142,20 +148,55 @@ port_owner_pid() {
   lsof -nP -iTCP:"${port}" -sTCP:LISTEN -t 2>/dev/null | head -n1 || true
 }
 
+# The pid listening on exactly 127.0.0.1:<port>, which is the socket the client connects to.
+loopback_listener_pid() {
+  lsof -nP -iTCP@127.0.0.1:"${port}" -sTCP:LISTEN -t 2>/dev/null | head -n1 || true
+}
+
 print_export_line() {
   echo "export OPEN_COMPUTER_USE_DECISION_MODEL_URL=http://127.0.0.1:${port}"
 }
 
-# Idempotent reuse: pid file names a live llama-server already listening on
-# this exact port.
+# One sidecar per user: the pid file is not keyed by port, so starting a second
+# server would overwrite the record of the first and leave it running untracked.
 if [ -f "${pid_file}" ]; then
-  existing_pid="$(cat "${pid_file}")"
-  if [ -n "${existing_pid}" ] && pid_is_llama_server "${existing_pid}"; then
-    owner_pid="$(port_owner_pid)"
-    if [ "${owner_pid}" = "${existing_pid}" ]; then
-      print_export_line
-      exit 0
+  if sidecar_pid_file_read "${pid_file}"; then
+    sidecar_pid_state
+    case "${pf_state}" in
+      owned)
+        if [ "${pf_port}" != "${port}" ] || [ "$(loopback_listener_pid)" != "${pf_pid}" ]; then
+          echo "start-sidecar.sh: the sidecar recorded in ${pid_file} is still running (pid ${pf_pid}, port ${pf_port})." >&2
+          echo "Stop it with scripts/decision-model/stop-sidecar.sh before starting one on port ${port}." >&2
+          exit 4
+        fi
+        # Reuse gets the same readout check as a fresh start; it also asserts
+        # that the server serves this --model's file.
+        if ! node "${script_dir}/check-readout.mjs" --url "http://127.0.0.1:${port}" --model "${model_key}"; then
+          echo "start-sidecar.sh: the running sidecar (pid ${pf_pid}) failed check-readout.mjs for --model ${model_key}; it was left running." >&2
+          echo "Stop it with scripts/decision-model/stop-sidecar.sh, then start again." >&2
+          exit 6
+        fi
+        print_export_line
+        exit 0
+        ;;
+      unverified)
+        echo "start-sidecar.sh: pid ${pf_pid} in ${pid_file} started at the recorded time but no longer runs the recorded llama-server binary." >&2
+        echo "It was not touched. Stop it yourself if it is a sidecar, then delete the pid file." >&2
+        exit 4
+        ;;
+      *)
+        # The recorded process is gone (exited or its pid was reused).
+        rm -f "${pid_file}"
+        ;;
+    esac
+  else
+    legacy_pid="$(sidecar_pid_file_legacy_pid "${pid_file}")"
+    if [ -n "${legacy_pid}" ] && kill -0 "${legacy_pid}" 2>/dev/null; then
+      echo "start-sidecar.sh: ${pid_file} is in an old or unreadable format and names running pid ${legacy_pid}." >&2
+      echo "It cannot be verified, so it was not touched. Stop it yourself if it is a sidecar, then delete the pid file." >&2
+      exit 4
     fi
+    rm -f "${pid_file}"
   fi
 fi
 
@@ -178,7 +219,7 @@ env -i HOME="${HOME}" PATH="${llama_server_dir}:/usr/bin:/bin" \
   -ngl 99 \
   >"${log_file}" 2>&1 &
 server_pid=$!
-echo "${server_pid}" > "${pid_file}"
+sidecar_pid_file_write "${pid_file}" "${server_pid}" "${port}" "${llama_server_real}" "${model_key}"
 
 stop_started_server() {
   if kill -0 "${server_pid}" 2>/dev/null; then
