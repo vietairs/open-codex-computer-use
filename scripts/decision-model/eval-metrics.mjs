@@ -202,6 +202,46 @@ function gatePasses(value, threshold, cmp) {
 }
 
 /** Builds the committed summary object from whitelisted fields only; never copies goal, row, or rendered text. */
+/** What the reported p50/p95 cover, so the latency gate is not read as the cost of a live call. */
+export const LATENCY_SCOPE_NOTE = 'p50/p95 are the advisor latency_ms of each item: candidate pruning plus the model '
+  + 'round trip. They exclude the accessibility refresh and rendering that the live decide_next_action call performs '
+  + 'first (the cost of a get_app_state), and the MCP and app-agent hops, so a live call takes longer.';
+
+/** Distinct snapshots per split. Items taken from one screen are correlated, so this is the effective sample size. */
+export function snapshotsBySplit(items) {
+  const sets = {};
+  for (const item of Array.isArray(items) ? items : []) {
+    if (typeof item?.split !== 'string' || typeof item?.snapshotId !== 'string') continue;
+    (sets[item.split] ??= new Set()).add(item.snapshotId);
+  }
+  return Object.fromEntries(Object.entries(sets).map(([split, ids]) => [split, ids.size]));
+}
+
+/** How many screens the test metrics rest on, stated next to them so they are not read as n independent items. */
+export function testClusteringNote(bySplit, snapshotCounts) {
+  const items = Number.isInteger(bySplit?.test) ? bySplit.test : 0;
+  const screens = Number.isInteger(snapshotCounts?.test) ? snapshotCounts.test : 0;
+  return `Test metrics come from ${items} items on only ${screens} screens (the split is by snapshot); items from one `
+    + 'screen are correlated, so the test AUROC and the test precision at tau are weaker evidence than the item count suggests.';
+}
+
+/**
+ * States, from the tuning log itself, whether any pruning tuning run could have shown test metrics. A round counts as
+ * dev-only only when the log records `split: 'dev'`, which eval-run.mjs writes now that it runs tuning rounds on the
+ * dev split alone; older rows ran over every split.
+ */
+export function tuningIsolationNote(tuningRounds) {
+  const rounds = Array.isArray(tuningRounds) ? tuningRounds : [];
+  const base = 'Gates are judged on the test split; tau was selected on the dev split only.';
+  if (rounds.length === 0) return `${base} No pruning tuning rounds were recorded.`;
+  const exposed = rounds.filter((round) => round?.split !== 'dev').map((round) => round?.round);
+  if (exposed.length === 0) {
+    return `${base} Every pruning tuning round ran with --split dev, so no tuning run scored or printed test items.`;
+  }
+  return `${base} Pruning tuning rounds ${exposed.join(', ')} were compared on their dev metrics, but they ran over `
+    + '--split all, so their reports also printed test aggregates.';
+}
+
 export function buildSummary({ meta, dataset, metricsBySplit, tau, tauOnTest, tuningRounds, notes }) {
   const metrics = {
     all: pickMetrics(metricsBySplit?.all),
@@ -219,6 +259,7 @@ export function buildSummary({ meta, dataset, metricsBySplit, tau, tauOnTest, tu
       fixture: Number.isInteger(dataset?.fixture) ? dataset.fixture : 0,
       real: Number.isInteger(dataset?.real) ? dataset.real : 0,
       bySplit: countMap(dataset?.bySplit),
+      snapshotsBySplit: countMap(dataset?.snapshotsBySplit),
       byOperation: countMap(dataset?.byOperation),
     },
     metrics,

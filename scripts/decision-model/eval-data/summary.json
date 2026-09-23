@@ -20,6 +20,10 @@
       "test": 79,
       "dev": 175
     },
+    "snapshotsBySplit": {
+      "test": 7,
+      "dev": 16
+    },
     "byOperation": {
       "click": 148,
       "set_value": 28,
@@ -135,9 +139,11 @@
   ],
   "notes": [
     "p50/p95 latency is an optimistic bound (Apple M4 Max, 48 GB); the p50 gate is specified for a 16 GB M-series machine.",
+    "p50/p95 are the advisor latency_ms of each item: candidate pruning plus the model round trip. They exclude the accessibility refresh and rendering that the live decide_next_action call performs first (the cost of a get_app_state), and the MCP and app-agent hops, so a live call takes longer.",
     "llama-server timings over 254 prefill requests (of 257): prompt_n p50 624 / p95 1162 tokens, prompt_ms p50 512.5 / p95 1033.07; cache_prompt reuses shared prefixes between consecutive items.",
     "P3 step-count gate not measured: it needs agent-in-the-loop A/B runs.",
-    "Gates are judged on the test split; tau and pruning tuning used the dev split only.",
+    "Gates are judged on the test split; tau was selected on the dev split only. Pruning tuning rounds 0, 1 were compared on their dev metrics, but they ran over --split all, so their reports also printed test aggregates.",
+    "Test metrics come from 79 items on only 7 screens (the split is by snapshot); items from one screen are correlated, so the test AUROC and the test precision at tau are weaker evidence than the item count suggests.",
     "tau selection: smallest dev margin with precision >= 0.90 and coverage >= 0.10 (selected 0.7117), rounded up to 2 decimals; 1.0 means never auto-follow."
   ]
 }

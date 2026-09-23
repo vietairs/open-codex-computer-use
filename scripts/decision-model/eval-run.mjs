@@ -5,6 +5,9 @@
 //   node scripts/decision-model/eval-run.mjs [--url http://127.0.0.1:<port>] [--prune-only] [--split dev|test|all]
 //        [--write-summary] [--tuning-round <n> --tuning-note <text>]
 //
+// Tuning rounds run over --split dev only, so a tuning run never scores, prints, or stores a test item. The report
+// and the results file cover exactly the selected split.
+//
 // Raw harness lines contain real screen text, so they go only to the gitignored artifacts/decision-eval/.
 // The committed summary.json is built by eval-metrics.mjs from whitelisted numeric fields.
 // Exit: 0 completed run (any gate outcome); 1 harness/build failure; 2 dataset validation failure; 64 bad usage.
@@ -14,9 +17,12 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, openSync, readSync, closeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadDataset, validateItem } from './eval-dataset.mjs';
-import { aggregate, buildSummary, percentile, precisionCoverageAt, roundTauUp, scoreItem, selectTau } from './eval-metrics.mjs';
+import {
+  LATENCY_SCOPE_NOTE, aggregate, buildSummary, percentile, precisionCoverageAt, roundTauUp, scoreItem, selectTau,
+  snapshotsBySplit, testClusteringNote, tuningIsolationNote,
+} from './eval-metrics.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..', '..');
@@ -29,9 +35,9 @@ const sidecarLogPath = join(homedir(), 'Library/Application Support/OpenComputer
 const SPLITS = ['all', 'dev', 'test'];
 const WARMUP_COUNT = 3;
 
-class UsageError extends Error {}
+export class UsageError extends Error {}
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const options = { url: null, pruneOnly: false, split: 'all', writeSummary: false, tuningRound: null, tuningNote: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -55,7 +61,9 @@ function parseArgs(argv) {
   if (options.tuningRound !== null) {
     if (!/^[0-3]$/.test(options.tuningRound)) throw new UsageError('--tuning-round must be 0..3');
     options.tuningRound = Number(options.tuningRound);
-    if (options.pruneOnly || options.split !== 'all') throw new UsageError('--tuning-round needs a full run over --split all');
+    if (options.pruneOnly || options.split !== 'dev') {
+      throw new UsageError('--tuning-round needs a full run over --split dev, so tuning never sees test metrics');
+    }
   }
   if (options.writeSummary && (options.pruneOnly || options.split !== 'all')) {
     throw new UsageError('--write-summary needs a full run over --split all');
@@ -176,7 +184,10 @@ function readTuningLog() {
 
 function recordTuningRound(round, note, devMetrics, resultsFile) {
   const log = readTuningLog().filter((entry) => entry.round !== round);
-  log.push({ round, note, devTop1: devMetrics.top1, devPrunedTargetRate: devMetrics.prunedTargetRate, resultsFile, recordedAt: new Date().toISOString() });
+  log.push({
+    round, note, split: 'dev', devTop1: devMetrics.top1, devPrunedTargetRate: devMetrics.prunedTargetRate, resultsFile,
+    recordedAt: new Date().toISOString(),
+  });
   log.sort((a, b) => a.round - b.round);
   writeFileSync(tuningLogPath, `${JSON.stringify(log, null, 2)}\n`);
 }
@@ -207,6 +218,9 @@ function writeSummary({ entries, scored, metricsBySplit, timings }) {
   const timingNote = timings === null
     ? 'llama-server prompt timings were not available from the sidecar log.'
     : `llama-server timings over ${timings.prefills} prefill requests (of ${timings.requests}): prompt_n p50 ${timings.promptNP50} / p95 ${timings.promptNP95} tokens, prompt_ms p50 ${timings.promptMsP50} / p95 ${timings.promptMsP95}; cache_prompt reuses shared prefixes between consecutive items.`;
+  const bySplit = countBy(entries.map(({ item }) => item.split));
+  const snapshotCounts = snapshotsBySplit(entries.map(({ item }) => item));
+  const tuningRounds = readTuningLog();
   const summary = buildSummary({
     meta: {
       generatedAt: new Date().toISOString(),
@@ -218,18 +232,21 @@ function writeSummary({ entries, scored, metricsBySplit, timings }) {
       n: entries.length,
       fixture: entries.filter(({ item }) => item.source === 'fixture').length,
       real: entries.filter(({ item }) => item.source === 'real').length,
-      bySplit: countBy(entries.map(({ item }) => item.split)),
+      bySplit,
+      snapshotsBySplit: snapshotCounts,
       byOperation: countBy(entries.map(({ item }) => item.groundTruth.operation)),
     },
     metricsBySplit,
     tau: { tau: tauValue, precision: devAt.precision, coverage: devAt.coverage },
     tauOnTest: testAt,
-    tuningRounds: readTuningLog(),
+    tuningRounds,
     notes: [
       `p50/p95 latency is an optimistic bound (${chip}, ${memoryGB} GB); the p50 gate is specified for a 16 GB M-series machine.`,
+      LATENCY_SCOPE_NOTE,
       timingNote,
       'P3 step-count gate not measured: it needs agent-in-the-loop A/B runs.',
-      'Gates are judged on the test split; tau and pruning tuning used the dev split only.',
+      tuningIsolationNote(tuningRounds),
+      testClusteringNote(bySplit, snapshotCounts),
       `tau selection: smallest dev margin with precision >= 0.90 and coverage >= 0.10 (selected ${picked.tau}), rounded up to 2 decimals; 1.0 means never auto-follow.`,
     ],
   });
@@ -276,10 +293,14 @@ async function main(argv) {
   writeFileSync(resultsFile, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
 
   const scored = selected.map(({ item }, i) => scoreItem(item, lines[i]));
-  const metricsBySplit = { all: aggregate(scored) };
-  for (const split of options.split === 'all' ? ['dev', 'test'] : [options.split]) {
-    metricsBySplit[split] = aggregate(scored.filter((row) => row.split === split));
-  }
+  // Only the selected split is aggregated, so a dev-only run never labels dev numbers as "all".
+  const metricsBySplit = options.split === 'all'
+    ? {
+      all: aggregate(scored),
+      dev: aggregate(scored.filter((row) => row.split === 'dev')),
+      test: aggregate(scored.filter((row) => row.split === 'test')),
+    }
+    : { [options.split]: aggregate(scored) };
 
   const report = { mode: options.pruneOnly ? 'prune-only' : 'advise', resultsFile, splits: {} };
   for (const [split, metrics] of Object.entries(metricsBySplit)) {
@@ -303,10 +324,13 @@ async function main(argv) {
   return 0;
 }
 
-main(process.argv.slice(2)).then(
-  (code) => { process.exitCode = code; },
-  (error) => {
-    process.stderr.write(`eval-run: ${error.message}\n`);
-    process.exitCode = 1;
-  },
-);
+// Run only as a script, so tests can import parseArgs without starting an eval.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code; },
+    (error) => {
+      process.stderr.write(`eval-run: ${error.message}\n`);
+      process.exitCode = 1;
+    },
+  );
+}

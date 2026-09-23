@@ -3,7 +3,10 @@
 // eval-metrics.mjs is implemented to its Signature.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GATES, aggregate, auroc, buildSummary, percentile, scoreItem, selectTau } from './eval-metrics.mjs';
+import {
+  GATES, LATENCY_SCOPE_NOTE, aggregate, auroc, buildSummary, percentile, scoreItem, selectTau, snapshotsBySplit,
+  testClusteringNote, tuningIsolationNote,
+} from './eval-metrics.mjs';
 
 const CANARY = 'CANARY-PII-7f3a';
 
@@ -240,7 +243,10 @@ function canarySummary() {
       hardware: { chip: 'Apple M4 Max', memoryGB: 48, host: CANARY },
       rows: lines,
     },
-    dataset: { n: 2, fixture: 0, real: 2, bySplit: { dev: 1, test: 1 }, byOperation: { click: 2 }, items },
+    dataset: {
+      n: 2, fixture: 0, real: 2, bySplit: { dev: 1, test: 1 }, snapshotsBySplit: { dev: 1, test: 1 },
+      byOperation: { click: 2 }, items,
+    },
     metricsBySplit,
     tau: { tau: 0.62, precision: 0.93, coverage: 0.4 },
     tauOnTest: { precision: 0.9, coverage: 0.35 },
@@ -272,7 +278,8 @@ test('buildSummary: gates are judged on the test split and tau rounds up to 2 de
   assert.deepEqual(summary.tau, { value: 0.62, devPrecision: 0.93, devCoverage: 0.4, testPrecision: 0.9, testCoverage: 0.35 });
   assert.deepEqual(summary.tuningRounds, [{ round: 0, note: 'baseline', devTop1: 0.5, devPrunedTargetRate: 0.1 }]);
   assert.deepEqual(summary.hardware, { chip: 'Apple M4 Max', memoryGB: 48 });
-  assert.deepEqual(Object.keys(summary.dataset).sort(), ['byOperation', 'bySplit', 'fixture', 'n', 'real']);
+  assert.deepEqual(Object.keys(summary.dataset).sort(), ['byOperation', 'bySplit', 'fixture', 'n', 'real', 'snapshotsBySplit']);
+  assert.deepEqual(summary.dataset.snapshotsBySplit, { dev: 1, test: 1 });
 });
 
 test('buildSummary: tau rounding is upward and float-safe', () => {
@@ -289,4 +296,36 @@ test('buildSummary: tau rounding is upward and float-safe', () => {
   assert.equal(rebuild(0.6123), 0.62);
   assert.equal(rebuild(0.57), 0.57, '0.57 * 100 is 56.99999... in floating point and must not round to 0.58');
   assert.equal(rebuild(1.0), 1);
+});
+
+test('snapshotsBySplit: counts distinct screens per split, not items', () => {
+  const items = [
+    { ...makeItem({ id: 'a', split: 'dev' }), snapshotId: 's1' },
+    { ...makeItem({ id: 'b', split: 'dev' }), snapshotId: 's1' },
+    { ...makeItem({ id: 'c', split: 'dev' }), snapshotId: 's2' },
+    { ...makeItem({ id: 'd', split: 'test' }), snapshotId: 's3' },
+    { ...makeItem({ id: 'e', split: 'test' }), snapshotId: 's3' },
+  ];
+  assert.deepEqual(snapshotsBySplit(items), { dev: 2, test: 1 });
+  assert.deepEqual(snapshotsBySplit([]), {});
+});
+
+test('testClusteringNote: names the item and screen counts behind the test metrics', () => {
+  const note = testClusteringNote({ dev: 175, test: 79 }, { dev: 16, test: 7 });
+  assert.match(note, /79 items on only 7 screens/);
+  assert.match(note, /correlated/);
+});
+
+test('tuningIsolationNote: claims dev-only tuning only when every logged round ran with --split dev', () => {
+  assert.match(tuningIsolationNote([]), /No pruning tuning rounds were recorded/);
+  const devOnly = tuningIsolationNote([{ round: 0, split: 'dev' }, { round: 1, split: 'dev' }]);
+  assert.match(devOnly, /no tuning run scored or printed test items/);
+  const exposed = tuningIsolationNote([{ round: 0 }, { round: 1 }, { round: 2, split: 'dev' }]);
+  assert.match(exposed, /rounds 0, 1 were compared on their dev metrics/);
+  assert.match(exposed, /also printed test aggregates/);
+  assert.doesNotMatch(exposed, /no tuning run/);
+});
+
+test('LATENCY_SCOPE_NOTE: says the latency excludes the accessibility refresh', () => {
+  assert.match(LATENCY_SCOPE_NOTE, /exclude the accessibility refresh/);
 });
