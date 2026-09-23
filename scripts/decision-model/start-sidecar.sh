@@ -7,7 +7,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=sidecar-pid-lib.sh
+# shellcheck source-path=SCRIPTDIR source=sidecar-pid-lib.sh
 . "${script_dir}/sidecar-pid-lib.sh"
 manifest_path="${script_dir}/model-manifest.json"
 state_dir="${HOME}/Library/Application Support/OpenComputerUse/decision-model"

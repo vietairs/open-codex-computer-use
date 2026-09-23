@@ -9,7 +9,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=sidecar-pid-lib.sh
+# shellcheck source-path=SCRIPTDIR source=sidecar-pid-lib.sh
 . "${script_dir}/sidecar-pid-lib.sh"
 state_dir="${HOME}/Library/Application Support/OpenComputerUse/decision-model"
 pid_file="${state_dir}/run/llama-server.pid"
