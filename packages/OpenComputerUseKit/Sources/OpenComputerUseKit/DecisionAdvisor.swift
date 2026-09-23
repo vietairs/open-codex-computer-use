@@ -161,9 +161,18 @@ public enum DecisionAdvisor {
         return top - (ranked.count > 1 ? ranked[1] : 0)
     }
 
+    /// The longest a main-thread caller waits in `runOffMainThread`: the overall deadline plus one request timeout,
+    /// which is the most a well-behaved `advise` can take (~17 s).
+    public static let mainThreadWaitLimit: TimeInterval = overallDeadline + DecisionModelClient.defaultRequestTimeout
+
     /// Runs `work` off the main thread. On the main thread it hops to a global queue with `async` and waits on a
-    /// semaphore; `sync` is avoided because it may execute the block on the calling (main) thread.
-    static func runOffMainThread<T: Sendable>(_ work: @escaping @Sendable () throws -> T) throws -> T {
+    /// semaphore; `sync` is avoided because it may execute the block on the calling (main) thread. The wait is
+    /// bounded, so a transport that ignores its own timeout cannot hang the main thread: after `timeout` the caller
+    /// gets `.deadlineExceeded` and the abandoned work finishes (or not) on its background queue.
+    static func runOffMainThread<T: Sendable>(
+        timeout: TimeInterval = mainThreadWaitLimit,
+        _ work: @escaping @Sendable () throws -> T
+    ) throws -> T {
         guard Thread.isMainThread else { return try work() }
         let box = ResultBox<T>()
         let finished = DispatchSemaphore(value: 0)
@@ -171,7 +180,9 @@ public enum DecisionAdvisor {
             box.store(Result { try work() })
             finished.signal()
         }
-        finished.wait()
+        guard finished.wait(timeout: .now() + timeout) == .success else {
+            throw DecisionAdvisorError.deadlineExceeded
+        }
         return try box.load().get()
     }
 }

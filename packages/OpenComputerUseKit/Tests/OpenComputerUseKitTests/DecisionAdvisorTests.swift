@@ -184,6 +184,75 @@ final class DecisionAdvisorTests: XCTestCase {
         XCTAssertTrue(transport.requests.isEmpty)
     }
 
+    /// A clock that reads `start` until `advanceAfter` requests have been answered, then 13 s later. The deadline
+    /// check between pages must stop the second request after the first one has already gone out.
+    func testAdviseThrowsDeadlineExceededBetweenPagesAfterTheFirstRequestIsInFlight() {
+        let rows = (1...60).map { (index: $0, text: "button Item \($0)") }
+        let transport = ScriptedTransport(rawPayloads: [
+            makeCompletion(op: ["A": -0.1], target: ["A": -0.1, "B": -2]),
+            makeCompletion(op: ["A": -0.1], target: ["A": -0.1, "B": -2]),
+            makeCompletion(op: ["A": -0.1], target: ["A": -0.1, "B": -2]),
+        ])
+        let client = DecisionModelClient(endpoint: Self.loopbackEndpoint(), transport: transport)
+        let start = Date()
+        let now = { transport.requests.isEmpty ? start : start.addingTimeInterval(13) }
+
+        XCTAssertThrowsError(
+            try DecisionAdvisor.advise(
+                goal: "reorganize the layout", appName: "DecisionTestApp",
+                renderedFull: Self.minimalRenderedFull,
+                renderedCompact: Self.compactActionableText(rows: rows),
+                client: client, maxPages: 2, now: now
+            )
+        ) { error in
+            XCTAssertEqual(error as? DecisionAdvisorError, .deadlineExceeded)
+        }
+        XCTAssertEqual(transport.requests.count, 1, "the first page was sent; the second must not be")
+    }
+
+    // MARK: - DecisionAdvisor.runOffMainThread
+
+    func testRunOffMainThreadFromTheMainThreadRunsAdviseOnABackgroundThreadWithASlowTransport() throws {
+        XCTAssertTrue(Thread.isMainThread, "XCTest runs test methods on the main thread")
+        let transport = SlowTransport(
+            delay: 0.3,
+            payload: makeCompletion(op: ["A": -0.05, "B": -3], target: ["C": -0.1, "A": -2])
+        )
+        let client = DecisionModelClient(endpoint: Self.loopbackEndpoint(), transport: transport)
+        let goal = Self.fiveButtonGoal
+        let full = Self.minimalRenderedFull
+        let compact = Self.compactActionableText(rows: Self.fiveButtonRows)
+
+        let advice = try DecisionAdvisor.runOffMainThread {
+            try DecisionAdvisor.advise(
+                goal: goal, appName: "DecisionTestApp", renderedFull: full, renderedCompact: compact, client: client
+            )
+        }
+
+        XCTAssertEqual(advice.elementIndex, 3)
+        XCTAssertEqual(transport.calledOnMainThread, [false], "the transport must never run on the main thread")
+    }
+
+    func testRunOffMainThreadGivesUpWithDeadlineExceededWhenWorkOutlivesTheTimeout() {
+        let started = Date()
+        XCTAssertThrowsError(
+            try DecisionAdvisor.runOffMainThread(timeout: 0.2) { () -> Int in
+                Thread.sleep(forTimeInterval: 2)
+                return 1
+            }
+        ) { error in
+            XCTAssertEqual(error as? DecisionAdvisorError, .deadlineExceeded)
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "the main thread must not wait for the work")
+    }
+
+    func testRunOffMainThreadWaitLimitIsTheOverallDeadlinePlusOneRequestTimeout() {
+        XCTAssertEqual(
+            DecisionAdvisor.mainThreadWaitLimit,
+            DecisionAdvisor.overallDeadline + DecisionModelClient.defaultRequestTimeout
+        )
+    }
+
     // MARK: - DecisionAdvisor.advise — paging (K11 stage-2, exercised via explicit maxPages)
 
     func testAdvisePagesAndCombinesStage2WithPerPageDistributionsForTheReportedArgmax() throws {
@@ -393,6 +462,52 @@ final class DecisionAdvisorTests: XCTestCase {
         XCTAssertTrue(names.contains("decide_next_action"))
     }
 
+    /// In the app agent the process environment is shared by every host, and another host's overrides may be set on
+    /// it at any moment. The per-call dictionary must decide listing, instructions and the call path on its own.
+    func testStdioMCPServerPerCallEnvironmentWinsOverAPollutedProcessEnvironment() throws {
+        let polluted = StdioMCPServer(
+            service: ComputerUseService(),
+            environment: { [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"] }
+        )
+
+        let initResult = try jsonRPCResult(polluted.handle(line: Self.initializeLine, environment: [:]))
+        XCTAssertEqual(initResult["instructions"] as? String, baseComputerUseServerInstructions)
+
+        let listResult = try jsonRPCResult(polluted.handle(line: Self.toolsListLine, environment: [:]))
+        let names = (listResult["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        XCTAssertFalse(names.contains("decide_next_action"))
+
+        let callResult = try jsonRPCResult(polluted.handle(line: Self.decideCallLine, environment: [:]))
+        XCTAssertEqual(callResult["isError"] as? Bool, true)
+        let text = ((callResult["content"] as? [[String: Any]])?.first?["text"] as? String) ?? ""
+        XCTAssertTrue(text.contains("decide_next_action is disabled"), text)
+    }
+
+    func testStdioMCPServerPerCallEnvironmentEnablesTheToolWhenTheProcessEnvironmentHasNoURL() throws {
+        let server = StdioMCPServer(service: ComputerUseService(), environment: { [:] })
+        let callEnvironment = [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"]
+
+        let listResult = try jsonRPCResult(server.handle(line: Self.toolsListLine, environment: callEnvironment))
+        let names = (listResult["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        XCTAssertTrue(names.contains("decide_next_action"))
+    }
+
+    private static let decideCallLine =
+        #"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"decide_next_action","arguments":{"app":"NoSuchApp-decision-test","goal":"click something"}}}"#
+
+    func testReadsOnlyCallEnvironmentIsTrueOnlyForDecideNextActionCalls() {
+        XCTAssertTrue(StdioMCPServer.readsOnlyCallEnvironment(line: Self.decideCallLine))
+        XCTAssertFalse(StdioMCPServer.readsOnlyCallEnvironment(line: Self.initializeLine))
+        XCTAssertFalse(StdioMCPServer.readsOnlyCallEnvironment(line: Self.toolsListLine))
+        XCTAssertFalse(StdioMCPServer.readsOnlyCallEnvironment(
+            line: #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"click","arguments":{"app":"x"}}}"#
+        ))
+        XCTAssertFalse(StdioMCPServer.readsOnlyCallEnvironment(line: "not json"))
+        XCTAssertFalse(StdioMCPServer.readsOnlyCallEnvironment(
+            line: #"{"jsonrpc":"2.0","id":5,"method":"tools/list","params":{"name":"decide_next_action"}}"#
+        ))
+    }
+
     // MARK: - ComputerUseToolDispatcher wiring (no AX, no network — resolution never reaches a real app)
 
     private func makeDispatcher(environment: @escaping @Sendable () -> [String: String]) -> ComputerUseToolDispatcher {
@@ -435,6 +550,20 @@ final class DecisionAdvisorTests: XCTestCase {
             goal: "   ", environment: [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"]
         )
         XCTAssertTrue(description.contains("goal must not be empty"), description)
+    }
+
+    func testDecideNextActionUsesTheExplicitCallEnvironmentInsteadOfTheInjectedOne() {
+        let dispatcher = makeDispatcher(environment: { [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"] })
+        XCTAssertThrowsError(
+            try dispatcher.callTool(
+                name: "decide_next_action", arguments: ["app": "NoSuchApp-decision-test", "goal": "click something"],
+                environment: [:]
+            )
+        ) { error in
+            let description = (error as? ComputerUseError)?.errorDescription ?? ""
+            XCTAssertTrue(description.contains("decide_next_action is disabled"), description)
+            XCTAssertFalse(description.contains("appNotFound"), description)
+        }
     }
 
     func testDecideNextActionReachesAppResolutionWithAValidLoopbackURLAndNonEmptyGoal() {
@@ -499,5 +628,32 @@ private final class ScriptedTransport: DecisionModelTransport, @unchecked Sendab
         lock.lock()
         defer { lock.unlock() }
         return recorded
+    }
+}
+
+/// Answers every call with the same payload after `delay`, and records whether each call ran on the main thread.
+private final class SlowTransport: DecisionModelTransport, @unchecked Sendable {
+    private let delay: TimeInterval
+    private let payload: Data
+    private let lock = NSLock()
+    private var mainThreadFlags: [Bool] = []
+
+    init(delay: TimeInterval, payload: Data) {
+        self.delay = delay
+        self.payload = payload
+    }
+
+    func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data {
+        lock.lock()
+        mainThreadFlags.append(Thread.isMainThread)
+        lock.unlock()
+        Thread.sleep(forTimeInterval: delay)
+        return payload
+    }
+
+    var calledOnMainThread: [Bool] {
+        lock.lock()
+        defer { lock.unlock() }
+        return mainThreadFlags
     }
 }

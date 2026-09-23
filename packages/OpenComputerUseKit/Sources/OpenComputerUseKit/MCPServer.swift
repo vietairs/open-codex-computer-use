@@ -54,7 +54,22 @@ public final class StdioMCPServer {
         }
     }
 
-    public func handle(line: String) -> String? {
+    /// True when `line` is a request whose whole configuration comes from the environment dictionary passed to
+    /// `handle(line:environment:)`: today only `tools/call` for `decide_next_action`. Such a request blocks on the
+    /// model for seconds, so the app agent runs it without taking its process-wide environment-override lock.
+    public static func readsOnlyCallEnvironment(line: String) -> Bool {
+        guard let payload = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              payload["method"] as? String == "tools/call",
+              let params = payload["params"] as? [String: Any]
+        else { return false }
+        return params["name"] as? String == ToolDefinitions.decideNextAction.name
+    }
+
+    /// `environment`, when given, is the calling host's per-call environment: it decides whether the advisory tool is
+    /// listed, whether `initialize` carries the cascade guide, and where `decide_next_action` sends its request. When
+    /// nil, the injected environment closure is read instead.
+    public func handle(line: String, environment callEnvironment: [String: String]? = nil) -> String? {
+        let environment = { callEnvironment ?? self.environment() }
         do {
             guard let payload = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
                 return try encodeJSONRPCError(id: nil, code: -32700, message: "Invalid JSON-RPC payload")
@@ -104,7 +119,7 @@ public final class StdioMCPServer {
             case "tools/call":
                 let name = params["name"] as? String ?? ""
                 let arguments = params["arguments"] as? [String: Any] ?? [:]
-                let result = try dispatcher.callTool(name: name, arguments: arguments)
+                let result = try dispatcher.callTool(name: name, arguments: arguments, environment: callEnvironment)
                 return try encodeJSONRPCResult(
                     id: id,
                     result: result.asDictionary
