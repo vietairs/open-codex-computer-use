@@ -9,6 +9,13 @@ import Foundation
 // Time bound: `overallDeadline` is checked before every model call, and each call is bounded by the client's request
 // timeout (5 s by default), so one decision holds its caller for at most ~17 s.
 
+/// One blocking two-head readout per candidate page, whichever decision-model backend answers it. Both
+/// `DecisionModelClient` (loopback llama-server) and `DecisionJevClient` (remote jev engine) conform, so
+/// `DecisionAdvisor.advise` stays unchanged in logic regardless of which one it is given.
+public protocol DecisionReadoutProviding: Sendable {
+    func readout(goal: String, appName: String, page: DecisionCandidatePage) throws -> DecisionHeadReadout
+}
+
 public enum DecisionAdvisorError: Error, Equatable, LocalizedError {
     /// The endpoint environment key is absent.
     case disabled
@@ -21,7 +28,9 @@ public enum DecisionAdvisorError: Error, Equatable, LocalizedError {
         switch self {
         case .disabled:
             return "decide_next_action is disabled: set \(DecisionModelEndpoint.environmentKey) to a loopback "
-                + "llama-server URL such as http://127.0.0.1:<port> (start one with scripts/decision-model/start-sidecar.sh)."
+                + "llama-server URL such as http://127.0.0.1:<port> (start one with scripts/decision-model/start-sidecar.sh), "
+                + "or set \(DecisionBackendSelection.environmentKey)=remote with a configured "
+                + "~/Library/Application Support/OpenComputerUse/decision-model/remote-backend.json."
         case .emptyGoal:
             return "goal must not be empty"
         case .noCandidates:
@@ -58,7 +67,8 @@ public enum DecisionAdvisor {
         appName: String,
         renderedFull: String,
         renderedCompact: String,
-        client: DecisionModelClient,
+        client: DecisionReadoutProviding,
+        pageSize: Int = DecisionCandidateBuilder.pageSize,
         maxPages: Int = DecisionCandidateBuilder.defaultMaxPages,
         now: () -> Date = Date.init
     ) throws -> DecisionAdvice {
@@ -67,7 +77,8 @@ public enum DecisionAdvisor {
         let start = now()
 
         let set = DecisionCandidateBuilder.build(
-            goal: trimmedGoal, renderedFull: renderedFull, renderedCompact: renderedCompact, maxPages: maxPages
+            goal: trimmedGoal, renderedFull: renderedFull, renderedCompact: renderedCompact,
+            pageSize: pageSize, maxPages: maxPages
         )
         guard !set.offeredIndices.isEmpty else { throw DecisionAdvisorError.noCandidates }
 

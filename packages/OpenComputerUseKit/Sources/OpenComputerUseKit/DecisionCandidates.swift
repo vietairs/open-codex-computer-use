@@ -188,14 +188,18 @@ public enum DecisionCandidateBuilder {
 
     // MARK: - Build
 
-    /// Parses, prunes, ranks, and pages the candidates. Deterministic for identical inputs.
+    /// Parses, prunes, ranks, and pages the candidates. Deterministic for identical inputs. `pageSize` defaults to
+    /// 52 (today's loopback llama behaviour); the remote jev backend passes 26, its target-head label cap. Label
+    /// prefix logic is otherwise unchanged: each page's labels are `labelAlphabet.prefix(page.count)`.
     public static func build(
         goal: String,
         renderedFull: String,
         renderedCompact: String,
+        pageSize: Int = Self.pageSize,
         maxPages: Int = defaultMaxPages
     ) -> DecisionCandidateSet {
         precondition(maxPages >= 1, "maxPages must be at least 1")
+        precondition((1...labelAlphabet.count).contains(pageSize), "pageSize must be between 1 and \(labelAlphabet.count)")
         let candidates = parseCompactRows(renderedCompact)
         let goalSet = goalTokens(goal)
         let rowTokens = candidates.map { goalTokens($0.rowText) }

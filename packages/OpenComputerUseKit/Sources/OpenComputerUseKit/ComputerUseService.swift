@@ -8,6 +8,13 @@ struct VisualCursorTarget: Equatable {
     let window: CursorTargetWindow?
 }
 
+/// The validated, backend-specific destination for one `decideNextAction` call: the endpoint/config only, not yet
+/// the `DecisionReadoutProviding` instance, so the deadline can be captured just before the model calls start.
+private enum ValidatedDecisionBackend {
+    case llama(DecisionModelEndpoint)
+    case remote(DecisionRemoteBackendConfig)
+}
+
 public enum ClickMethod: String, CaseIterable, Sendable {
     case auto
     case accessibility
@@ -471,26 +478,54 @@ public final class ComputerUseService {
         )
     }
 
-    /// Read-only advice from the local decision model. The endpoint and goal are validated before any AX read or
-    /// network call; the snapshot goes through `refreshSnapshot`, so the returned element_index is resolvable later.
-    /// The listener is verified to be the recorded sidecar immediately before the first request, so no goal or screen
-    /// text is sent to a process that merely holds the port.
+    /// Read-only advice from a decision model: the loopback llama sidecar by default, or the remote jev backend when
+    /// `OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote` (see `DecisionBackendSelection`). The backend, endpoint/
+    /// config, and goal are all validated before any AX read or network call; the snapshot goes through
+    /// `refreshSnapshot`, so the returned element_index is resolvable later. For the llama backend the listener is
+    /// verified to be the recorded sidecar immediately before the first request, so no goal or screen text is sent to
+    /// a process that merely holds the port; the remote backend has no equivalent squatting risk (its destination
+    /// comes only from the trusted config file), so it skips that check.
     public func decideNextAction(
         app query: String,
         goal: String,
         environment: [String: String],
         transport: DecisionModelTransport = URLSessionDecisionModelTransport(),
-        sidecarVerifier: DecisionSidecarVerifier = DecisionSidecarVerifier()
+        sidecarVerifier: DecisionSidecarVerifier = DecisionSidecarVerifier(),
+        remoteBackendConfigURL: URL = DecisionRemoteBackendConfigLoader.defaultConfigFileURL
     ) throws -> ToolCallResult {
-        let endpoint: DecisionModelEndpoint
+        let backend: DecisionBackendSelection
         do {
-            guard let configured = try DecisionModelEndpoint.fromEnvironment(environment) else {
-                throw ComputerUseError.stateUnavailable(DecisionAdvisorError.disabled.errorDescription!)
-            }
-            endpoint = configured
+            backend = try DecisionBackendSelection.resolve(environment: environment)
         } catch let error as DecisionModelError {
-            throw ComputerUseError.invalidArguments("\(DecisionModelEndpoint.environmentKey): \(error.errorDescription!)")
+            throw ComputerUseError.invalidArguments(error.errorDescription!)
         }
+
+        // Only the validated endpoint/config is captured here; the provider itself (and, for the remote backend,
+        // its deadline) is built just before `advise` starts, so the deadline is captured as close as possible to
+        // when it is actually spent (see the `deadline` comment below).
+        let validated: ValidatedDecisionBackend
+        switch backend {
+        case .llama:
+            let endpoint: DecisionModelEndpoint
+            do {
+                guard let configured = try DecisionModelEndpoint.fromEnvironment(environment) else {
+                    throw ComputerUseError.stateUnavailable(DecisionAdvisorError.disabled.errorDescription!)
+                }
+                endpoint = configured
+            } catch let error as DecisionModelError {
+                throw ComputerUseError.invalidArguments("\(DecisionModelEndpoint.environmentKey): \(error.errorDescription!)")
+            }
+            validated = .llama(endpoint)
+        case .remote:
+            let config: DecisionRemoteBackendConfig
+            do {
+                config = try DecisionRemoteBackendConfigLoader.load(from: remoteBackendConfigURL)
+            } catch let error as DecisionModelError {
+                throw ComputerUseError.invalidArguments(error.errorDescription!)
+            }
+            validated = .remote(config)
+        }
+
         guard !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ComputerUseError.invalidArguments("goal must not be empty")
         }
@@ -499,12 +534,36 @@ public final class ComputerUseService {
         let appName = snapshot.app.name
         let renderedFull = snapshot.renderedText(style: .fullState)
         let renderedCompact = snapshot.renderedText(style: .compactActionable)
-        let client = DecisionModelClient(endpoint: endpoint, transport: transport)
+
+        // Captured now, right before the model calls actually start, so the remote backend's letter resolution
+        // (up to 27 /tokenize requests) and every /v1/completions request are bounded by the same overall budget
+        // `DecisionAdvisor` uses to bound the loopback backend's readouts.
+        let deadline = Date().addingTimeInterval(DecisionAdvisor.overallDeadline)
+        let provider: DecisionReadoutProviding
+        let pageSize: Int
+        let maxPages: Int
+        let sidecarPortToVerify: Int?
+        switch validated {
+        case .llama(let endpoint):
+            provider = DecisionModelClient(endpoint: endpoint, transport: transport)
+            pageSize = DecisionCandidateBuilder.pageSize
+            maxPages = DecisionCandidateBuilder.defaultMaxPages
+            sidecarPortToVerify = endpoint.port
+        case .remote(let config):
+            provider = DecisionJevClient(config: config, transport: transport, deadline: deadline)
+            pageSize = DecisionJevClient.pageSize
+            maxPages = DecisionJevClient.maxPages
+            sidecarPortToVerify = nil
+        }
+
         do {
-            try sidecarVerifier.verify(port: endpoint.port)
+            if let port = sidecarPortToVerify {
+                try sidecarVerifier.verify(port: port)
+            }
             let advice = try DecisionAdvisor.runOffMainThread {
                 try DecisionAdvisor.advise(
-                    goal: goal, appName: appName, renderedFull: renderedFull, renderedCompact: renderedCompact, client: client
+                    goal: goal, appName: appName, renderedFull: renderedFull, renderedCompact: renderedCompact,
+                    client: provider, pageSize: pageSize, maxPages: maxPages
                 )
             }
             return .text(try advice.resultJSON(recommendedMinMargin: DecisionAdvisor.recommendedMinMargin))

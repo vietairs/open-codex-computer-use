@@ -322,6 +322,39 @@ final class DecisionAdvisorTests: XCTestCase {
         }
     }
 
+    /// The remote jev backend passes pageSize 26 (its target-head label cap), not the default 52. 30 candidates then
+    /// span 2 pages (26 + 4), which still triggers the stage-2 combine.
+    func testAdviseWithPageSize26And30CandidatesProducesTwoPagesPlusStageTwo() throws {
+        let rows = (1...30).map { (index: $0, text: "button Item \($0)") }
+        let goal = "reorganize the layout"
+
+        let page0Payload = makeCompletion(op: ["A": -0.1], target: ["J": -0.05, "A": -4])
+        let page1Payload = makeCompletion(op: ["A": -0.1], target: ["B": -0.05, "A": -4])
+        let stage2Payload = makeCompletion(op: ["B": -0.05, "A": -3], target: ["A": -0.02, "B": -1.5])
+
+        let transport = ScriptedTransport(rawPayloads: [page0Payload, page1Payload, stage2Payload])
+        let client = DecisionModelClient(endpoint: Self.loopbackEndpoint(), transport: transport)
+
+        let advice = try DecisionAdvisor.advise(
+            goal: goal, appName: "DecisionTestApp",
+            renderedFull: Self.minimalRenderedFull,
+            renderedCompact: Self.compactActionableText(rows: rows),
+            client: client, pageSize: 26, maxPages: 2
+        )
+
+        XCTAssertEqual(advice.pagesQueried, 3, "2 page calls (26 + 4 candidates) + 1 stage-2 call")
+        XCTAssertEqual(transport.requests.count, 3)
+        XCTAssertEqual(advice.targetDistribution.count, 30)
+        XCTAssertEqual(advice.targetDistribution.reduce(0) { $0 + $1.probability }, 1, accuracy: 1e-6)
+
+        let page0Body = try XCTUnwrap(JSONSerialization.jsonObject(with: transport.requests[0].body) as? [String: Any])
+        let page0Grammar = try XCTUnwrap(page0Body["grammar"] as? String)
+        XCTAssertEqual(page0Grammar, DecisionPromptBuilder.grammar(targetLabels: Array(DecisionCandidateBuilder.labelAlphabet.prefix(26))))
+        let page1Body = try XCTUnwrap(JSONSerialization.jsonObject(with: transport.requests[1].body) as? [String: Any])
+        let page1Grammar = try XCTUnwrap(page1Body["grammar"] as? String)
+        XCTAssertEqual(page1Grammar, DecisionPromptBuilder.grammar(targetLabels: Array(DecisionCandidateBuilder.labelAlphabet.prefix(4))))
+    }
+
     // MARK: - DecisionAdvice.resultJSON
 
     func testResultJSONHasExactlyTheFourteenSignatureKeysAndOmitsZeroDroppedCounts() throws {
@@ -632,7 +665,9 @@ private final class ScriptedTransport: DecisionModelTransport, @unchecked Sendab
         payloads = rawPayloads
     }
 
-    func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data {
+    func postJSON(
+        to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int, headers: [String: String]
+    ) throws -> Data {
         lock.lock()
         defer { lock.unlock() }
         recorded.append((url, body))
@@ -661,7 +696,9 @@ private final class SlowTransport: DecisionModelTransport, @unchecked Sendable {
         self.payload = payload
     }
 
-    func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data {
+    func postJSON(
+        to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int, headers: [String: String]
+    ) throws -> Data {
         lock.lock()
         mainThreadFlags.append(Thread.isMainThread)
         lock.unlock()

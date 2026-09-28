@@ -2,14 +2,25 @@ import Foundation
 
 // Minimal blocking HTTP transport for the decision-model sidecar.
 //
-// This code runs inside the TCC-privileged app agent, so it is deliberately narrow: loopback http only, proxies
-// disabled, no cookies or cache, redirects refused, response size capped, and one ephemeral session per call so no
-// connection or credential state outlives a request. Callers block on a semaphore, which is safe because MCP handlers
-// run on per-connection background threads and the session delegate runs on its own private serial queue; calling
-// from the main thread is refused rather than risking a deadlock of the UI run loop.
+// This code runs inside the TCC-privileged app agent, so it is deliberately narrow: loopback http (the llama
+// sidecar) or https to any host with the system's default TLS trust (the remote jev backend) — never plain http to a
+// non-loopback host, and never a custom TLS challenge handler — proxies disabled, no cookies or cache, redirects
+// refused, response size capped, and one ephemeral session per call so no connection or credential state outlives a
+// request. Callers block on a semaphore, which is safe because MCP handlers run on per-connection background threads
+// and the session delegate runs on its own private serial queue; calling from the main thread is refused rather than
+// risking a deadlock of the UI run loop.
 
 public protocol DecisionModelTransport: Sendable {
-    func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data
+    func postJSON(
+        to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int, headers: [String: String]
+    ) throws -> Data
+}
+
+public extension DecisionModelTransport {
+    /// Convenience for the loopback llama sidecar path, which sends no extra headers.
+    func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data {
+        try postJSON(to: url, body: body, timeout: timeout, maxResponseBytes: maxResponseBytes, headers: [:])
+    }
 }
 
 /// One ephemeral URLSession per call; proxies disabled; no cookies/cache; redirects refused;
@@ -27,7 +38,9 @@ public final class URLSessionDecisionModelTransport: DecisionModelTransport, @un
         self.protocolClasses = protocolClasses
     }
 
-    public func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data {
+    public func postJSON(
+        to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int, headers: [String: String]
+    ) throws -> Data {
         guard !Thread.isMainThread else {
             throw DecisionModelError.transport("postJSON must not be called on the main thread")
         }
@@ -35,11 +48,19 @@ public final class URLSessionDecisionModelTransport: DecisionModelTransport, @un
             throw DecisionModelError.transport("timeout and maxResponseBytes must be positive")
         }
         // Defence in depth: the endpoint is validated at the environment boundary, but this is a public entry point.
-        guard url.scheme?.lowercased() == "http" else {
+        // http is accepted only for the literal loopback host (the llama sidecar); https is accepted for any host
+        // with the system's default TLS trust — no custom challenge handling, no way to disable certificate checks.
+        switch url.scheme?.lowercased() {
+        case "http":
+            guard let host = url.host, DecisionModelEndpoint.canonicalLoopbackHost(host) != nil else {
+                throw DecisionModelError.nonLoopbackHost(url.host ?? "")
+            }
+        case "https":
+            guard let host = url.host, !host.isEmpty else {
+                throw DecisionModelError.malformedURL(url.absoluteString)
+            }
+        default:
             throw DecisionModelError.unsupportedScheme(url.scheme ?? "")
-        }
-        guard let host = url.host, DecisionModelEndpoint.canonicalLoopbackHost(host) != nil else {
-            throw DecisionModelError.nonLoopbackHost(url.host ?? "")
         }
 
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData, timeoutInterval: timeout)
@@ -48,6 +69,9 @@ public final class URLSessionDecisionModelTransport: DecisionModelTransport, @un
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.httpShouldHandleCookies = false
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
 
         let delegateQueue = OperationQueue()
         delegateQueue.maxConcurrentOperationCount = 1

@@ -288,6 +288,61 @@ final class DecisionModelClientTests: XCTestCase {
     // MARK: - URLSessionDecisionModelTransport — URLProtocol stub
 
     private static let stubCompletionURL = URL(string: "http://127.0.0.1:39501/completion")!
+    private static let stubHTTPSURL = URL(string: "https://jev.example.com/v1/completions")!
+
+    /// The remote jev backend: https to any host, with the bearer header attached, and default TLS trust (no custom
+    /// challenge handling exists anywhere in the transport to disable).
+    func testPostJSONAcceptsHTTPSToAnyHostAndSendsTheBearerHeader() throws {
+        StubURLProtocol.configure(.init())
+        let transport = URLSessionDecisionModelTransport(protocolClasses: [StubURLProtocol.self])
+
+        _ = try offMain {
+            try transport.postJSON(
+                to: Self.stubHTTPSURL, body: Data("{}".utf8), timeout: 2, maxResponseBytes: 1024,
+                headers: ["Authorization": "Bearer sk-jev-canary"]
+            )
+        }
+
+        let recorded = try XCTUnwrap(StubURLProtocol.recordedRequests().last)
+        XCTAssertEqual(recorded.value(forHTTPHeaderField: "Authorization"), "Bearer sk-jev-canary")
+    }
+
+    /// Plain http is accepted only for the literal loopback host; a non-loopback host over http (not https) is
+    /// refused before any request is sent, exactly like the llama-server path.
+    func testPostJSONRefusesPlainHTTPToANonLoopbackHost() throws {
+        StubURLProtocol.configure(.init())
+        let transport = URLSessionDecisionModelTransport(protocolClasses: [StubURLProtocol.self])
+        let url = URL(string: "http://jev.example.com/v1/completions")!
+
+        XCTAssertThrowsError(
+            try offMain {
+                try transport.postJSON(to: url, body: Data("{}".utf8), timeout: 2, maxResponseBytes: 1024, headers: [:])
+            }
+        ) { error in
+            guard case .nonLoopbackHost = error as? DecisionModelError else {
+                return XCTFail("expected .nonLoopbackHost, got \(error)")
+            }
+        }
+        XCTAssertTrue(StubURLProtocol.recordedRequests().isEmpty)
+    }
+
+    /// A redirect is refused over https exactly as it is over the loopback http path.
+    func testPostJSONRefusesRedirectOverHTTPS() throws {
+        let redirectTarget = URL(string: "https://attacker.example.com/steal")!
+        StubURLProtocol.configure(.init(redirectTo: redirectTarget))
+        let transport = URLSessionDecisionModelTransport(protocolClasses: [StubURLProtocol.self])
+
+        XCTAssertThrowsError(
+            try offMain {
+                try transport.postJSON(
+                    to: Self.stubHTTPSURL, body: Data("{}".utf8), timeout: 2, maxResponseBytes: 1024, headers: [:]
+                )
+            }
+        ) { error in
+            XCTAssertEqual(error as? DecisionModelError, .redirectRefused)
+        }
+        XCTAssertTrue(StubURLProtocol.recordedRequests().allSatisfy { $0.url != redirectTarget })
+    }
 
     func testPostJSONRefusesRedirectAndRecordsNoRequestToTheRedirectTarget() throws {
         let redirectTarget = URL(string: "http://127.0.0.1:39999/redirected")!
@@ -437,7 +492,9 @@ private final class StubTransport: DecisionModelTransport, @unchecked Sendable {
 
     init(responseData: Data) { self.responseData = responseData }
 
-    func postJSON(to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int) throws -> Data {
+    func postJSON(
+        to url: URL, body: Data, timeout: TimeInterval, maxResponseBytes: Int, headers: [String: String]
+    ) throws -> Data {
         lock.lock()
         recorded.append((url, body))
         lock.unlock()
