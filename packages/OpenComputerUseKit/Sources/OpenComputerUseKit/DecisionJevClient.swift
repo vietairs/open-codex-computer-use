@@ -22,6 +22,14 @@ import Foundation
 enum DecisionJevReadoutParser {
     private static let argmaxTolerance = 1e-9
 
+    /// The two failure messages that mean the cached letter-to-token map no longer matches this server's tokenizer
+    /// (for example a tokenizer redeploy under the same `(base_url, model)`), rather than a one-off malformed
+    /// response — `DecisionJevClient.completeAndParse` evicts the letter cache when it sees either of these, so the
+    /// next call re-resolves instead of failing the same way for the life of the process.
+    static let staleLetterCacheMessages: Set<String> = [
+        "offered label missing from top_logprobs", "generated text is not an offered label",
+    ]
+
     static func parse(
         completionResponse: Data, labels: [String], letterMap: [String: DecisionJevLetterResolver.ResolvedLetter]
     ) throws -> DecisionDistribution {
@@ -153,6 +161,17 @@ public final class DecisionJevClient: DecisionReadoutProviding, Sendable {
             to: config.completionsURL, body: data, timeout: min(Self.requestTimeout, remaining),
             maxResponseBytes: Self.maxResponseBytes, headers: ["Authorization": "Bearer \(config.apiKey)"]
         )
-        return try DecisionJevReadoutParser.parse(completionResponse: response, labels: labels, letterMap: letterMap)
+        do {
+            return try DecisionJevReadoutParser.parse(completionResponse: response, labels: labels, letterMap: letterMap)
+        } catch let error as DecisionModelError {
+            // A response that fails to parse in one of these specific ways looks like the cached letters no longer
+            // match this server's tokenizer (see `DecisionJevReadoutParser.staleLetterCacheMessages`), not a
+            // one-off bad response — evict so the next call re-resolves instead of repeating the same failure for
+            // the life of the process.
+            if case .readout(let message) = error, DecisionJevReadoutParser.staleLetterCacheMessages.contains(message) {
+                resolver.invalidateCache()
+            }
+            throw error
+        }
     }
 }

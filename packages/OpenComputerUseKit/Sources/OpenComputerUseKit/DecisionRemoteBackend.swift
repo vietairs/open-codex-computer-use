@@ -128,10 +128,18 @@ public enum DecisionRemoteBackendConfigLoader {
     private static func readValidated(path: String) throws -> Data {
         let fd = path.withCString { open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) }
         guard fd >= 0 else {
-            if errno == ELOOP {
+            // Distinguish "nothing there" from every other `open` failure (permission denied, too many open files,
+            // a path component that is not a directory, …), so an error message never claims a config file is
+            // simply missing when the real cause was something else. `strerror` text is a fixed, safe libc string —
+            // never file contents or a config value.
+            switch errno {
+            case ELOOP:
                 throw DecisionModelError.remoteConfig("\(path) must be a regular file, not a symlink")
+            case ENOENT:
+                throw DecisionModelError.remoteConfig("no remote-backend config file at \(path)")
+            default:
+                throw DecisionModelError.remoteConfig("\(path) could not be opened (\(String(cString: strerror(errno))))")
             }
-            throw DecisionModelError.remoteConfig("no remote-backend config file at \(path)")
         }
         defer { close(fd) }
 
@@ -139,10 +147,10 @@ public enum DecisionRemoteBackendConfigLoader {
         guard fstat(fd, &status) == 0 else {
             throw DecisionModelError.remoteConfig("\(path) could not be inspected")
         }
-        // A symlink cannot reach here (O_NOFOLLOW above), but a FIFO, device, or other non-regular file opened
-        // without blocking still can; refuse anything that is not a plain regular file before ever reading it.
+        // A symlink cannot reach here (O_NOFOLLOW above); this refuses a FIFO, device, directory, or any other
+        // non-regular file opened without blocking, before ever reading it.
         guard status.st_mode & S_IFMT == S_IFREG else {
-            throw DecisionModelError.remoteConfig("\(path) must be a regular file, not a symlink")
+            throw DecisionModelError.remoteConfig("\(path) must be a regular file")
         }
         guard status.st_uid == getuid() else {
             throw DecisionModelError.remoteConfig("\(path) must be owned by the current user")

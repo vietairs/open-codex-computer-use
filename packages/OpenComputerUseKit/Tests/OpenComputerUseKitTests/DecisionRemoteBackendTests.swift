@@ -170,6 +170,35 @@ final class DecisionRemoteBackendTests: XCTestCase {
         try assertLoadThrowsRemoteConfig("symlink")
     }
 
+    /// A directory at the config path opens successfully (unlike a missing path or a symlink) but must still be
+    /// refused once `fstat` shows it is not a regular file — with a message that does not misname it a symlink.
+    func testLoadRejectsADirectoryAtTheConfigPath() throws {
+        try FileManager.default.createDirectory(at: configFile, withIntermediateDirectories: true)
+        try assertLoadThrowsRemoteConfig("must be a regular file")
+        XCTAssertThrowsError(try DecisionRemoteBackendConfigLoader.load(from: configFile)) { error in
+            guard case let .remoteConfig(message) = error as? DecisionModelError else {
+                return XCTFail("expected .remoteConfig, got \(error)")
+            }
+            XCTAssertFalse(message.contains("symlink"), message)
+        }
+    }
+
+    /// An `open` failure other than "no such file" (here, a non-directory path component) must not be reported as
+    /// though the config file were simply absent.
+    func testLoadRejectsAConfigPathWithANonDirectoryPathComponent() throws {
+        let blocker = directory.appendingPathComponent("not-a-directory")
+        try Data().write(to: blocker)
+        let path = blocker.appendingPathComponent("remote-backend.json")
+
+        XCTAssertThrowsError(try DecisionRemoteBackendConfigLoader.load(from: path)) { error in
+            guard case let .remoteConfig(message) = error as? DecisionModelError else {
+                return XCTFail("expected .remoteConfig, got \(error)")
+            }
+            XCTAssertTrue(message.contains("could not be opened"), message)
+            XCTAssertFalse(message.contains("no remote-backend config file"), message)
+        }
+    }
+
     func testLoadRejectsAnOversizeFile() throws {
         let oversized = String(repeating: "x", count: 17 * 1024)
         try oversized.write(to: configFile, atomically: true, encoding: .utf8)

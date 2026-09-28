@@ -38,10 +38,12 @@
   accepts `https` to any host with the system's default TLS trust (no custom challenge handling anywhere) alongside
   the unchanged loopback-only `http` path.
 - **Wiring**: `ComputerUseService.decideNextAction` branches on the resolved backend before any AX read; `remote`
-  skips the sidecar-squatting verifier (no equivalent risk — the destination is trust-file-only) and reports
-  `.stateUnavailable`/`.invalidArguments` the same way `llama` does. `ToolDefinitions.listed(environment:)` now also
-  lists the tool when the backend resolves to `.remote`, checking the config file only at call time, never at
-  listing time.
+  skips the sidecar-squatting verifier (no equivalent risk — the destination is trust-file-only). Error mapping
+  differs by backend: every remote config/file failure maps to `.invalidArguments`, while `llama`'s absent-endpoint
+  case maps to `.stateUnavailable` and its malformed-endpoint case maps to `.invalidArguments` — remote has no
+  "absent" case distinct from "invalid", since the config file's mere absence is itself an invalid-arguments error.
+  `ToolDefinitions.listed(environment:)` now also lists the tool when the backend resolves to `.remote`, checking the
+  config file only at call time, never at listing time.
 
 ### 🧠 Design Intent (Why)
 Keep the trust boundary that already protects the loopback sidecar (destination from a private file outside every

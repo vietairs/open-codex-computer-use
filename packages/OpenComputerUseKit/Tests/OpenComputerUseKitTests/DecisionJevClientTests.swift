@@ -358,7 +358,7 @@ final class DecisionJevClientTests: XCTestCase {
         }
     }
 
-    /// H2: the production path (`ComputerUseService`) wires `pageSize: DecisionJevClient.pageSize` (26) and
+    /// The production path (`ComputerUseService`) wires `pageSize: DecisionJevClient.pageSize` (26) and
     /// `maxPages: DecisionJevClient.maxPages` (2) into `DecisionAdvisor.advise`, so 30 real candidates must span 2
     /// pages (26 + 4) plus a stage-2 call — driven here through `DecisionJevClient` itself, not the loopback client,
     /// so this exercises the actual production jev code path end to end.
@@ -402,7 +402,57 @@ final class DecisionJevClientTests: XCTestCase {
         XCTAssertEqual(transport.tokenizeCalls, 27)
     }
 
-    // MARK: - Config redaction (fix 8): apiKey must never appear in any textual/reflective representation
+    // MARK: - Stale letter cache eviction
+
+    /// A completion whose generated text is not an offered label looks like the cached letter map no longer
+    /// matches this server's tokenizer (for example a redeploy under the same model name), not a one-off bad
+    /// response. The client must evict the process-wide cache entry for this (base_url, model) so the very next
+    /// call re-resolves from scratch, instead of failing the same way for the life of the process.
+    func testAFailureThatLooksLikeAStaleLetterMapEvictsTheCacheSoTheNextCallReResolves() throws {
+        let transport = FakeJevTransport(tokenizer: wellBehavedTokenizer)
+        let client = DecisionJevClient(config: makeConfig(), transport: transport, deadline: Self.farFutureDeadline)
+        let page = DecisionCandidatePage(
+            labels: ["A"], candidates: [DecisionCandidate(elementIndex: 1, rowText: "button Save", isFocused: false)]
+        )
+        let operationLabels = DecisionOperation.allCases.map(\.label)
+
+        // First call: the operation head's generated text ("Z") is not one of the 7 offered operation letters.
+        transport.enqueueCompletion(makeJevResponse(text: " Z", topLogprobs: fullTopLogprobs(labels: operationLabels, chosen: "A")))
+        XCTAssertThrowsError(try client.readout(goal: "x", appName: "y", page: page))
+        XCTAssertEqual(transport.tokenizeCalls, 27, "the first call resolves letters once")
+
+        // Second call succeeds cleanly. If the cache was evicted, the resolver must re-tokenize from scratch.
+        transport.enqueueCompletion(makeJevResponse(text: " A", topLogprobs: fullTopLogprobs(labels: operationLabels, chosen: "A")))
+        transport.enqueueCompletion(makeJevResponse(text: " A", topLogprobs: fullTopLogprobs(labels: ["A"], chosen: "A")))
+        _ = try client.readout(goal: "x", appName: "y", page: page)
+
+        XCTAssertEqual(transport.tokenizeCalls, 54, "eviction forces the second call to re-resolve from scratch")
+    }
+
+    /// A completion failure unrelated to the letter map (an unparseable response) must not evict the cache: only
+    /// the two specific messages in `DecisionJevReadoutParser.staleLetterCacheMessages` do.
+    func testAnUnrelatedCompletionFailureDoesNotEvictTheLetterCache() throws {
+        let transport = FakeJevTransport(tokenizer: wellBehavedTokenizer)
+        let client = DecisionJevClient(config: makeConfig(), transport: transport, deadline: Self.farFutureDeadline)
+        let page = DecisionCandidatePage(
+            labels: ["A"], candidates: [DecisionCandidate(elementIndex: 1, rowText: "button Save", isFocused: false)]
+        )
+
+        // A response with no "choices" array at all: readout("expected at least one choice"), not one of the two
+        // stale-cache messages.
+        transport.enqueueCompletion(try! JSONSerialization.data(withJSONObject: ["choices": []]))
+        XCTAssertThrowsError(try client.readout(goal: "x", appName: "y", page: page))
+        XCTAssertEqual(transport.tokenizeCalls, 27)
+
+        let operationLabels = DecisionOperation.allCases.map(\.label)
+        transport.enqueueCompletion(makeJevResponse(text: " A", topLogprobs: fullTopLogprobs(labels: operationLabels, chosen: "A")))
+        transport.enqueueCompletion(makeJevResponse(text: " A", topLogprobs: fullTopLogprobs(labels: ["A"], chosen: "A")))
+        _ = try client.readout(goal: "x", appName: "y", page: page)
+
+        XCTAssertEqual(transport.tokenizeCalls, 27, "the cache must still be warm; no re-tokenize should happen")
+    }
+
+    // MARK: - Config redaction: apiKey must never appear in any textual/reflective representation
 
     func testConfigDescriptionAndReflectionNeverContainTheAPIKey() {
         let canaryKey = "sk-CANARY-DO-NOT-LEAK-1234567890"
@@ -421,7 +471,7 @@ final class DecisionJevClientTests: XCTestCase {
         XCTAssertTrue(described.contains("redacted"), described)
     }
 
-    // MARK: - Prompt shape (fix 5): each candidate appears exactly once per prompt
+    // MARK: - Prompt shape: each candidate appears exactly once per prompt
 
     private static func makePage() -> DecisionCandidatePage {
         DecisionCandidatePage(

@@ -6,7 +6,9 @@ core Computer Use tools.
 ## What it is
 
 `decide_next_action` is an **experimental, macOS-only, read-only** advisory tool. It prunes the current app's
-accessibility tree into an actionable candidate table, runs one or two forward passes on a decision model, and
+accessibility tree into an actionable candidate table, runs the decision model (2 single-token model calls per
+candidate page — one for the operation, one for the target — plus one more pair for a stage-2 call when there is
+more than one page), and
 returns a suggested operation and target element with full probability distributions. It **never acts**: the host
 agent still calls `click`, `set_value`, `scroll`, and the other action tools itself. The tool is **off by default**
 and is not listed by `tools/list` unless a backend is configured (see Setup).
@@ -90,6 +92,14 @@ macOS-only. vm100 (the reference jev deployment) is never touched by open-comput
 The destination, model, and key are read only from that file, never from the per-call environment — see "Security
 notes" for why. The remote backend offers up to 26 target candidates per page (the jev engine's single-token label
 cap), versus 52 for the loopback backend; everything else about the tool's behavior and result shape is identical.
+Each page still costs 2 single-token `/v1/completions` calls (operation, then target), with one more pair for a
+stage-2 call when a goal's candidates span more than one page.
+
+The first call against a given `(base_url, model)` in the process also pays a one-time cost: 27 sequential
+`/tokenize` requests (the fixed sample prompt, then each letter A-Z) to resolve every letter's single token id,
+all inside the same 12 s overall deadline as the rest of the call. Measured Mac→vm100 round-trip time is about
+29 ms, so this comfortably fits on a LAN; over a high-latency link the first call's resolution can run out of
+deadline and fail, and is retried from scratch on the next call.
 
 ## Cascade guide
 

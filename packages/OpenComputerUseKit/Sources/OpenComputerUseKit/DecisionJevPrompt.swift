@@ -46,6 +46,15 @@ final class DecisionJevLetterResolver: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// Evicts this resolver's own `(base_url, model)` cache entry, so the next `resolve()` call re-resolves from
+    /// scratch instead of reusing a letter map a completion response just indicated is stale. Called by
+    /// `DecisionJevClient.completeAndParse` — see `DecisionJevReadoutParser.staleLetterCacheMessages`.
+    func invalidateCache() {
+        Self.lock.lock()
+        Self.cache.removeValue(forKey: cacheKey)
+        Self.lock.unlock()
+    }
+
     /// A cache hit never touches the deadline (no request is made). A failed resolution is deliberately not
     /// cached — a transient or misconfigured server should not poison every later call in the process.
     func resolve() throws -> [String: ResolvedLetter] {
