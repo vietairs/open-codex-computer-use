@@ -161,7 +161,7 @@ public enum ToolDefinitions {
 public extension ToolDefinitions {
     static let decideNextAction = ToolDefinition(
         name: "decide_next_action",
-        description: "Experimental, read-only advisor. A local decision model reads the app's current state and proposes the next operation and target for your sub-goal. Returns operation, element_index, margin and the full operation and target distributions. It never performs an action; you decide whether to act. Available only when OPEN_COMPUTER_USE_DECISION_MODEL_URL is set. This tool is part of plugin `Computer Use`.",
+        description: "Experimental, read-only advisor. A decision model reads the app's current state and proposes the next operation and target for your sub-goal. Returns operation, element_index, margin and the full operation and target distributions. It never performs an action; you decide whether to act. Available only when OPEN_COMPUTER_USE_DECISION_MODEL_URL is set (loopback llama backend) or OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote is set (remote jev backend, configured via a local file). This tool is part of plugin `Computer Use`.",
         annotations: readOnlyAnnotations(),
         inputSchema: objectSchema(
             properties: [
@@ -172,9 +172,13 @@ public extension ToolDefinitions {
         )
     )
 
-    /// all + [decideNextAction] iff DecisionModelEndpoint.fromEnvironment(environment) returns non-nil without throwing.
+    /// all + [decideNextAction] iff DecisionModelEndpoint.fromEnvironment(environment) returns non-nil without
+    /// throwing, OR DecisionBackendSelection.resolve(environment:) resolves to .remote. The remote-backend config
+    /// file itself is checked only at call time, never here, so listing never touches disk.
     static func listed(environment: [String: String]) -> [ToolDefinition] {
-        guard (try? DecisionModelEndpoint.fromEnvironment(environment)) != nil else { return all }
+        let llamaConfigured = (try? DecisionModelEndpoint.fromEnvironment(environment)) != nil
+        let remoteSelected = (try? DecisionBackendSelection.resolve(environment: environment)) == .remote
+        guard llamaConfigured || remoteSelected else { return all }
         return all + [decideNextAction]
     }
 }

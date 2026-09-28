@@ -8,6 +8,16 @@ struct VisualCursorTarget: Equatable {
     let window: CursorTargetWindow?
 }
 
+/// The validated, backend-specific destination for one `decideNextAction` call: the endpoint/config only, not yet
+/// the `DecisionReadoutProviding` instance, so the deadline can be captured just before the model calls start.
+/// Internal (not `private`) so `@testable import` can exercise `ComputerUseService.resolveValidatedDecisionBackend`
+/// / `buildDecisionProvider` directly — the backend-selection and provider-construction seam of `decideNextAction`
+/// — without needing a live AX-resolved app for the snapshot step in between.
+enum ValidatedDecisionBackend {
+    case llama(DecisionModelEndpoint)
+    case remote(DecisionRemoteBackendConfig)
+}
+
 public enum ClickMethod: String, CaseIterable, Sendable {
     case auto
     case accessibility
@@ -471,26 +481,25 @@ public final class ComputerUseService {
         )
     }
 
-    /// Read-only advice from the local decision model. The endpoint and goal are validated before any AX read or
-    /// network call; the snapshot goes through `refreshSnapshot`, so the returned element_index is resolvable later.
-    /// The listener is verified to be the recorded sidecar immediately before the first request, so no goal or screen
-    /// text is sent to a process that merely holds the port.
+    /// Read-only advice from a decision model: the loopback llama sidecar by default, or the remote jev backend when
+    /// `OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote` (see `DecisionBackendSelection`). The backend, endpoint/
+    /// config, and goal are all validated before any AX read or network call; the snapshot goes through
+    /// `refreshSnapshot`, so the returned element_index is resolvable later. For the llama backend the listener is
+    /// verified to be the recorded sidecar immediately before the first request, so no goal or screen text is sent to
+    /// a process that merely holds the port; the remote backend has no equivalent squatting risk (its destination
+    /// comes only from the trusted config file), so it skips that check.
     public func decideNextAction(
         app query: String,
         goal: String,
         environment: [String: String],
         transport: DecisionModelTransport = URLSessionDecisionModelTransport(),
-        sidecarVerifier: DecisionSidecarVerifier = DecisionSidecarVerifier()
+        sidecarVerifier: DecisionSidecarVerifier = DecisionSidecarVerifier(),
+        remoteBackendConfigURL: URL = DecisionRemoteBackendConfigLoader.defaultConfigFileURL
     ) throws -> ToolCallResult {
-        let endpoint: DecisionModelEndpoint
-        do {
-            guard let configured = try DecisionModelEndpoint.fromEnvironment(environment) else {
-                throw ComputerUseError.stateUnavailable(DecisionAdvisorError.disabled.errorDescription!)
-            }
-            endpoint = configured
-        } catch let error as DecisionModelError {
-            throw ComputerUseError.invalidArguments("\(DecisionModelEndpoint.environmentKey): \(error.errorDescription!)")
-        }
+        let validated = try Self.resolveValidatedDecisionBackend(
+            environment: environment, remoteBackendConfigURL: remoteBackendConfigURL
+        )
+
         guard !goal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ComputerUseError.invalidArguments("goal must not be empty")
         }
@@ -499,12 +508,21 @@ public final class ComputerUseService {
         let appName = snapshot.app.name
         let renderedFull = snapshot.renderedText(style: .fullState)
         let renderedCompact = snapshot.renderedText(style: .compactActionable)
-        let client = DecisionModelClient(endpoint: endpoint, transport: transport)
+
+        // Captured now, right before the model calls actually start, so the remote backend's letter resolution
+        // (up to 27 /tokenize requests) and every /v1/completions request are bounded by the same overall budget
+        // `DecisionAdvisor` uses to bound the loopback backend's readouts.
+        let deadline = Date().addingTimeInterval(DecisionAdvisor.overallDeadline)
+        let built = Self.buildDecisionProvider(validated: validated, transport: transport, deadline: deadline)
+
         do {
-            try sidecarVerifier.verify(port: endpoint.port)
+            if let port = built.sidecarPortToVerify {
+                try sidecarVerifier.verify(port: port)
+            }
             let advice = try DecisionAdvisor.runOffMainThread {
                 try DecisionAdvisor.advise(
-                    goal: goal, appName: appName, renderedFull: renderedFull, renderedCompact: renderedCompact, client: client
+                    goal: goal, appName: appName, renderedFull: renderedFull, renderedCompact: renderedCompact,
+                    client: built.provider, pageSize: built.pageSize, maxPages: built.maxPages
                 )
             }
             return .text(try advice.resultJSON(recommendedMinMargin: DecisionAdvisor.recommendedMinMargin))
@@ -512,6 +530,65 @@ public final class ComputerUseService {
             throw ComputerUseError.message("decide_next_action: \(error.errorDescription!)")
         } catch let error as DecisionModelError {
             throw ComputerUseError.message("decide_next_action: \(error.errorDescription!)")
+        }
+    }
+
+    /// The backend-selection half of `decideNextAction`, factored out so it is independently testable without a
+    /// live AX-resolved app: resolves `environment` to a backend, then validates that backend's endpoint (`llama`)
+    /// or loads and validates its config file (`remote`). Every failure maps to the same `ComputerUseError` case
+    /// `decideNextAction` has always thrown for it — a missing/invalid endpoint or config file becomes
+    /// `.invalidArguments`, an absent `llama` endpoint becomes `.stateUnavailable`.
+    static func resolveValidatedDecisionBackend(
+        environment: [String: String], remoteBackendConfigURL: URL
+    ) throws -> ValidatedDecisionBackend {
+        let backend: DecisionBackendSelection
+        do {
+            backend = try DecisionBackendSelection.resolve(environment: environment)
+        } catch let error as DecisionModelError {
+            throw ComputerUseError.invalidArguments(error.errorDescription!)
+        }
+
+        switch backend {
+        case .llama:
+            let endpoint: DecisionModelEndpoint
+            do {
+                guard let configured = try DecisionModelEndpoint.fromEnvironment(environment) else {
+                    throw ComputerUseError.stateUnavailable(DecisionAdvisorError.disabled.errorDescription!)
+                }
+                endpoint = configured
+            } catch let error as DecisionModelError {
+                throw ComputerUseError.invalidArguments("\(DecisionModelEndpoint.environmentKey): \(error.errorDescription!)")
+            }
+            return .llama(endpoint)
+        case .remote:
+            let config: DecisionRemoteBackendConfig
+            do {
+                config = try DecisionRemoteBackendConfigLoader.load(from: remoteBackendConfigURL)
+            } catch let error as DecisionModelError {
+                throw ComputerUseError.invalidArguments(error.errorDescription!)
+            }
+            return .remote(config)
+        }
+    }
+
+    /// The provider-construction half of `decideNextAction`, factored out so it is independently testable: turns a
+    /// validated backend into the `DecisionReadoutProviding` instance, page size, max pages, and (for `llama` only)
+    /// the sidecar port `decideNextAction` must verify before the first request — `remote` has no equivalent
+    /// squatting risk (its destination comes only from the trusted config file), so it always reports `nil` here.
+    static func buildDecisionProvider(
+        validated: ValidatedDecisionBackend, transport: DecisionModelTransport, deadline: Date
+    ) -> (provider: DecisionReadoutProviding, pageSize: Int, maxPages: Int, sidecarPortToVerify: Int?) {
+        switch validated {
+        case .llama(let endpoint):
+            return (
+                DecisionModelClient(endpoint: endpoint, transport: transport),
+                DecisionCandidateBuilder.pageSize, DecisionCandidateBuilder.defaultMaxPages, endpoint.port
+            )
+        case .remote(let config):
+            return (
+                DecisionJevClient(config: config, transport: transport, deadline: deadline),
+                DecisionJevClient.pageSize, DecisionJevClient.maxPages, nil
+            )
         }
     }
 

@@ -27,8 +27,9 @@ public enum DecisionOperation: String, CaseIterable, Sendable, Codable {
         }
     }
 
-    /// The one-line explanation shown to the model in the prompt's "Operations:" block.
-    fileprivate var promptDescription: String {
+    /// The one-line explanation shown to the model in the prompt's "Operations:" block. Internal (not
+    /// `fileprivate`) because the jev remote backend's prompt builder reuses it too.
+    var promptDescription: String {
         switch self {
         case .click: return "press a button, link, row, tab, checkbox or menu item"
         case .setValue: return "replace the value of a text field or other editable control"

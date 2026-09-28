@@ -15,6 +15,9 @@ public enum DecisionModelError: Error, Equatable, LocalizedError {
     case readout(String)
     /// The loopback listener is not the llama-server that start-sidecar.sh recorded; nothing was sent to it.
     case unverifiedSidecar(String)
+    /// The backend-selection environment key or the remote-backend config file failed validation. The message
+    /// already names the offending file path and field; it never carries a config value (the api_key above all).
+    case remoteConfig(String)
 
     public var errorDescription: String? {
         switch self {
@@ -31,6 +34,7 @@ public enum DecisionModelError: Error, Equatable, LocalizedError {
             return "Decision model listener is not the sidecar recorded by scripts/decision-model/start-sidecar.sh "
                 + "(\(reason)); no goal or screen text was sent. Start the sidecar with start-sidecar.sh, or unset "
                 + "\(DecisionModelEndpoint.environmentKey)."
+        case .remoteConfig(let message): return message
         }
     }
 }
@@ -190,7 +194,7 @@ public enum DecisionReadoutParser {
     }
 }
 
-public struct DecisionModelClient: Sendable {
+public struct DecisionModelClient: DecisionReadoutProviding, Sendable {
     public static let defaultRequestTimeout: TimeInterval = 5
     public static let defaultMaxResponseBytes: Int = 1_048_576
     public static let defaultNProbs: Int = 128
