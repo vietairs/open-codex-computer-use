@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // Single-token letter resolution and ChatML prompt construction for the remote jev engine. The completion request
@@ -27,17 +28,25 @@ final class DecisionJevLetterResolver: @unchecked Sendable {
     /// this resolver makes are bounded by the same overall budget as every other remote request in the call.
     private let deadline: Date
     private let now: @Sendable () -> Date
+    /// Optional on-disk copy of the table, off unless a caller passes one (production wiring only).
+    let diskCache: DecisionJevLetterDiskCache?
 
     init(
         config: DecisionRemoteBackendConfig, transport: DecisionModelTransport, deadline: Date,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init, diskCache: DecisionJevLetterDiskCache? = nil
     ) {
         self.config = config
         self.transport = transport
         cacheKey = "\(config.baseURL.absoluteString)|\(config.model)"
         self.deadline = deadline
         self.now = now
+        self.diskCache = diskCache
     }
+
+    /// Hex sha256 of the sample prompt: a persisted table is only trusted for the template it was resolved with.
+    static var samplePromptSHA256: String { samplePromptDigest }
+    private static let samplePromptDigest: String = SHA256
+        .hash(data: Data(DecisionJevPromptBuilder.samplePrompt.utf8)).map { String(format: "%02x", $0) }.joined()
 
     /// Test seam: clears the process-wide cache so tests do not depend on run order or leak state across cases.
     static func resetCacheForTesting() {
@@ -46,17 +55,20 @@ final class DecisionJevLetterResolver: @unchecked Sendable {
         lock.unlock()
     }
 
-    /// Evicts this resolver's own `(base_url, model)` cache entry, so the next `resolve()` call re-resolves from
-    /// scratch instead of reusing a letter map a completion response just indicated is stale. Called by
+    /// Evicts this resolver's own `(base_url, model)` cache entry, in memory and on disk, so the next `resolve()`
+    /// call re-resolves from scratch instead of reusing a letter map a completion response just indicated is stale.
+    /// Called by
     /// `DecisionJevClient.completeAndParse` — see `DecisionJevReadoutParser.staleLetterCacheMessages`.
     func invalidateCache() {
         Self.lock.lock()
         Self.cache.removeValue(forKey: cacheKey)
         Self.lock.unlock()
+        diskCache?.remove(baseURL: config.baseURL, model: config.model)
     }
 
-    /// A cache hit never touches the deadline (no request is made). A failed resolution is deliberately not
-    /// cached — a transient or misconfigured server should not poison every later call in the process.
+    /// A memory or disk hit never touches the deadline (no request is made). A failed resolution is deliberately not
+    /// cached in memory — a transient or misconfigured server should not poison every later call in the process —
+    /// but the letters it did resolve stay on disk, so the next attempt resumes instead of starting over.
     func resolve() throws -> [String: ResolvedLetter] {
         Self.lock.lock()
         if let cached = Self.cache[cacheKey] {
@@ -65,7 +77,18 @@ final class DecisionJevLetterResolver: @unchecked Sendable {
         }
         Self.lock.unlock()
 
-        let resolved = try resolveLetters()
+        let onDisk = diskCache?.load(
+            baseURL: config.baseURL, model: config.model, samplePromptSHA256: Self.samplePromptSHA256
+        )
+        if let onDisk, onDisk.isComplete {
+            let table = onDisk.letters.mapValues { ResolvedLetter(id: $0.id, tokenStr: $0.tokenStr) }
+            Self.lock.lock()
+            Self.cache[cacheKey] = table
+            Self.lock.unlock()
+            return table
+        }
+
+        let resolved = try resolveLetters(resuming: onDisk)
 
         Self.lock.lock()
         Self.cache[cacheKey] = resolved
@@ -78,27 +101,58 @@ final class DecisionJevLetterResolver: @unchecked Sendable {
     /// its id and `token_str`. Fails closed the moment any letter does not tokenize to exactly one new token, or once
     /// all 26 are resolved, unless every id and every `token_str` is distinct (a degenerate/hostile tokenizer that
     /// maps two letters to the same token would otherwise produce identical, meaningless logprobs for both).
-    private func resolveLetters() throws -> [String: ResolvedLetter] {
+    ///
+    /// The sample prompt is always tokenized afresh. A partial disk entry is resumed only when its base ids equal the
+    /// fresh ones (same tokenizer); otherwise it is removed and resolution starts over. Each newly resolved letter is
+    /// persisted at once (the 26th write is the complete table), so a deadline mid-way costs nothing already learned. A letter check that fails removes the
+    /// entry: a table the tokenizer now contradicts must not be resumed again.
+    private func resolveLetters(resuming partial: DecisionJevLetterDiskCache.Entry?) throws -> [String: ResolvedLetter] {
         let prompt = DecisionJevPromptBuilder.samplePrompt
         let base = try tokenize(prompt: prompt)
         var result: [String: ResolvedLetter] = [:]
-        for letter in Self.letters {
+        if let partial {
+            let resumed = partial.letters.mapValues { ResolvedLetter(id: $0.id, tokenStr: $0.tokenStr) }
+            // Resume only a self-consistent table for the same tokenizer; a collapsed one is discarded, not extended.
+            if partial.baseTokenIDs == base.ids, Set(resumed.values.map(\.id)).count == resumed.count,
+               Set(resumed.values.map(\.tokenStr)).count == resumed.count {
+                result = resumed
+            } else {
+                diskCache?.remove(baseURL: config.baseURL, model: config.model)
+            }
+        }
+        for letter in Self.letters where result[letter] == nil {
             let withLetter = try tokenize(prompt: prompt + letter)
             guard withLetter.ids.count == base.ids.count + 1,
                   Array(withLetter.ids.prefix(base.ids.count)) == base.ids
             else {
+                diskCache?.remove(baseURL: config.baseURL, model: config.model)
                 throw DecisionModelError.readout("letter is not a single token")
             }
             result[letter] = ResolvedLetter(
                 id: withLetter.ids[base.ids.count], tokenStr: withLetter.tokenStrs[base.ids.count]
             )
+            persist(result, baseTokenIDs: base.ids)
         }
         guard Set(result.values.map(\.id)).count == Self.letters.count,
               Set(result.values.map(\.tokenStr)).count == Self.letters.count
         else {
+            diskCache?.remove(baseURL: config.baseURL, model: config.model)
             throw DecisionModelError.readout("letters did not resolve to 26 distinct tokens")
         }
         return result
+    }
+
+    private func persist(_ letters: [String: ResolvedLetter], baseTokenIDs: [Int]) {
+        guard let diskCache else { return }
+        diskCache.store(
+            DecisionJevLetterDiskCache.Entry(
+                version: DecisionJevLetterDiskCache.formatVersion, baseURL: config.baseURL.absoluteString,
+                model: config.model, samplePromptSHA256: Self.samplePromptSHA256, resolvedAt: now(),
+                baseTokenIDs: baseTokenIDs,
+                letters: letters.mapValues { DecisionJevLetterDiskCache.Entry.Letter(id: $0.id, tokenStr: $0.tokenStr) }
+            ),
+            baseURL: config.baseURL, model: config.model
+        )
     }
 
     private func tokenize(prompt: String) throws -> (ids: [Int], tokenStrs: [String]) {

@@ -107,15 +107,25 @@ public final class DecisionJevClient: DecisionReadoutProviding, Sendable {
     private let deadline: Date
     private let now: @Sendable () -> Date
 
-    public init(
+    public convenience init(
         config: DecisionRemoteBackendConfig, transport: DecisionModelTransport, deadline: Date,
         now: @escaping @Sendable () -> Date = Date.init
+    ) {
+        self.init(config: config, transport: transport, deadline: deadline, now: now, diskCache: nil)
+    }
+
+    /// Internal because the disk cache type is: only `ComputerUseService.buildDecisionProvider` passes one.
+    init(
+        config: DecisionRemoteBackendConfig, transport: DecisionModelTransport, deadline: Date,
+        now: @escaping @Sendable () -> Date, diskCache: DecisionJevLetterDiskCache?
     ) {
         self.config = config
         self.transport = transport
         self.deadline = deadline
         self.now = now
-        resolver = DecisionJevLetterResolver(config: config, transport: transport, deadline: deadline, now: now)
+        resolver = DecisionJevLetterResolver(
+            config: config, transport: transport, deadline: deadline, now: now, diskCache: diskCache
+        )
     }
 
     public func readout(goal: String, appName: String, page: DecisionCandidatePage) throws -> DecisionHeadReadout {

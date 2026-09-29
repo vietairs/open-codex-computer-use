@@ -713,7 +713,10 @@ public final class ComputerUseService {
             )
         case .remote(let config):
             return (
-                DecisionJevClient(config: config, transport: transport, deadline: deadline),
+                DecisionJevClient(
+                    config: config, transport: transport, deadline: deadline, now: Date.init,
+                    diskCache: DecisionJevLetterDiskCache(directory: DecisionJevLetterDiskCache.productionDirectory)
+                ),
                 DecisionJevClient.pageSize, DecisionJevClient.maxPages, nil
             )
         }
