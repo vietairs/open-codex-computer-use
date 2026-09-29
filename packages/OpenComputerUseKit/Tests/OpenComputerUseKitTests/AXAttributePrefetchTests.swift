@@ -93,6 +93,8 @@ final class AXAttributePrefetchTests: XCTestCase {
                 kAXRoleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXHelpAttribute, kAXValueAttribute,
                 kAXIdentifierAttribute, kAXSelectedAttribute, kAXExpandedAttribute, kAXEnabledAttribute,
                 kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute,
+                "AXPlaceholderValue", "AXPlaceholder", kAXTitleAttribute, kAXRoleDescriptionAttribute,
+                kAXChildrenAttribute, kAXRowsAttribute, "AXContents", "AXVisibleChildren",
             ]
         )
     }

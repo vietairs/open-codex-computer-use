@@ -3,12 +3,30 @@ import ApplicationServices
 /// Attribute values for one element, fetched in a single multi-attribute accessibility round trip.
 struct AXAttributePrefetch {
     /// The attributes TreeRenderer.render reads for every node. AXFocused rides along so a background app, whose
-    /// app-level AXFocusedUIElement is nil, still reveals its focused element without an extra round trip.
+    /// app-level AXFocusedUIElement is nil, still reveals its focused element without an extra round trip. The
+    /// placeholder, title, role description and child-list attributes follow, so reading them costs no round trip of
+    /// their own.
     static let renderAttributes: [String] = [
         kAXRoleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXHelpAttribute, kAXValueAttribute,
         kAXIdentifierAttribute, kAXSelectedAttribute, kAXExpandedAttribute, kAXEnabledAttribute,
         kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute,
+        "AXPlaceholderValue", "AXPlaceholder", kAXTitleAttribute, kAXRoleDescriptionAttribute,
+        kAXChildrenAttribute, kAXRowsAttribute, "AXContents", "AXVisibleChildren",
     ]
+
+    /// What listing a node's children reads: its role, every child list, and its frame (to keep only visible rows).
+    static let childListAttributes: [String] = [
+        kAXRoleAttribute, kAXChildrenAttribute, kAXRowsAttribute, "AXContents", "AXVisibleChildren",
+        kAXPositionAttribute, kAXSizeAttribute,
+    ]
+
+    /// What flattening row text and summarizing a text container read per node.
+    static let textWalkAttributes: [String] = [
+        kAXRoleAttribute, kAXValueAttribute, kAXTitleAttribute, kAXChildrenAttribute,
+    ]
+
+    /// A row's frame, to test whether it is visible.
+    static let frameAttributes: [String] = [kAXPositionAttribute, kAXSizeAttribute]
 
     private let requested: Set<String>
     private let values: [String: CFTypeRef]
@@ -20,14 +38,7 @@ struct AXAttributePrefetch {
 
     /// nil when the multi-attribute call itself fails or returns a different count: callers then fall back to single reads.
     static func fetch(_ element: AXUIElement, attributes: [String] = renderAttributes) -> AXAttributePrefetch? {
-        var rawArray: CFArray?
-        // Options 0: one failed attribute does not stop the call; it yields an error sentinel in its slot.
-        let error = AXUIElementCopyMultipleAttributeValues(
-            element,
-            attributes as CFArray,
-            AXCopyMultipleAttributeOptions(rawValue: 0),
-            &rawArray
-        )
+        let (error, rawArray) = AccessibilityReads.backend.copyMultipleAttributeValues(element, attributes)
         guard error == .success, let rawArray, CFArrayGetCount(rawArray) == attributes.count else {
             return nil
         }

@@ -100,6 +100,8 @@ private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 private let axContentsAttribute = "AXContents"
 private let axVisibleChildrenAttribute = "AXVisibleChildren"
+private let axPlaceholderValueAttribute = "AXPlaceholderValue"
+private let axPlaceholderAttribute = "AXPlaceholder"
 private let compactGenericActionTargetMaxWidth: CGFloat = 240
 private let compactGenericActionTargetMaxHeight: CGFloat = 120
 
@@ -984,14 +986,14 @@ enum BlockingAsyncBridge {
 }
 
 /// A rendered node that reported AXFocused == true, with the row text the focus line reuses.
-private struct RenderedFocusCandidate {
+struct RenderedFocusCandidate {
     let element: AXUIElement
     let role: String
     let depth: Int
     let lineBody: String
 }
 
-private struct RenderContext {
+struct RenderContext {
     let windowBounds: CGRect?
     let focusedElement: AXUIElement?
     let textLimit: SnapshotTextLimit
@@ -1022,7 +1024,7 @@ struct IndexedLineBuffer {
     }
 }
 
-private struct TreeRenderer {
+struct TreeRenderer {
     let context: RenderContext
     var nextIndex = 0
     var buffer = IndexedLineBuffer()
@@ -1039,7 +1041,14 @@ private struct TreeRenderer {
         self.collectsFocusCandidates = context.focusedElement == nil
     }
 
-    mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = []) {
+    /// `webAreaAncestorPosition` is the position in `ancestors` of the outermost AXWebArea ancestor, carried down the
+    /// walk so no ancestor's role is read again.
+    mutating func render(
+        _ root: AXUIElement,
+        depth: Int = 0,
+        ancestors: [AXUIElement] = [],
+        webAreaAncestorPosition: Int? = nil
+    ) {
         guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
             return
         }
@@ -1055,7 +1064,7 @@ private struct TreeRenderer {
         let prefetch = AXAttributePrefetch.fetch(root)
         let role = stringValue(of: root, attribute: kAXRoleAttribute, prefetch: prefetch) ?? "AXUnknown"
         let subrole = stringValue(of: root, attribute: kAXSubroleAttribute, prefetch: prefetch)
-        let baseRoleText = roleDescription(of: root, role: role, subrole: subrole)
+        let baseRoleText = roleDescription(of: root, role: role, subrole: subrole, prefetch: prefetch)
         let label = stringValue(of: root, attribute: kAXDescriptionAttribute, prefetch: prefetch)
             .map { sanitizeText($0, textLimit: context.textLimit) }
         let help = stringValue(of: root, attribute: kAXHelpAttribute, prefetch: prefetch)
@@ -1066,11 +1075,14 @@ private struct TreeRenderer {
         let actions = copyActions(root) ?? []
         let exposesPrimaryClickAction = hasPrimaryClickAction(actions)
         let prettyActions = meaningfulActions(actions, role: role)
-        let placeholder = placeholderValue(of: root, textLimit: context.textLimit)
-        let webAreaDepth = webAreaDepth(role: role, ancestors: ancestors)
+        let placeholder = placeholderValue(of: root, textLimit: context.textLimit, prefetch: prefetch)
+        let webAreaDepth = webAreaDepth(role: role, ancestorCount: ancestors.count, webAreaAncestorPosition: webAreaAncestorPosition)
+        let childWebAreaAncestorPosition = webAreaAncestorPosition ?? (role == axWebAreaRole ? ancestors.count : nil)
         let localFrame = resolveLocalFrame(of: root, windowBounds: context.windowBounds, prefetch: prefetch)
-        let rowTexts = role == kAXRowRole as String ? flattenedRowTexts(of: root, textLimit: context.textLimit) : []
-        let childElements = children(of: root)
+        let rowTexts = role == kAXRowRole as String
+            ? flattenedRowTexts(of: root, textLimit: context.textLimit, prefetch: prefetch)
+            : []
+        let childElements = children(of: root, prefetch: prefetch)
         let hasActionableLinkDescendant =
             (role == kAXGroupRole as String || role == kAXUnknownRole as String)
             && exposesPrimaryClickAction
@@ -1109,11 +1121,12 @@ private struct TreeRenderer {
             identifier: axIdentifier,
             explicitValue: value,
             rowTexts: rowTexts,
-            textLimit: context.textLimit
+            textLimit: context.textLimit,
+            prefetch: prefetch
         )
         let linkText = role == "AXLink" ? markdownLinkText(for: root, title: title, label: label, value: value, textLimit: context.textLimit) : nil
         let displayTitle = linkText ?? title
-        let inlineRowSummary = outlineRowSummary(for: root, role: role)
+        let inlineRowSummary = outlineRowSummary(for: root, role: role, prefetch: prefetch)
         let hidesChildren = shouldSuppressChildren(
             role: role,
             title: displayTitle,
@@ -1148,7 +1161,7 @@ private struct TreeRenderer {
             preservesCompactGenericActionTarget: rendersCompactGenericActionTarget
         ) {
             for child in childElements {
-                render(child, depth: depth, ancestors: nextAncestors)
+                render(child, depth: depth, ancestors: nextAncestors, webAreaAncestorPosition: childWebAreaAncestorPosition)
             }
             return
         }
@@ -1169,9 +1182,9 @@ private struct TreeRenderer {
             }
             return " Help: \(help)"
         }()
-        let urlSegment = formattedURLSegment(for: root, title: displayTitle, label: label, textLimit: context.textLimit)
+        let urlSegment = formattedURLSegment(for: root, role: role, title: displayTitle, label: label, textLimit: context.textLimit)
         let identifierSegment = displayIdentifierSegment(for: root, role: role, identifier: axIdentifier, title: displayTitle)
-        let rawValueSegment = formattedValueSegment(for: root, roleText: roleText, title: displayTitle, value: value)
+        let rawValueSegment = formattedValueSegment(role: role, roleText: roleText, title: displayTitle, value: value)
         let valueSegment = formattedValueSegmentWithSeparator(
             rawValueSegment,
             precedingSegments: [labelSegment, helpSegment, urlSegment, identifierSegment]
@@ -1221,7 +1234,7 @@ private struct TreeRenderer {
             focusCandidates.append(RenderedFocusCandidate(element: root, role: role, depth: depth, lineBody: lineBody))
         }
 
-        if role == kAXRowRole as String, boolValue(of: root, attribute: kAXSelectedAttribute) != true {
+        if role == kAXRowRole as String, boolValue(of: root, attribute: kAXSelectedAttribute, prefetch: prefetch) != true {
             for text in Array(rowTexts.dropFirst()) {
                 buffer.appendSpanLine(text)
             }
@@ -1231,7 +1244,7 @@ private struct TreeRenderer {
         if rendersSummaryAsChildren, let genericTextSummary {
             renderSyntheticText(genericTextSummary, representedBy: root, depth: depth + 1)
             for image in summaryImageChildren {
-                render(image, depth: depth + 1, ancestors: nextAncestors)
+                render(image, depth: depth + 1, ancestors: nextAncestors, webAreaAncestorPosition: childWebAreaAncestorPosition)
             }
             return
         }
@@ -1241,7 +1254,7 @@ private struct TreeRenderer {
         }
 
         for child in childElements {
-            render(child, depth: depth + 1, ancestors: nextAncestors)
+            render(child, depth: depth + 1, ancestors: nextAncestors, webAreaAncestorPosition: childWebAreaAncestorPosition)
         }
     }
 
@@ -1274,24 +1287,21 @@ private struct TreeRenderer {
         String(CFHash(element))
     }
 
-    private func webAreaDepth(role: String, ancestors: [AXUIElement]) -> Int? {
+    private func webAreaDepth(role: String, ancestorCount: Int, webAreaAncestorPosition: Int?) -> Int? {
         if role == axWebAreaRole {
             return 0
         }
 
-        guard let webAreaIndex = ancestors.firstIndex(where: { ancestor in
-            stringValue(of: ancestor, attribute: kAXRoleAttribute) == axWebAreaRole
-        }) else {
-            return nil
-        }
-
-        return ancestors.count - webAreaIndex
+        return webAreaAncestorPosition.map { ancestorCount - $0 }
     }
 
-    private func children(of element: AXUIElement) -> [AXUIElement] {
-        let role = stringValue(of: element, attribute: kAXRoleAttribute)
-        let rows = copyArray(element, attribute: kAXRowsAttribute) ?? []
-        let visibleChildren = copyArray(element, attribute: axVisibleChildrenAttribute) ?? []
+    /// `prefetch` is the render prefetch, which already holds every attribute read here; without one, the attributes
+    /// are fetched in one round trip.
+    private func children(of element: AXUIElement, prefetch renderPrefetch: AXAttributePrefetch? = nil) -> [AXUIElement] {
+        let prefetch = renderPrefetch ?? AXAttributePrefetch.fetch(element, attributes: AXAttributePrefetch.childListAttributes)
+        let role = stringValue(of: element, attribute: kAXRoleAttribute, prefetch: prefetch)
+        let rows = copyArray(element, attribute: kAXRowsAttribute, prefetch: prefetch) ?? []
+        let visibleChildren = copyArray(element, attribute: axVisibleChildrenAttribute, prefetch: prefetch) ?? []
         let attributes = childTraversalAttributes(
             role: role,
             hasRows: !rows.isEmpty,
@@ -1306,13 +1316,15 @@ private struct TreeRenderer {
             } else if attribute == axVisibleChildrenAttribute {
                 sourceValues = visibleChildren
             } else {
-                sourceValues = copyArray(element, attribute: attribute) ?? []
+                sourceValues = copyArray(element, attribute: attribute, prefetch: prefetch) ?? []
             }
 
-            let values = attribute == kAXRowsAttribute ? visibleRows(in: sourceValues, parent: element) : sourceValues
+            let values = attribute == kAXRowsAttribute
+                ? visibleRows(in: sourceValues, parent: element, parentPrefetch: prefetch)
+                : sourceValues
 
             for child in values {
-                if shouldSkipChild(child, of: element) {
+                if shouldSkipChild(child, parentRole: role) {
                     continue
                 }
 
@@ -1386,8 +1398,7 @@ private func usesVisibleChildrenAsPrimaryRole(_ role: String?) -> Bool {
     role == kAXListRole as String
 }
 
-private func shouldSkipChild(_ child: AXUIElement, of parent: AXUIElement) -> Bool {
-    let parentRole = stringValue(of: parent, attribute: kAXRoleAttribute)
+private func shouldSkipChild(_ child: AXUIElement, parentRole: String?) -> Bool {
     guard parentRole == kAXMenuBarRole as String else {
         return false
     }
@@ -1444,7 +1455,7 @@ private func valueTypeTrait(of element: AXUIElement, isValueSettable: Bool, pref
     }
 
     if value is NSNumber {
-        if numericValueRepresentsBoolean(for: element, value: value) {
+        if numericValueRepresentsBoolean(for: element, value: value, prefetch: prefetch) {
             return "boolean"
         }
 
@@ -1455,8 +1466,7 @@ private func valueTypeTrait(of element: AXUIElement, isValueSettable: Bool, pref
 }
 
 private func copyElement(_ element: AXUIElement, attribute: String) -> AXUIElement? {
-    var value: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    let (error, value) = AccessibilityReads.backend.copyAttributeValue(element, attribute)
     guard error == .success, let value else {
         return nil
     }
@@ -1465,8 +1475,7 @@ private func copyElement(_ element: AXUIElement, attribute: String) -> AXUIEleme
 }
 
 private func copyArray(_ element: AXUIElement, attribute: String) -> [AXUIElement]? {
-    var value: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    let (error, value) = AccessibilityReads.backend.copyAttributeValue(element, attribute)
     guard error == .success, let value else {
         return nil
     }
@@ -1474,9 +1483,16 @@ private func copyArray(_ element: AXUIElement, attribute: String) -> [AXUIElemen
     return value as? [AXUIElement]
 }
 
+private func copyArray(_ element: AXUIElement, attribute: String, prefetch: AXAttributePrefetch?) -> [AXUIElement]? {
+    guard let prefetch, prefetch.covers(attribute) else {
+        return copyArray(element, attribute: attribute)
+    }
+
+    return prefetch.value(attribute) as? [AXUIElement]
+}
+
 private func copyActions(_ element: AXUIElement) -> [String]? {
-    var actions: CFArray?
-    let error = AXUIElementCopyActionNames(element, &actions)
+    let (error, actions) = AccessibilityReads.backend.copyActionNames(element)
     guard error == .success else {
         return nil
     }
@@ -1485,8 +1501,7 @@ private func copyActions(_ element: AXUIElement) -> [String]? {
 }
 
 private func attributeValue(of element: AXUIElement, attribute: String) -> CFTypeRef? {
-    var value: CFTypeRef?
-    let error = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+    let (error, value) = AccessibilityReads.backend.copyAttributeValue(element, attribute)
     guard error == .success else {
         return nil
     }
@@ -1546,9 +1561,8 @@ private func pid(of element: AXUIElement) -> pid_t {
 }
 
 private func isSettable(of element: AXUIElement, attribute: String) -> Bool {
-    var settable = DarwinBoolean(false)
-    let error = AXUIElementIsAttributeSettable(element, attribute as CFString, &settable)
-    return error == .success && settable.boolValue
+    let (error, settable) = AccessibilityReads.backend.isAttributeSettable(element, attribute)
+    return error == .success && settable
 }
 
 private func sanitizedValue(
@@ -1566,7 +1580,7 @@ private func sanitizedValue(
     }
 
     if let number = value as? NSNumber {
-        if numericValueRepresentsBoolean(for: element, value: value) {
+        if numericValueRepresentsBoolean(for: element, value: value, prefetch: prefetch) {
             return number.boolValue ? "on" : "off"
         }
 
@@ -1576,9 +1590,13 @@ private func sanitizedValue(
     return nil
 }
 
-private func placeholderValue(of element: AXUIElement, textLimit: SnapshotTextLimit = .defaults) -> String? {
-    for attribute in ["AXPlaceholderValue", "AXPlaceholder"] {
-        if let string = stringValue(of: element, attribute: attribute) {
+private func placeholderValue(
+    of element: AXUIElement,
+    textLimit: SnapshotTextLimit = .defaults,
+    prefetch: AXAttributePrefetch? = nil
+) -> String? {
+    for attribute in [axPlaceholderValueAttribute, axPlaceholderAttribute] {
+        if let string = stringValue(of: element, attribute: attribute, prefetch: prefetch) {
             let sanitized = sanitizeText(string, textLimit: textLimit)
             if !sanitized.isEmpty {
                 return sanitized
@@ -1589,7 +1607,11 @@ private func placeholderValue(of element: AXUIElement, textLimit: SnapshotTextLi
     return nil
 }
 
-private func numericValueRepresentsBoolean(for element: AXUIElement, value: CFTypeRef) -> Bool {
+private func numericValueRepresentsBoolean(
+    for element: AXUIElement,
+    value: CFTypeRef,
+    prefetch: AXAttributePrefetch? = nil
+) -> Bool {
     guard let number = value as? NSNumber else {
         return false
     }
@@ -1598,11 +1620,12 @@ private func numericValueRepresentsBoolean(for element: AXUIElement, value: CFTy
         return false
     }
 
-    let role = stringValue(of: element, attribute: kAXRoleAttribute) ?? ""
+    let role = stringValue(of: element, attribute: kAXRoleAttribute, prefetch: prefetch) ?? ""
     let roleText = roleDescription(
         of: element,
         role: role,
-        subrole: stringValue(of: element, attribute: kAXSubroleAttribute)
+        subrole: stringValue(of: element, attribute: kAXSubroleAttribute, prefetch: prefetch),
+        prefetch: prefetch
     )
 
     return roleText == "tab"
@@ -1617,9 +1640,10 @@ private func preferredDisplayTitle(
     identifier: String?,
     explicitValue: String?,
     rowTexts: [String],
-    textLimit: SnapshotTextLimit = .defaults
+    textLimit: SnapshotTextLimit = .defaults,
+    prefetch: AXAttributePrefetch? = nil
 ) -> String? {
-    if let title = stringValue(of: element, attribute: kAXTitleAttribute), !title.isEmpty {
+    if let title = stringValue(of: element, attribute: kAXTitleAttribute, prefetch: prefetch), !title.isEmpty {
         return sanitizeText(title, textLimit: textLimit)
     }
 
@@ -1646,7 +1670,8 @@ private func preferredDisplayTitle(
         return sanitizeText(label, textLimit: textLimit)
     }
 
-    guard roleDescription(of: element, role: role, subrole: stringValue(of: element, attribute: kAXSubroleAttribute)) == "search text field" else {
+    let subrole = stringValue(of: element, attribute: kAXSubroleAttribute, prefetch: prefetch)
+    guard roleDescription(of: element, role: role, subrole: subrole, prefetch: prefetch) == "search text field" else {
         return nil
     }
 
@@ -1688,16 +1713,16 @@ private func markdownEscapedLinkText(_ text: String) -> String {
         .replacingOccurrences(of: "]", with: "\\]")
 }
 
-private func outlineRowSummary(for element: AXUIElement, role: String) -> String? {
+private func outlineRowSummary(for element: AXUIElement, role: String, prefetch: AXAttributePrefetch? = nil) -> String? {
     guard role == kAXOutlineRole as String || role == kAXListRole as String else {
         return nil
     }
 
-    guard let allRows = copyArray(element, attribute: kAXRowsAttribute), !allRows.isEmpty else {
+    guard let allRows = copyArray(element, attribute: kAXRowsAttribute, prefetch: prefetch), !allRows.isEmpty else {
         return nil
     }
 
-    let visibleRows = visibleRows(in: allRows, parent: element)
+    let visibleRows = visibleRows(in: allRows, parent: element, parentPrefetch: prefetch)
     guard !visibleRows.isEmpty, visibleRows.count < allRows.count else {
         return nil
     }
@@ -1705,7 +1730,7 @@ private func outlineRowSummary(for element: AXUIElement, role: String) -> String
     return "(showing 0-\(visibleRows.count - 1) of \(allRows.count) items)"
 }
 
-private func formattedValueSegment(for element: AXUIElement, roleText: String, title: String?, value: String?) -> String {
+private func formattedValueSegment(role: String, roleText: String, title: String?, value: String?) -> String {
     guard let value, !value.isEmpty else {
         return ""
     }
@@ -1714,7 +1739,7 @@ private func formattedValueSegment(for element: AXUIElement, roleText: String, t
         return ""
     }
 
-    if title == nil, let role = stringValue(of: element, attribute: kAXRoleAttribute), role == kAXStaticTextRole as String {
+    if title == nil, role == kAXStaticTextRole as String {
         return " \(value)"
     }
 
@@ -1787,11 +1812,12 @@ private func shouldCommaSeparateActions(
 
 private func formattedURLSegment(
     for element: AXUIElement,
+    role: String,
     title: String?,
     label: String?,
     textLimit: SnapshotTextLimit = .defaults
 ) -> String {
-    guard stringValue(of: element, attribute: kAXRoleAttribute) == "AXWebArea" else {
+    guard role == "AXWebArea" else {
         return ""
     }
 
@@ -2165,7 +2191,12 @@ func windowRelativeFrame(elementFrame: CGRect, windowBounds: CGRect) -> CGRect {
     )
 }
 
-private func roleDescription(of element: AXUIElement, role: String, subrole: String?) -> String {
+private func roleDescription(
+    of element: AXUIElement,
+    role: String,
+    subrole: String?,
+    prefetch: AXAttributePrefetch? = nil
+) -> String {
     if role == kAXRowRole as String {
         return "row"
     }
@@ -2183,10 +2214,12 @@ private func roleDescription(of element: AXUIElement, role: String, subrole: Str
     }
 
     if role == "AXWebArea" {
-        return stringValue(of: element, attribute: kAXRoleDescriptionAttribute) ?? "HTML 内容"
+        return stringValue(of: element, attribute: kAXRoleDescriptionAttribute, prefetch: prefetch) ?? "HTML 内容"
     }
 
-    if let roleDescription = stringValue(of: element, attribute: kAXRoleDescriptionAttribute), !roleDescription.isEmpty {
+    if let roleDescription = stringValue(of: element, attribute: kAXRoleDescriptionAttribute, prefetch: prefetch),
+       !roleDescription.isEmpty
+    {
         return roleDescription.lowercased()
     }
 
@@ -2378,9 +2411,10 @@ func sanitizeText(_ value: String, textLimit: SnapshotTextLimit = .defaults) -> 
 
 private func flattenedRowTexts(
     of element: AXUIElement,
-    textLimit: SnapshotTextLimit = .defaults
+    textLimit: SnapshotTextLimit = .defaults,
+    prefetch: AXAttributePrefetch? = nil
 ) -> [String] {
-    let cells = copyArray(element, attribute: kAXChildrenAttribute) ?? []
+    let cells = copyArray(element, attribute: kAXChildrenAttribute, prefetch: prefetch) ?? []
     let texts = cells
         .flatMap { descendantTexts(of: $0, textLimit: textLimit) }
         .map { sanitizeText($0, textLimit: textLimit) }
@@ -2407,16 +2441,17 @@ private func descendantTexts(
     }
 
     var values: [String] = []
-    let role = stringValue(of: element, attribute: kAXRoleAttribute) ?? ""
+    let prefetch = AXAttributePrefetch.fetch(element, attributes: AXAttributePrefetch.textWalkAttributes)
+    let role = stringValue(of: element, attribute: kAXRoleAttribute, prefetch: prefetch) ?? ""
     if role == kAXStaticTextRole as String || role == kAXTextFieldRole as String {
-        if let value = sanitizedValue(of: element, textLimit: textLimit) {
+        if let value = sanitizedValue(of: element, textLimit: textLimit, prefetch: prefetch) {
             values.append(value)
-        } else if let title = stringValue(of: element, attribute: kAXTitleAttribute) {
+        } else if let title = stringValue(of: element, attribute: kAXTitleAttribute, prefetch: prefetch) {
             values.append(sanitizeText(title, textLimit: textLimit))
         }
     }
 
-    for child in copyArray(element, attribute: kAXChildrenAttribute) ?? [] {
+    for child in copyArray(element, attribute: kAXChildrenAttribute, prefetch: prefetch) ?? [] {
         values.append(contentsOf: descendantTexts(of: child, depth: depth + 1, textLimit: textLimit))
     }
 
@@ -2432,35 +2467,37 @@ private func descendantTextsForSummary(
         return []
     }
 
-    let role = stringValue(of: element, attribute: kAXRoleAttribute) ?? ""
-    if role == "AXLink", let linkText = summaryTextForLink(element, textLimit: textLimit) {
+    let prefetch = AXAttributePrefetch.fetch(element, attributes: AXAttributePrefetch.textWalkAttributes)
+    let role = stringValue(of: element, attribute: kAXRoleAttribute, prefetch: prefetch) ?? ""
+    if role == "AXLink", let linkText = summaryTextForLink(element, textLimit: textLimit, prefetch: prefetch) {
         return [linkText]
     }
 
     if role == kAXStaticTextRole as String || role == kAXTextFieldRole as String {
-        if let value = sanitizedValue(of: element, textLimit: textLimit), !value.isEmpty {
+        if let value = sanitizedValue(of: element, textLimit: textLimit, prefetch: prefetch), !value.isEmpty {
             return [value]
         }
 
-        if let title = stringValue(of: element, attribute: kAXTitleAttribute) {
+        if let title = stringValue(of: element, attribute: kAXTitleAttribute, prefetch: prefetch) {
             let sanitized = sanitizeText(title, textLimit: textLimit)
             return sanitized.isEmpty ? [] : [sanitized]
         }
     }
 
-    return (copyArray(element, attribute: kAXChildrenAttribute) ?? [])
+    return (copyArray(element, attribute: kAXChildrenAttribute, prefetch: prefetch) ?? [])
         .flatMap { descendantTextsForSummary(of: $0, depth: depth + 1, textLimit: textLimit) }
 }
 
 private func summaryTextForLink(
     _ element: AXUIElement,
-    textLimit: SnapshotTextLimit = .defaults
+    textLimit: SnapshotTextLimit = .defaults,
+    prefetch: AXAttributePrefetch? = nil
 ) -> String? {
     guard let url = urlValue(of: element, attribute: kAXURLAttribute, textLimit: textLimit), !url.isEmpty else {
         return nil
     }
 
-    let childText = (copyArray(element, attribute: kAXChildrenAttribute) ?? [])
+    let childText = (copyArray(element, attribute: kAXChildrenAttribute, prefetch: prefetch) ?? [])
         .flatMap { descendantTextsForSummary(of: $0, textLimit: textLimit) }
         .joined(separator: " ")
     let sanitized = sanitizeText(childText, textLimit: textLimit)
@@ -2475,24 +2512,35 @@ func summaryMarkdownLinkText(text: String, url: String) -> String {
     "[\(markdownEscapedLinkText(text))](\(url))"
 }
 
-private func visibleRows(in rows: [AXUIElement], parent: AXUIElement) -> [AXUIElement] {
-    guard let parentFrame = resolveLocalFrame(of: parent, windowBounds: nil) else {
-        return Array(rows.prefix(20))
+private let visibleRowLimit = 20
+
+/// The first `visibleRowLimit` rows whose frame intersects the parent's, in row order; the first rows when none does.
+/// Each row's frame is one round trip, and rows after the last kept one are never read.
+private func visibleRows(in rows: [AXUIElement], parent: AXUIElement, parentPrefetch: AXAttributePrefetch? = nil) -> [AXUIElement] {
+    guard let parentFrame = resolveLocalFrame(of: parent, windowBounds: nil, prefetch: parentPrefetch) else {
+        return Array(rows.prefix(visibleRowLimit))
     }
 
-    let visible = rows.filter { row in
-        guard let rowFrame = resolveLocalFrame(of: row, windowBounds: nil) else {
-            return false
+    var visible: [AXUIElement] = []
+    for row in rows {
+        let rowPrefetch = AXAttributePrefetch.fetch(row, attributes: AXAttributePrefetch.frameAttributes)
+        guard let rowFrame = resolveLocalFrame(of: row, windowBounds: nil, prefetch: rowPrefetch),
+              rowFrame.intersects(parentFrame)
+        else {
+            continue
         }
 
-        return rowFrame.intersects(parentFrame)
+        visible.append(row)
+        if visible.count == visibleRowLimit {
+            break
+        }
     }
 
     if visible.isEmpty {
-        return Array(rows.prefix(20))
+        return Array(rows.prefix(visibleRowLimit))
     }
 
-    return Array(visible.prefix(20))
+    return visible
 }
 
 private func displayIdentifier(_ value: String?) -> String? {
