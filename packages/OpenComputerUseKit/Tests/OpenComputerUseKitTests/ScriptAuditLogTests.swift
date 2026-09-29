@@ -254,6 +254,31 @@ final class ScriptAuditLogTests: XCTestCase {
         XCTAssertFalse(line.unicodeScalars.contains { $0.value == 0x2028 || $0.value == 0x2029 })
     }
 
+    func testMetadataLineEscapesC1ControlsAndBidiOverrides() {
+        let hostile: [UInt32] = [0x80, 0x85, 0x9B, 0x9F, 0x202A, 0x202E, 0x2066, 0x2069]
+        var app = "Mail"
+        for value in hostile {
+            app.unicodeScalars.append(Unicode.Scalar(value)!)
+        }
+        let entry = ScriptAuditEntry(
+            kind: .runScript,
+            phase: .result,
+            targetApp: app,
+            payload: nil,
+            payloadSHA256: ScriptAuditLog.sha256Hex("return 1"),
+            exitStatus: 0,
+            durationMilliseconds: 1,
+            outcome: "ok\u{0085}\u{202E}"
+        )
+        let line = ScriptAuditLog.metadataLine(for: entry)
+
+        for value in hostile {
+            XCTAssertFalse(line.unicodeScalars.contains { $0.value == value }, "raw U+\(String(value, radix: 16)) leaked")
+        }
+        XCTAssertTrue(line.contains("app=Mail\\u{0080}\\u{0085}\\u{009B}\\u{009F}\\u{202A}\\u{202E}\\u{2066}\\u{2069}"), line)
+        XCTAssertTrue(line.contains("outcome=ok\\u{0085}\\u{202E}"), line)
+    }
+
     func testMetadataLineCapsAgentInfluencedValues() {
         let entry = ScriptAuditEntry(
             kind: .runScript,

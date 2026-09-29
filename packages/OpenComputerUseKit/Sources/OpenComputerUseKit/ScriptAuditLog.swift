@@ -134,14 +134,14 @@ public final class ScriptAuditLog: @unchecked Sendable {
 
     // MARK: - Metadata line
 
-    /// Caps the value, then writes every control or line-separator scalar as a visible `\u{XXXX}` escape so the value
-    /// can never start a new line in a terminal or a log collector. Works on scalars because `"\r\n"` is a single
-    /// `Character`.
+    /// Caps the value, then writes every C0 or C1 control, line-separator or bidi-override scalar as a visible
+    /// `\u{XXXX}` escape, so the value can never start a new line in a terminal or a log collector (NEL, 8-bit CSI)
+    /// or visually reorder the rest of the line. Works on scalars because `"\r\n"` is a single `Character`.
     private static func sanitizedMetadataValue(_ value: String) -> String {
         var result = ""
         for scalar in value.unicodeScalars.prefix(metadataValueLimit) {
             switch scalar.value {
-            case 0x00...0x1F, 0x7F, 0x2028, 0x2029:
+            case 0x00...0x1F, 0x7F...0x9F, 0x2028, 0x2029, 0x202A...0x202E, 0x2066...0x2069:
                 result += "\\u{" + String(format: "%04X", scalar.value) + "}"
             default:
                 result.unicodeScalars.append(scalar)
