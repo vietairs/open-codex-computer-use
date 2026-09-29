@@ -86,20 +86,23 @@ public final class ComputerUseToolDispatcher {
                 y: optionalDouble("y", in: arguments),
                 clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
                 mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
-                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
+                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments)),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "perform_secondary_action":
             return try service.performSecondaryAction(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                action: requireString("action", in: arguments)
+                action: requireString("action", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "scroll":
             return try service.scroll(
                 app: requireString("app", in: arguments),
                 direction: requireString("direction", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                pages: optionalDouble("pages", in: arguments) ?? 1
+                pages: optionalDouble("pages", in: arguments) ?? 1,
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "drag":
             return try service.drag(
@@ -107,23 +110,27 @@ public final class ComputerUseToolDispatcher {
                 fromX: requireDouble("from_x", in: arguments),
                 fromY: requireDouble("from_y", in: arguments),
                 toX: requireDouble("to_x", in: arguments),
-                toY: requireDouble("to_y", in: arguments)
+                toY: requireDouble("to_y", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "type_text":
             return try service.typeText(
                 app: requireString("app", in: arguments),
-                text: requireString("text", in: arguments)
+                text: requireString("text", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "press_key":
             return try service.pressKey(
                 app: requireString("app", in: arguments),
-                key: requireString("key", in: arguments)
+                key: requireString("key", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "set_value":
             return try service.setValue(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                value: requireString("value", in: arguments)
+                value: requireString("value", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         default:
             throw ComputerUseError.unsupportedTool(name)

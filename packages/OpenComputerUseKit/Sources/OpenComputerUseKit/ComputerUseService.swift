@@ -229,6 +229,76 @@ func appendingDragDeliveryNote(to result: ToolCallResult, path: DragDeliveryPath
     return ToolCallResult(content: content, isError: result.isError)
 }
 
+/// The screenshot most recently returned to the caller for an app. Text-only action results carry no
+/// image, so x/y coordinates keep referring to this frame until a new screenshot is returned.
+struct ReturnedScreenshotFrame: Equatable {
+    let windowID: CGWindowID?
+    let windowSize: CGSize
+    let pixelSize: CGSize
+}
+
+let screenshotFrameMismatchMessage =
+    "x/y coordinates refer to a screenshot of a different window or window size. Call get_app_state, or repeat the action with include_screenshot=true, and read coordinates from the new screenshot."
+
+/// Picks the pixel size that x/y coordinates are scaled by.
+/// 1. The snapshot's own screenshot wins.
+/// 2. With no screenshot ever returned for the app, there is nothing to scale by (nil, scale 1).
+/// 3. A previously returned screenshot still applies while its window identity and size are unchanged.
+/// 4. Otherwise the coordinates would be read from a stale frame, so fail closed.
+func resolveScreenshotPixelSize(
+    snapshotPixelSize: CGSize?,
+    windowID: CGWindowID?,
+    windowBounds: CGRect?,
+    lastReturned: ReturnedScreenshotFrame?
+) throws -> CGSize? {
+    if let snapshotPixelSize {
+        return snapshotPixelSize
+    }
+
+    guard let lastReturned else {
+        return nil
+    }
+
+    if lastReturned.windowID == windowID, lastReturned.windowSize == windowBounds?.size {
+        return lastReturned.pixelSize
+    }
+
+    throw ComputerUseError.stateUnavailable(screenshotFrameMismatchMessage)
+}
+
+func actionCapturePolicy(includeScreenshot: Bool) -> SnapshotCapturePolicy {
+    includeScreenshot ? .always : .whenTreeEmpty
+}
+
+/// The full state always carries its screenshot, the compact view never does, and an action result
+/// carries one only on request or when the accessibility tree came back empty.
+func shouldAttachScreenshot(style: SnapshotTextStyle, includeScreenshot: Bool, treeIsEmpty: Bool) -> Bool {
+    switch style {
+    case .compactActionable:
+        return false
+    case .fullState:
+        return true
+    case .actionResult:
+        return includeScreenshot || treeIsEmpty
+    }
+}
+
+/// Pixel dimensions from a PNG header, without decoding the image.
+func pngPixelSize(of data: Data) -> CGSize? {
+    guard
+        let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+        let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+        let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+        let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+        pixelWidth > 0,
+        pixelHeight > 0
+    else {
+        return nil
+    }
+
+    return CGSize(width: pixelWidth, height: pixelHeight)
+}
+
 func screenshotPixelScale(
     screenshotPixelSize: CGSize?,
     windowBounds: CGRect?
@@ -458,6 +528,7 @@ func shouldPreferContainingWebRowAXClickCandidate(
 
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
+    private var lastReturnedScreenshotFrames: [pid_t: ReturnedScreenshotFrame] = [:]
 
     public init() {}
 
@@ -504,7 +575,7 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("goal must not be empty")
         }
 
-        let snapshot = try refreshSnapshot(for: query)
+        let snapshot = try refreshSnapshot(for: query, capture: .never)
         let appName = snapshot.app.name
         let renderedFull = snapshot.renderedText(style: .fullState)
         let renderedCompact = snapshot.renderedText(style: .compactActionable)
@@ -599,7 +670,8 @@ public final class ComputerUseService {
         y: Double?,
         clickCount: Int,
         mouseButton: String,
-        clickMethod: ClickMethod = .auto
+        clickMethod: ClickMethod = .auto,
+        includeScreenshot: Bool = false
     ) throws -> ToolCallResult {
         try validateClickMethod(
             clickMethod,
@@ -641,7 +713,7 @@ public final class ComputerUseService {
 
             Thread.sleep(forTimeInterval: 0.15)
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         if let elementIndex {
@@ -709,7 +781,7 @@ public final class ComputerUseService {
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
         } else if let x, let y {
             let screenshotPoint = CGPoint(x: x, y: y)
-            let point = screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
+            let point = try screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
@@ -770,16 +842,14 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
         }
 
-        return snapshotResult(
-            for: try refreshSnapshot(
-                for: query,
-                recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
-            ),
-            style: .actionResult
+        return try finishAction(
+            query: query,
+            includeScreenshot: includeScreenshot,
+            recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
         )
     }
 
-    public func performSecondaryAction(app query: String, elementIndex: String, action: String) throws -> ToolCallResult {
+    public func performSecondaryAction(app query: String, elementIndex: String, action: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
@@ -788,7 +858,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.message(invalidSecondaryActionMessage(action: action, record: record))
             }
 
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         guard let rawAction = matchingAction(requested: action, record: record) else {
@@ -805,10 +875,10 @@ public final class ComputerUseService {
         }
 
         Thread.sleep(forTimeInterval: 0.15)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, includeScreenshot: includeScreenshot)
     }
 
-    public func scroll(app query: String, direction: String, elementIndex: String, pages: Double) throws -> ToolCallResult {
+    public func scroll(app query: String, direction: String, elementIndex: String, pages: Double, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let normalized = direction.lowercased()
         guard ["up", "down", "left", "right"].contains(normalized) else {
             throw ComputerUseError.message("Invalid scroll direction: \(direction)")
@@ -826,7 +896,7 @@ public final class ComputerUseService {
             }
             try FixtureBridge.post(FixtureCommand(kind: "scroll", identifier: identifier, direction: normalized, pages: pages))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         if let repeatCount = integralScrollPageCount(pages),
@@ -848,15 +918,15 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no scrollable frame")
         }
 
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, includeScreenshot: includeScreenshot)
     }
 
-    public func drag(app query: String, fromX: Double, fromY: Double, toX: Double, toY: Double) throws -> ToolCallResult {
+    public func drag(app query: String, fromX: Double, fromY: Double, toX: Double, toY: Double, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "drag", identifier: "fixture-drag-pad", x: fromX, y: fromY, toX: toX, toY: toY))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
@@ -868,22 +938,22 @@ public final class ComputerUseService {
             snapshot: snapshot
         )
         return appendingDragDeliveryNote(
-            to: snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult),
+            to: try finishAction(query: query, includeScreenshot: includeScreenshot),
             path: path
         )
     }
 
-    public func typeText(app query: String, text: String) throws -> ToolCallResult {
+    public func typeText(app query: String, text: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         if try typeTextBySettingFocusedValueIfAvailable(text, in: snapshot) {
             Thread.sleep(forTimeInterval: 0.1)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         if !(try canTypeTextUsingKeyboardFallback(in: snapshot)) {
@@ -895,26 +965,26 @@ public final class ComputerUseService {
             if let orig = originalPID {
                 NSRunningApplication(processIdentifier: orig)?.activate(options: [])
             }
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         try InputSimulation.typeText(text, pid: snapshot.app.pid)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, includeScreenshot: includeScreenshot)
     }
 
-    public func pressKey(app query: String, key: String) throws -> ToolCallResult {
+    public func pressKey(app query: String, key: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
             Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, includeScreenshot: includeScreenshot)
     }
 
-    public func setValue(app query: String, elementIndex: String, value: String) throws -> ToolCallResult {
+    public func setValue(app query: String, elementIndex: String, value: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
@@ -928,7 +998,7 @@ public final class ComputerUseService {
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
             Thread.sleep(forTimeInterval: 0.15)
             settleVisualCursor(at: cursorTarget)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
         guard let element = record.element else {
@@ -955,7 +1025,7 @@ public final class ComputerUseService {
         }
 
         settleVisualCursor(at: cursorTarget)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, includeScreenshot: includeScreenshot)
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
@@ -966,19 +1036,39 @@ public final class ComputerUseService {
         return try refreshSnapshot(for: query)
     }
 
+    /// The single tail of every action: rebuild the snapshot and return it as a text-only action
+    /// result, capturing and attaching the window image only on request or when the tree is empty.
+    private func finishAction(
+        query: String,
+        includeScreenshot: Bool,
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+    ) throws -> ToolCallResult {
+        snapshotResult(
+            for: try refreshSnapshot(
+                for: query,
+                recoveryPolicy: recoveryPolicy,
+                capture: actionCapturePolicy(includeScreenshot: includeScreenshot)
+            ),
+            style: .actionResult,
+            includeScreenshot: includeScreenshot
+        )
+    }
+
     @discardableResult
     private func refreshSnapshot(
         for query: String,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
+        capture: SnapshotCapturePolicy = .always
     ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
             treeLimits: treeLimits,
-            recoveryPolicy: recoveryPolicy
+            recoveryPolicy: recoveryPolicy,
+            capture: capture
         )
 
         let keys = Set([
@@ -1297,7 +1387,7 @@ public final class ComputerUseService {
 
     private func hitTestElement(at point: CGPoint, in snapshot: AppSnapshot) throws -> ElementRecord? {
         let appElement = AXUIElementCreateApplication(snapshot.app.pid)
-        let globalPoint = try screenshotToGlobalPoint(snapshot: snapshot, x: Double(point.x), y: Double(point.y))
+        let globalPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
         var hitElement: AXUIElement?
         let result = AXUIElementCopyElementAtPosition(appElement, Float(globalPoint.x), Float(globalPoint.y), &hitElement)
         guard result == .success, let hitElement else {
@@ -1775,35 +1865,28 @@ public final class ComputerUseService {
     private func screenshotToGlobalPoint(snapshot: AppSnapshot, x: Double, y: Double) throws -> CGPoint {
         try windowPointToGlobalPoint(
             snapshot: snapshot,
-            point: screenshotPixelToWindowPointInSnapshot(
+            point: try screenshotPixelToWindowPointInSnapshot(
                 snapshot: snapshot,
                 point: CGPoint(x: x, y: y)
             )
         )
     }
 
-    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) -> CGPoint {
+    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
         screenshotPixelToWindowPoint(
             point,
-            screenshotPixelSize: screenshotPixelSize(snapshot: snapshot),
+            screenshotPixelSize: try screenshotPixelSize(snapshot: snapshot),
             windowBounds: snapshot.windowBounds
         )
     }
 
-    private func screenshotPixelSize(snapshot: AppSnapshot) -> CGSize? {
-        guard
-            let screenshotPNGData = snapshot.screenshotPNGData,
-            let imageSource = CGImageSourceCreateWithData(screenshotPNGData as CFData, nil),
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
-            let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
-            let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
-            pixelWidth > 0,
-            pixelHeight > 0
-        else {
-            return nil
-        }
-
-        return CGSize(width: pixelWidth, height: pixelHeight)
+    private func screenshotPixelSize(snapshot: AppSnapshot) throws -> CGSize? {
+        try resolveScreenshotPixelSize(
+            snapshotPixelSize: snapshot.screenshotPNGData.flatMap { pngPixelSize(of: $0) },
+            windowID: snapshot.targetWindowID,
+            windowBounds: snapshot.windowBounds,
+            lastReturned: lastReturnedScreenshotFrames[snapshot.app.pid]
+        )
     }
 
     private func windowPointToGlobalPoint(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
@@ -2063,12 +2146,32 @@ public final class ComputerUseService {
         }
     }
 
-    private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
+    private func snapshotResult(
+        for snapshot: AppSnapshot,
+        style: SnapshotTextStyle,
+        includeScreenshot: Bool = false
+    ) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
         // The compact view exists to cut tokens; attaching the screenshot would defeat it.
-        if style != .compactActionable, let screenshotPNGData = snapshot.screenshotPNGData {
+        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.elements.isEmpty),
+           let screenshotPNGData = snapshot.screenshotPNGData {
             content.append(.pngImage(screenshotPNGData))
+            rememberReturnedScreenshotFrame(for: snapshot, pngData: screenshotPNGData)
         }
         return ToolCallResult(content: content)
+    }
+
+    /// Records the frame of a screenshot handed to the caller so later x/y coordinates, read from
+    /// that image, are scaled against it even when a text-only result replaced the cached snapshot.
+    private func rememberReturnedScreenshotFrame(for snapshot: AppSnapshot, pngData: Data) {
+        guard let windowBounds = snapshot.windowBounds, let pixelSize = pngPixelSize(of: pngData) else {
+            return
+        }
+
+        lastReturnedScreenshotFrames[snapshot.app.pid] = ReturnedScreenshotFrame(
+            windowID: snapshot.targetWindowID,
+            windowSize: windowBounds.size,
+            pixelSize: pixelSize
+        )
     }
 }

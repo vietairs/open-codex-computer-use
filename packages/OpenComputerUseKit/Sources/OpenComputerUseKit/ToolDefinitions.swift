@@ -49,6 +49,7 @@ public enum ToolDefinitions {
                         description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1.",
                         enumValues: ClickMethod.allCases.map(\.rawValue)
                     ),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app"]
             )
@@ -64,6 +65,7 @@ public enum ToolDefinitions {
                     "from_y": numberProperty(description: "Start Y coordinate"),
                     "to_x": numberProperty(description: "End X coordinate"),
                     "to_y": numberProperty(description: "End Y coordinate"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "from_x", "from_y", "to_x", "to_y"]
             )
@@ -98,6 +100,7 @@ public enum ToolDefinitions {
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "action": stringProperty(description: "Secondary accessibility action name"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "element_index", "action"]
             )
@@ -110,6 +113,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "key": stringProperty(description: "Key or key combination to press"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "key"]
             )
@@ -124,6 +128,7 @@ public enum ToolDefinitions {
                     "direction": stringProperty(description: "Scroll direction: up, down, left, or right"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "pages": numberProperty(description: "Number of pages to scroll. Fractional values are supported. Defaults to 1"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "element_index", "direction"]
             )
@@ -137,6 +142,7 @@ public enum ToolDefinitions {
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "value": stringProperty(description: "Value to assign"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "element_index", "value"]
             )
@@ -149,6 +155,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "text": stringProperty(description: "Literal text to type"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "text"]
             )
@@ -225,6 +232,8 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
 
     return property
 }
+
+private let includeScreenshotPropertyDescription = "Attach a window screenshot to the result. Defaults to false: action results are text-only unless the accessibility tree is empty."
 
 private func booleanProperty(description: String) -> [String: Any] {
     [

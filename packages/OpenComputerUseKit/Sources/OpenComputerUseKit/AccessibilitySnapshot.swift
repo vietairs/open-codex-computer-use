@@ -309,12 +309,45 @@ public enum SnapshotTextStyle {
     case compactActionable
 }
 
+/// Decides when a snapshot build captures the window image.
+enum SnapshotCapturePolicy: Equatable, Sendable {
+    /// Capture before the walk: get_app_state and cache-miss builds.
+    case always
+    /// The window image is never requested, so SCScreenshotManager is never called.
+    case never
+    /// Walk first; capture only if the walk produced zero element records.
+    case whenTreeEmpty
+}
+
+enum WindowImageCaptureTiming: Equatable {
+    case beforeWalk
+    case afterWalkIfTreeEmpty
+    case skip
+}
+
+/// Off-screen windows are never captured (the capture API cannot see them), whatever the policy.
+func windowImageCaptureTiming(policy: SnapshotCapturePolicy, isOnscreen: Bool) -> WindowImageCaptureTiming {
+    guard isOnscreen else {
+        return .skip
+    }
+
+    switch policy {
+    case .always:
+        return .beforeWalk
+    case .whenTreeEmpty:
+        return .afterWalkIfTreeEmpty
+    case .never:
+        return .skip
+    }
+}
+
 enum SnapshotBuilder {
     static func build(
         for app: RunningAppDescriptor,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
+        capture: SnapshotCapturePolicy = .always
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -349,7 +382,7 @@ enum SnapshotBuilder {
         rootWindow = resolvedFocusedWindow
 
         var windowTitle = stringValue(of: rootWindow, attribute: kAXTitleAttribute)
-        var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+        var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: rootWindow) {
@@ -357,7 +390,7 @@ enum SnapshotBuilder {
             if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
                 rootWindow = recoveredWindow
                 windowTitle = stringValue(of: recoveredWindow, attribute: kAXTitleAttribute)
-                windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+                windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
             }
         }
 
@@ -374,7 +407,8 @@ enum SnapshotBuilder {
             focusedApplication: focusedApplication,
             systemWide: systemWide,
             textLimit: textLimit,
-            treeLimits: treeLimits
+            treeLimits: treeLimits,
+            capture: capture
         )
     }
 
@@ -387,10 +421,11 @@ enum SnapshotBuilder {
         focusedApplication: AXUIElement?,
         systemWide: AXUIElement,
         textLimit: SnapshotTextLimit,
-        treeLimits: AccessibilityTreeLimits
+        treeLimits: AccessibilityTreeLimits,
+        capture: SnapshotCapturePolicy
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
-        let screenshotPNGData = windowCapture.pngDataIfAvailable()
+        let captureTiming = windowImageCaptureTiming(policy: capture, isOnscreen: windowCapture.isOnscreen)
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
         let context = RenderContext(
@@ -406,6 +441,15 @@ enum SnapshotBuilder {
            !CFEqual(menuBar, rootElement)
         {
             renderer.render(menuBar)
+        }
+
+        // The image was captured before the walk for .beforeWalk; for .afterWalkIfTreeEmpty it is
+        // taken now, only when the walk found nothing to act on.
+        let screenshotPNGData: Data?
+        if captureTiming == .afterWalkIfTreeEmpty, renderer.records.isEmpty {
+            screenshotPNGData = windowCapture.capturingImage().pngDataIfAvailable()
+        } else {
+            screenshotPNGData = windowCapture.pngDataIfAvailable()
         }
 
         return AppSnapshot(
@@ -596,8 +640,9 @@ private struct WindowCapture {
     let layer: Int
     let bounds: CGRect
     let image: CGImage?
+    let isOnscreen: Bool
 
-    static func resolve(for pid: pid_t, titleHint: String?) -> WindowCapture? {
+    static func resolve(for pid: pid_t, titleHint: String?, captureImage shouldCaptureImage: Bool = true) -> WindowCapture? {
         // Query all windows (not just onscreen) so Stage Manager background apps are included.
         guard let infoList = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
             return nil
@@ -635,9 +680,25 @@ private struct WindowCapture {
 
         // Skip screenshot for off-screen windows (Stage Manager background strips):
         // SCShareableContent only returns onscreen windows, so capture would return nil anyway.
-        let image = best.isOnscreen ? captureImage(windowID: best.windowID, bounds: best.bounds) : nil
+        let image = shouldCaptureImage && best.isOnscreen ? captureImage(windowID: best.windowID, bounds: best.bounds) : nil
 
-        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
+        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image, isOnscreen: best.isOnscreen)
+    }
+
+    /// Returns this capture with the window image taken now, reusing the already-resolved window
+    /// id and bounds. Off-screen windows and captures that already hold an image are unchanged.
+    func capturingImage() -> WindowCapture {
+        guard isOnscreen, image == nil else {
+            return self
+        }
+
+        return WindowCapture(
+            windowID: windowID,
+            layer: layer,
+            bounds: bounds,
+            image: Self.captureImage(windowID: windowID, bounds: bounds),
+            isOnscreen: isOnscreen
+        )
     }
 
     private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
