@@ -1,22 +1,20 @@
 import Foundation
 
 let baseComputerUseServerInstructions = """
-Computer Use tools let you interact with macOS apps by performing UI actions.
+Computer Use tools let you interact with macOS apps by performing UI actions. If an app's dedicated plugin or skill can do the task, prefer it.
 
-Some apps might have a separate dedicated plugin or skill. You may want to use that plugin or skill instead of Computer Use when it seems like a good fit for the task. While the separate plugin or skill may not expose every feature in the app, if the plugin can perform the task with its available features, prefer it. If the needed capability is not exposed there, use Computer Use may be appropriate for the missing interaction.
+Call `get_app_state` at the start of each assistant turn that uses Computer Use, because the user may have changed the app since your last turn. Within a turn, action results already include the refreshed text state, so do not call `get_app_state` after every action.
 
-Begin by calling `get_app_state` at the start of each assistant turn in which you want to use Computer Use, because the user may have changed the app since your last turn. Codex will automatically stop the session after each assistant turn, so this step is required before interacting with apps in a new assistant turn. Within a turn, action results already include the refreshed text state, so do not call `get_app_state` after every action.
+Use `perform_actions` for any short sequence you can fully specify from the current state, such as focusing a field, typing text and pressing Return. It runs the steps in order, stops at the first failure, and returns one final state with a line per step. Every `element_index` refers to the state you last received. Keep externally visible steps such as Send in their own call, after you confirm them.
 
-The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
+The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are not available, use tool_search to surface them, and load `perform_actions` together with `get_app_state`.
 
-Computer Use tools allow you to use the user's apps in the background, so while you're using an app, the user can continue to use other apps on their computer. Avoid doing anything that would disrupt the user's active session, such as overwriting the contents of their clipboard, unless they asked you to!
+Computer Use drives the user's apps in the background while they keep using other apps. Do not disrupt their session, for example by overwriting the clipboard, unless they asked you to.
 
-After each action, use the action result to verify the UI changed as expected; call `get_app_state` only when the result lacks what you need. Action results are text-only unless you pass `include_screenshot: true`; take x/y coordinates only from the most recent screenshot you received.
-Prefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Note that element indices are the sequential integers from the app state's accessibility tree.
+Verify each action from its result; call `get_app_state` only when the result lacks what you need. Results are text-only unless you pass `include_screenshot: true`; take x/y coordinates only from the most recent screenshot.
+Prefer `element_index` over coordinate clicks; indices are the integers in the app state's accessibility tree.
 Avoid falling back to AppleScript during a computer use session. Prefer Computer Use tools as much as possible to complete tasks.
-Ask the user before taking destructive or externally visible actions such as sending, deleting, or purchasing. If helpful, you can ask follow-up questions before taking action to make sure you’re understanding the user’s request correctly.
-
-Use `perform_actions` for a short sequence you can fully specify from the current state, for example focusing a field, typing text and pressing Return. It runs the steps in order, stops at the first failure, and returns one final state with a line per step. Every `element_index` in the batch refers to the state you last received, so a step cannot target an element that an earlier step in the same batch reveals. Keep externally visible steps such as Send in their own call, after you confirm them.
+Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing, and ask follow-up questions when the request is unclear.
 """
 
 /// The base instructions under their original name, for existing callers that compare against the unmodified text.

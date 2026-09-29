@@ -2,7 +2,7 @@ import XCTest
 @testable import OpenComputerUseKit
 
 /// Pins the agent-facing server instructions: start-of-turn freshness stays, per-action state fetches go, the batch
-/// tool is named, and the AppleScript line keeps its exact text and position.
+/// tool is named, the AppleScript line keeps its exact text and position, and the whole text fits the host limit.
 final class ServerInstructionsGuidanceTests: XCTestCase {
     private let appleScriptLine =
         "Avoid falling back to AppleScript during a computer use session. Prefer Computer Use tools as much as possible to complete tasks."
@@ -27,7 +27,7 @@ final class ServerInstructionsGuidanceTests: XCTestCase {
 
     func testInstructionsExplainWhenToBatch() {
         XCTAssertTrue(
-            baseComputerUseServerInstructions.contains("Use `perform_actions` for a short sequence you can fully specify")
+            baseComputerUseServerInstructions.contains("Use `perform_actions` for any short sequence you can fully specify")
         )
     }
 
@@ -41,6 +41,20 @@ final class ServerInstructionsGuidanceTests: XCTestCase {
         XCTAssertGreaterThan(lines.count, 12)
         guard lines.count > 12 else { return }
         XCTAssertEqual(lines[12], appleScriptLine)
+    }
+
+    // MCP hosts such as Claude Code truncate server instructions at 2048 characters, so anything past that is never
+    // seen by the agent.
+    private let hostInstructionsCharacterLimit = 2048
+
+    func testInstructionsFitTheHostCharacterLimit() {
+        XCTAssertLessThanOrEqual(baseComputerUseServerInstructions.count, hostInstructionsCharacterLimit)
+    }
+
+    func testBatchingGuidanceSurvivesHostTruncation() {
+        let visiblePrefix = String(baseComputerUseServerInstructions.prefix(hostInstructionsCharacterLimit))
+        XCTAssertTrue(visiblePrefix.contains("Use `perform_actions`"))
+        XCTAssertTrue(visiblePrefix.contains("load `perform_actions` together with `get_app_state`"))
     }
 
     func testCascadeGuideIsNotAppendedWithoutTheAdvisoryTool() {
