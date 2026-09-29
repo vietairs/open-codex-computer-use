@@ -705,10 +705,18 @@ private struct WindowCapture {
             )
         }
 
+        // Read lazily: only a window in front of the chosen one needs its modal flag.
+        var nonModalWindowIDs: Set<CGWindowID>?
         guard let best = preferredWindowCaptureCandidate(
             candidates,
             titleHint: titleHint,
-            preferredWindowID: accessibilityWindowID
+            preferredWindowID: accessibilityWindowID,
+            isNonModalAccessibilityWindow: { windowID in
+                if nonModalWindowIDs == nil {
+                    nonModalWindowIDs = liveNonModalAccessibilityWindowIDs(pid: pid)
+                }
+                return nonModalWindowIDs?.contains(windowID) ?? false
+            }
         ) else {
             return nil
         }
@@ -790,11 +798,16 @@ struct WindowCaptureCandidate {
 ///    unrelated bounds. Off-screen windows are considered only when no usable window is on screen.
 ///
 /// A frontmost window in the same on-screen group that overlaps the chosen window (a modal panel) still wins, so
-/// the screenshot shows what covers the target.
+/// the screenshot shows what covers the target. Windows that `isNonModalAccessibilityWindow` reports as separate
+/// non-modal windows of the app (Mail's search suggestions list, shown once its search field has focus) are skipped
+/// for that check: they cover only a corner, belong to no modal flow, and are not part of the chosen window's
+/// accessibility tree, so capturing them would swap the window identity and size under the caller. The check is
+/// consulted only for windows in front of the chosen one.
 func preferredWindowCaptureCandidate(
     _ candidates: [WindowCaptureCandidate],
     titleHint: String?,
-    preferredWindowID: CGWindowID? = nil
+    preferredWindowID: CGWindowID? = nil,
+    isNonModalAccessibilityWindow: (CGWindowID) -> Bool = { _ in false }
 ) -> WindowCaptureCandidate? {
     let usable = candidates
         .filter { $0.layer == 0 && $0.area >= 20_000 }
@@ -819,23 +832,38 @@ func preferredWindowCaptureCandidate(
         titleMatch = nil
     }
 
-    // `usable` is non-empty, so `pool` is too.
-    let frontmost = pool[0]
-
     guard let hinted = accessibilityMatch ?? titleMatch else {
-        return frontmost
+        // `usable` is non-empty, so `pool` is too.
+        return pool[0]
     }
 
     // An off-screen AX root outside the on-screen pool is not covered by anything in that pool.
-    let hintedIsInPool = pool.contains(where: { $0.windowID == hinted.windowID })
-    if hintedIsInPool,
-       frontmost.windowID != hinted.windowID,
-       frontmost.bounds.intersects(hinted.bounds)
-    {
-        return frontmost
+    guard let hintedPosition = pool.firstIndex(where: { $0.windowID == hinted.windowID }) else {
+        return hinted
+    }
+
+    let covering = pool[..<hintedPosition].first { !isNonModalAccessibilityWindow($0.windowID) }
+    if let covering, covering.bounds.intersects(hinted.bounds) {
+        return covering
     }
 
     return hinted
+}
+
+/// Window-server ids of the app's accessibility windows that explicitly report `AXModal == false`. A window whose id
+/// or modal flag cannot be read is left out, so it keeps today's "covering window wins" treatment.
+func nonModalAccessibilityWindowIDs(_ windows: [(windowID: CGWindowID?, isModal: Bool?)]) -> Set<CGWindowID> {
+    Set(windows.compactMap { window in
+        window.isModal == false ? window.windowID : nil
+    })
+}
+
+/// Live reads for `nonModalAccessibilityWindowIDs`: the app's AX windows, their window-server ids, and `AXModal`.
+private func liveNonModalAccessibilityWindowIDs(pid: pid_t) -> Set<CGWindowID> {
+    let windows = copyArray(AXUIElementCreateApplication(pid), attribute: kAXWindowsAttribute) ?? []
+    return nonModalAccessibilityWindowIDs(windows.map { window in
+        (windowID: accessibilityWindowID(of: window), isModal: boolValue(of: window, attribute: kAXModalAttribute))
+    })
 }
 
 func boundedScreenshotPNGData(
