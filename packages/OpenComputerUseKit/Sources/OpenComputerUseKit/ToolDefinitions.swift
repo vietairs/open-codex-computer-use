@@ -149,7 +149,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "type_text",
-            description: "Type literal text using keyboard input. This tool is part of plugin `Computer Use`.",
+            description: "Type literal text using keyboard input. Types into the app's focused text field without bringing the app to the front, and fails when no text field holds focus: click or focus the field first, or use set_value. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [

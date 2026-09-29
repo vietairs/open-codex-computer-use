@@ -1063,24 +1063,16 @@ public final class ComputerUseService {
             liveFocus: { liveFocusedElement(pinned: snapshot) }
         )
 
-        if try typeTextBySettingFocusedValueIfAvailable(text, focusedElement: focusedElement) {
+        // Never activates the target: without a confirmed text focus the call fails instead of guessing.
+        let route = try deliverTypedText(
+            focus: try typeTextFocus(of: focusedElement),
+            appName: snapshot.app.name,
+            setValue: { try typeTextBySettingFocusedValueIfAvailable(text, focusedElement: focusedElement) },
+            postKeys: { try InputSimulation.typeText(text, pid: snapshot.app.pid) }
+        )
+        if route == .setFocusedValue {
             Thread.sleep(forTimeInterval: 0.1)
-            return try finishAction(query: query, context: context)
         }
-
-        if !(try canTypeTextUsingKeyboardFallback(focusedElement: focusedElement)) {
-            // Stage Manager background app has no focused element; briefly activate to accept input, then restore.
-            let originalPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            NSRunningApplication(processIdentifier: snapshot.app.pid)?.activate(options: [])
-            Thread.sleep(forTimeInterval: 0.08)
-            try InputSimulation.typeText(text, pid: snapshot.app.pid)
-            if let orig = originalPID {
-                NSRunningApplication(processIdentifier: orig)?.activate(options: [])
-            }
-            return try finishAction(query: query, context: context)
-        }
-
-        try InputSimulation.typeText(text, pid: snapshot.app.pid)
         return try finishAction(query: query, context: context)
     }
 
@@ -2004,19 +1996,23 @@ public final class ComputerUseService {
         }
     }
 
-    private func canTypeTextUsingKeyboardFallback(focusedElement: AXUIElement?) throws -> Bool {
+    private func typeTextFocus(of focusedElement: AXUIElement?) throws -> TypeTextFocus? {
         guard let element = focusedElement else {
-            return false
+            return nil
         }
 
         let role = stringValue(of: element, attribute: kAXRoleAttribute)
         let roleDescription = role.flatMap {
             stringValue(of: element, attribute: kAXRoleDescriptionAttribute) ?? humanizedRoleDescription(for: $0)
         }
-        return canUseKeyboardTextFallback(
-            role: role,
-            roleDescription: roleDescription,
-            isValueSettable: try isSettableForSetValue(element: element, attribute: kAXValueAttribute)
+        let isValueSettable = try isSettableForSetValue(element: element, attribute: kAXValueAttribute)
+        return TypeTextFocus(
+            isValueSettable: isValueSettable,
+            acceptsKeyboardText: canUseKeyboardTextFallback(
+                role: role,
+                roleDescription: roleDescription,
+                isValueSettable: isValueSettable
+            )
         )
     }
 
