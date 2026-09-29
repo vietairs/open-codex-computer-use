@@ -113,6 +113,17 @@ enum BatchActionRunner {
         }
     }
 
+    /// Refusal text when a step targets an `element_index` but this session holds no state for the app. Indices
+    /// only mean something against a state the agent received; a fresh build would renumber them silently.
+    /// Coordinate and key-only batches never need it. Nil when the batch may run.
+    static func missingReceivedStateMessage(app: String, steps: [ActionStep], hasReceivedState: Bool) -> String? {
+        guard !hasReceivedState, let offset = steps.firstIndex(where: { $0.elementIndex != nil }) else {
+            return nil
+        }
+
+        return "step \(offset + 1): element_index needs the state you received, and none is cached for this app in this session; call get_app_state for \(app) before perform_actions"
+    }
+
     /// Read-only when any click uses `sky_click`, so the final refresh never activates an app that click avoided.
     static func mostRestrictiveRecoveryPolicy(for steps: [ActionStep]) -> SnapshotRecoveryPolicy {
         let usesSkyClick = steps.contains { step in

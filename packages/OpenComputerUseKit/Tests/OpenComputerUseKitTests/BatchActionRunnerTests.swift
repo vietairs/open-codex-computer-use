@@ -272,6 +272,69 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertEqual(BatchActionRunner.unknownElementIndices(in: steps, knownIndices: [1]), ["abc", "77"])
     }
 
+    // MARK: - Received state required for element_index steps
+
+    func testElementIndexStepWithoutReceivedStateFailsClosedNamingTheFirstSuchStep() throws {
+        let steps: [ActionStep] = [
+            .pressKey(key: "cmd+f"),
+            .setValue(elementIndex: "12", value: "v"),
+            clickStep,
+        ]
+
+        let message = try XCTUnwrap(
+            BatchActionRunner.missingReceivedStateMessage(app: "Mail", steps: steps, hasReceivedState: false)
+        )
+
+        XCTAssertTrue(message.hasPrefix("step 2: "), message)
+        XCTAssertTrue(message.contains("call get_app_state for Mail before perform_actions"), message)
+    }
+
+    func testElementIndexStepsRunWhenStateWasReceived() {
+        XCTAssertNil(BatchActionRunner.missingReceivedStateMessage(app: "Mail", steps: fourSteps(), hasReceivedState: true))
+    }
+
+    func testCoordinateAndKeyOnlyBatchesNeedNoReceivedState() {
+        let steps: [ActionStep] = [
+            .click(elementIndex: nil, x: 10, y: 20, clickCount: 1, mouseButton: "left", clickMethod: .auto),
+            .typeText(text: "hello"),
+            .pressKey(key: "Return"),
+        ]
+
+        XCTAssertNil(BatchActionRunner.missingReceivedStateMessage(app: "Mail", steps: steps, hasReceivedState: false))
+    }
+
+    func testDispatcherRefusesElementIndexBatchWithoutReceivedStateBeforeResolvingTheApp() {
+        let result = makeUnlockedDispatcher().callToolAsResult(
+            name: "perform_actions",
+            arguments: [
+                "app": "NoSuchApp-batch-state-test",
+                "actions": [step("press_key", ["key": "a"]), step("click", ["element_index": "3"])],
+            ]
+        )
+
+        XCTAssertTrue(result.isError)
+        let text = result.primaryText ?? ""
+        XCTAssertTrue(text.contains("step 2: "), text)
+        XCTAssertTrue(text.contains("call get_app_state for NoSuchApp-batch-state-test before perform_actions"), text)
+        XCTAssertFalse(text.contains("appNotFound"), text)
+    }
+
+    func testDispatcherLetsCoordinateAndKeyOnlyBatchesPassTheStateCheck() {
+        let result = makeUnlockedDispatcher().callToolAsResult(
+            name: "perform_actions",
+            arguments: [
+                "app": "NoSuchApp-batch-state-test",
+                "actions": [step("click", ["x": 10, "y": 20]), step("press_key", ["key": "a"])],
+            ]
+        )
+
+        // The batch got past the state check and failed only on resolving the unknown app.
+        XCTAssertTrue(result.isError)
+        let text = result.primaryText ?? ""
+        XCTAssertTrue(text.contains("appNotFound"), text)
+        XCTAssertFalse(text.contains("before perform_actions"), text)
+    }
+
     func testMostRestrictiveRecoveryPolicyIsReadOnlyOnlyWhenAnyClickUsesSkyClick() {
         let auto = clickStep
         let sky = ActionStep.click(

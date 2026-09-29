@@ -159,6 +159,7 @@ When the gate is not enabled, treat window-server drags as unavailable and reach
 
 - Steps run in order and stop at the first failure. The result has one line per step, then one final app state.
 - Every `element_index` refers to the state you last received, so a step cannot target an element that an earlier step in the same batch reveals.
+- A batch with any `element_index` step is refused before any step runs when this session holds no state for the app; call `get_app_state` first. Coordinate-only and key-only batches still run.
 - Live focus and window geometry are read per step, and nearby hit-testing is off inside a batch.
 - The batch holds the per-call environment lock for its whole duration.
 - Keep externally visible steps such as Send in their own call, after you confirm them.

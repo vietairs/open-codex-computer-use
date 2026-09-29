@@ -1151,6 +1151,12 @@ public final class ComputerUseService {
         includeScreenshot: Bool,
         checkLock: () throws -> Void
     ) throws -> ToolCallResult {
+        if let message = BatchActionRunner.missingReceivedStateMessage(
+            app: query, steps: steps, hasReceivedState: snapshotsByApp[query.lowercased()] != nil
+        ) {
+            throw ComputerUseError.invalidArguments(message)
+        }
+
         let pinned = try currentSnapshot(for: query)
 
         // Validate every step before any of them runs, so a bad step never leaves a half-applied batch.
