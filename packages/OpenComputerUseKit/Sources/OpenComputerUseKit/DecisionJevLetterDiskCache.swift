@@ -13,6 +13,8 @@ struct DecisionJevLetterDiskCache: Sendable {
     /// An entry resolved longer ago than this is a miss, so a tokenizer redeploy that nothing else flags heals itself.
     static let maxEntryAge: TimeInterval = 7 * 24 * 60 * 60
     static let maxFileBytes = 64 * 1024
+    /// How the shared owner-only reader names this file in its errors.
+    static let fileDescription = "jev letter cache file"
     private static let expectedLetterCount = 26
     /// Tolerated clock skew for an entry stamped slightly in the future.
     private static let maxFutureSkew: TimeInterval = 5 * 60
@@ -80,7 +82,9 @@ struct DecisionJevLetterDiskCache: Sendable {
     /// nil on any problem. Never throws.
     func load(baseURL: URL, model: String, samplePromptSHA256: String) -> Entry? {
         let url = fileURL(baseURL: baseURL, model: model)
-        guard let data = try? readOwnerOnlyRegularFile(path: url.path, maxBytes: Self.maxFileBytes) else { return nil }
+        guard let data = try? readOwnerOnlyRegularFile(
+            path: url.path, maxBytes: Self.maxFileBytes, fileDescription: Self.fileDescription
+        ) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let entry = try? decoder.decode(Entry.self, from: data),

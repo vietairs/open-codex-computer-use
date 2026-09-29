@@ -121,7 +121,7 @@ public enum DecisionRemoteBackendConfigLoader {
     }
 
     private static func readValidated(path: String) throws -> Data {
-        try readOwnerOnlyRegularFile(path: path, maxBytes: maxFileSizeBytes)
+        try readOwnerOnlyRegularFile(path: path, maxBytes: maxFileSizeBytes, fileDescription: "remote-backend config file")
     }
 
     /// https only, non-empty host, optional port 1-65535, no userinfo/query/fragment, path empty or "/". Stored
@@ -170,18 +170,18 @@ public enum DecisionRemoteBackendConfigLoader {
 /// swapped between a check and a later open), `O_NONBLOCK` keeps a FIFO from blocking this call forever if the
 /// path were ever swapped for one, and every check below (`fstat`, size, the read loop) runs against that same
 /// fd — so nothing here re-resolves the path a second time.
-func readOwnerOnlyRegularFile(path: String, maxBytes: Int) throws -> Data {
+func readOwnerOnlyRegularFile(path: String, maxBytes: Int, fileDescription: String) throws -> Data {
     let fd = path.withCString { open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) }
     guard fd >= 0 else {
         // Distinguish "nothing there" from every other `open` failure (permission denied, too many open files,
-        // a path component that is not a directory, …), so an error message never claims a config file is
+        // a path component that is not a directory, …), so an error message never claims the file is
         // simply missing when the real cause was something else. `strerror` text is a fixed, safe libc string —
         // never file contents or a config value.
         switch errno {
         case ELOOP:
             throw DecisionModelError.remoteConfig("\(path) must be a regular file, not a symlink")
         case ENOENT:
-            throw DecisionModelError.remoteConfig("no remote-backend config file at \(path)")
+            throw DecisionModelError.remoteConfig("no \(fileDescription) at \(path)")
         default:
             throw DecisionModelError.remoteConfig("\(path) could not be opened (\(String(cString: strerror(errno))))")
         }

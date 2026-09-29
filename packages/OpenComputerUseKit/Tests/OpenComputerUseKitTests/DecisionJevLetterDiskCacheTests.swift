@@ -462,6 +462,22 @@ final class DecisionJevLetterDiskCacheTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL().path))
     }
 
+    // MARK: - Shared owner-only reader
+
+    func testMissingCacheFileErrorNamesTheCacheFileNotTheRemoteBackendConfig() {
+        let missing = root.appendingPathComponent("absent.json").path
+
+        XCTAssertThrowsError(
+            try readOwnerOnlyRegularFile(
+                path: missing, maxBytes: 16, fileDescription: DecisionJevLetterDiskCache.fileDescription
+            )
+        ) { error in
+            let message = error.localizedDescription
+            XCTAssertEqual(message, "no jev letter cache file at \(missing)")
+            XCTAssertFalse(message.contains("remote-backend"), message)
+        }
+    }
+
     // MARK: - Production path shape
 
     func testProductionDirectoryPathShape() {
