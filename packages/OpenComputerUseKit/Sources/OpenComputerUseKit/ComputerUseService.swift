@@ -237,6 +237,9 @@ struct ReturnedScreenshotFrame: Equatable {
     let pixelSize: CGSize
 }
 
+/// Settle time after an action before its result is read, and between steps of a perform_actions batch.
+let postActionSettleInterval: TimeInterval = 0.15
+
 let screenshotFrameMismatchMessage =
     "x/y coordinates refer to a screenshot of a different window or window size. Call get_app_state, or repeat the action with include_screenshot=true, and read coordinates from the new screenshot."
 
@@ -711,7 +714,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
             }
 
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
             return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
@@ -874,7 +877,7 @@ public final class ComputerUseService {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
         }
 
-        Thread.sleep(forTimeInterval: 0.15)
+        Thread.sleep(forTimeInterval: postActionSettleInterval)
         return try finishAction(query: query, includeScreenshot: includeScreenshot)
     }
 
@@ -895,7 +898,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("fixture scroll requires an identifier-backed element")
             }
             try FixtureBridge.post(FixtureCommand(kind: "scroll", identifier: identifier, direction: normalized, pages: pages))
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
@@ -925,7 +928,7 @@ public final class ComputerUseService {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "drag", identifier: "fixture-drag-pad", x: fromX, y: fromY, toX: toX, toY: toY))
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
@@ -947,7 +950,7 @@ public final class ComputerUseService {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
@@ -976,7 +979,7 @@ public final class ComputerUseService {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
 
@@ -996,7 +999,7 @@ public final class ComputerUseService {
             let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
             moveVisualCursor(to: cursorTarget)
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             settleVisualCursor(at: cursorTarget)
             return try finishAction(query: query, includeScreenshot: includeScreenshot)
         }
