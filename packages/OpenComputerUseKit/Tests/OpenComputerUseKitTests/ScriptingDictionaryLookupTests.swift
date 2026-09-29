@@ -295,6 +295,80 @@ final class ScriptingDictionaryLookupTests: XCTestCase {
         }
     }
 
+    func testInternalEntityExpansionIsBounded() throws {
+        var declarations = "<!ENTITY lol0 \"lol\">"
+        for level in 1...9 {
+            let previous = String(repeating: "&lol\(level - 1);", count: 10)
+            declarations += "<!ENTITY lol\(level) \"\(previous)\">"
+        }
+        let prolog = " [\(declarations)]"
+        let variants = [
+            sdef(
+                suiteBody: "        <command name=\"probe\" code=\"fakecmd0\" description=\"A probe.\">&lol9;</command>",
+                prolog: prolog
+            ),
+            sdef(
+                suiteBody: "        <command name=\"probe\" code=\"fakecmd0\" description=\"&lol9;\"/>",
+                prolog: prolog
+            ),
+        ]
+        for variant in variants {
+            try installMainDefinition(variant)
+            let started = Date()
+            do {
+                let text = try summary()
+                XCTAssertLessThanOrEqual(
+                    text.count,
+                    ScriptingDictionaryLookup.maximumSummaryCharacters + 200,
+                    "an expanded entity must not blow up the summary"
+                )
+            } catch ScriptingDictionaryLookupError.malformedDefinition {
+                // The parser refusing the amplification is the expected bounded failure.
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+        }
+    }
+
+    func testParameterEntityDeclarationsAreAccepted() throws {
+        // iWork definitions declare parameter entities in their internal subset; they must keep working.
+        try installMainDefinition(sdef(
+            suiteBody: commandXML("kept command"),
+            prolog: " [<!ENTITY % common.attrib \"name CDATA #IMPLIED\">]"
+        ))
+
+        XCTAssertTrue(try summary().contains("kept command"))
+    }
+
+    func testIncludeByteLimitIsTheRemainingExpansionBudget() {
+        let perFile = ScriptingDictionaryLookup.maximumDefinitionBytes
+        let total = ScriptingDictionaryLookup.maximumExpandedBytes
+        XCTAssertEqual(ScriptingDictionaryLookup.includeByteLimit(loadedBytes: 0), perFile)
+        XCTAssertEqual(ScriptingDictionaryLookup.includeByteLimit(loadedBytes: total - 10), 10)
+        XCTAssertEqual(ScriptingDictionaryLookup.includeByteLimit(loadedBytes: total), 0)
+        XCTAssertEqual(ScriptingDictionaryLookup.includeByteLimit(loadedBytes: total + 1), 0)
+    }
+
+    func testIncludeBeyondTheExpansionBudgetIsSkipped() throws {
+        let padding = String(repeating: " ", count: ScriptingDictionaryLookup.maximumDefinitionBytes - 4_096)
+        try writeResource("big1.sdef", sdef(suiteBody: commandXML("first big") + "\n" + padding))
+        try writeResource("big2.sdef", sdef(suiteBody: commandXML("second big") + "\n" + padding))
+        try writeResource("big3.sdef", sdef(suiteBody: commandXML("third big") + "\n" + padding))
+        try installMainDefinition(sdef(suiteBody: """
+        \(commandXML("kept command"))
+        \(includeXML(href: "big1.sdef"))
+        \(includeXML(href: "big2.sdef"))
+        \(includeXML(href: "big3.sdef"))
+        """))
+
+        let text = try summary()
+
+        XCTAssertTrue(text.contains("kept command"))
+        XCTAssertTrue(text.contains("first big"))
+        XCTAssertTrue(text.contains("second big"))
+        XCTAssertFalse(text.contains("third big"))
+        XCTAssertTrue(text.contains("total included size limit reached"), text)
+    }
+
     func testIncludeDepthIsBounded() throws {
         try writeResource("B.sdef", sdef(suiteBody: """
         \(commandXML("command b"))

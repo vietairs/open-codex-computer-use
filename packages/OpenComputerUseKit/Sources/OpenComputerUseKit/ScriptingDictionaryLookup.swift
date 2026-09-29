@@ -17,7 +17,9 @@ public enum ScriptingDictionaryLookupError: Error, Equatable {
 /// This is a static, read-only lookup. It never asks the OS for the dictionary (which can send an Apple Event to the
 /// target or launch it), never shells out to `sdef`, and never lets the XML parser touch the network or the file
 /// system on its own:
-/// - the parser runs with external entities disabled and XInclude processing off;
+/// - the parser runs with external entities disabled and XInclude processing off, and a document that declares a
+///   general entity is refused before parsing, because libxml2 expands nested entities in attribute values for
+///   minutes before its length limit trips;
 /// - `xi:include` elements are resolved by hand, only for `file:` or relative targets whose real path lies inside
 ///   the app bundle or under `allowedIncludeRoots`, with depth, count and total-size limits;
 /// - files are opened `O_NOFOLLOW | O_NONBLOCK`, checked with `fstat` to be regular files of bounded size, and read
@@ -192,6 +194,12 @@ public struct ScriptingDictionaryLookup {
     /// Only the bytes are handed to the parser, never a URL, with external entities disabled. XInclude processing is
     /// left off; includes are resolved by `expandIncludes`.
     private static func parse(_ data: Data) throws -> XMLDocument {
+        guard let text = declarationScanText(data) else {
+            throw ScriptingDictionaryLookupError.malformedDefinition("unsupported text encoding")
+        }
+        if text.range(of: "<!ENTITY\\s+[^%\\s]", options: .regularExpression) != nil {
+            throw ScriptingDictionaryLookupError.malformedDefinition("general entity declarations are not supported")
+        }
         do {
             return try XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever])
         } catch {
@@ -199,7 +207,29 @@ public struct ScriptingDictionaryLookup {
         }
     }
 
+    /// The document as text, only to look for entity declarations. UTF-16 with a byte-order mark is decoded; any
+    /// other encoding with NUL bytes up front (UTF-32, UTF-16 without a mark) is refused. ASCII-compatible encodings
+    /// keep `<!ENTITY` byte-identical, so a lossy UTF-8 decode is enough for them.
+    private static func declarationScanText(_ data: Data) -> String? {
+        let head = [UInt8](data.prefix(4))
+        let hasUTF16Mark = head.count >= 2 && ((head[0] == 0xFF && head[1] == 0xFE) || (head[0] == 0xFE && head[1] == 0xFF))
+        let isUTF32LEMark = head.count == 4 && head[0] == 0xFF && head[1] == 0xFE && head[2] == 0 && head[3] == 0
+        if hasUTF16Mark && !isUTF32LEMark {
+            return String(data: data, encoding: .utf16)
+        }
+        if head.contains(0) {
+            return nil
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+
     // MARK: - Include resolution
+
+    /// The most an include may add: the per-file cap, or what is left of the expansion budget if that is less. The
+    /// read checks the size with `fstat` before touching the contents, so an include over budget is never read.
+    static func includeByteLimit(loadedBytes: Int) -> Int {
+        max(0, min(maximumDefinitionBytes, maximumExpandedBytes - loadedBytes))
+    }
 
     private struct ExpansionState {
         var loadedBytes: Int
@@ -319,9 +349,14 @@ public struct ScriptingDictionaryLookup {
 
         let data: Data
         do {
-            data = try readDefinitionFile(URL(fileURLWithPath: resolved))
+            data = try readDefinitionFile(
+                URL(fileURLWithPath: resolved),
+                byteLimit: includeByteLimit(loadedBytes: state.loadedBytes)
+            )
         } catch let error as ScriptingDictionaryLookupError {
             switch error {
+            case .definitionTooLarge(let size) where size <= maximumDefinitionBytes:
+                state.skip("total included size limit reached")
             case .definitionTooLarge: state.skip("target is too large")
             case .definitionNotRegularFile: state.skip("target is not a regular file")
             default: state.skip("target is unreadable")
