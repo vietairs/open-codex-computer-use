@@ -74,7 +74,8 @@ func liveOffStageWindow(for window: AXUIElement) -> OffStageWindow? {
 @_silgen_name("_AXUIElementGetWindow")
 private func axUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
 
-private func accessibilityWindowID(of window: AXUIElement) -> CGWindowID? {
+/// The window-server id of an AX window, or nil when the private lookup fails.
+func accessibilityWindowID(of window: AXUIElement) -> CGWindowID? {
     var windowID: CGWindowID = 0
     guard axUIElementGetWindow(window, &windowID) == .success, windowID != 0 else {
         return nil

@@ -2411,6 +2411,77 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(selected?.windowID, main.windowID)
     }
 
+    private func captureCandidate(
+        _ windowID: CGWindowID,
+        bounds: CGRect,
+        title: String? = nil,
+        frontToBackIndex: Int,
+        isOnscreen: Bool
+    ) -> WindowCaptureCandidate {
+        WindowCaptureCandidate(
+            windowID: windowID,
+            layer: 0,
+            bounds: bounds,
+            title: title,
+            area: Int(bounds.width * bounds.height),
+            frontToBackIndex: frontToBackIndex,
+            isOnscreen: isOnscreen
+        )
+    }
+
+    func testWindowCapturePrefersAccessibilityRootOverEarlierOffscreenWindow() {
+        let phantom = captureCandidate(4352, bounds: CGRect(x: 0, y: 0, width: 420, height: 632), title: "Message", frontToBackIndex: 0, isOnscreen: false)
+        let hidden = captureCandidate(4346, bounds: CGRect(x: 0, y: 0, width: 500, height: 500), frontToBackIndex: 1, isOnscreen: false)
+        let viewer = captureCandidate(4344, bounds: CGRect(x: 0, y: 25, width: 1_458, height: 1_021), title: "Inbox", frontToBackIndex: 2, isOnscreen: true)
+
+        let selected = preferredWindowCaptureCandidate([phantom, hidden, viewer], titleHint: "Message", preferredWindowID: 4344)
+
+        XCTAssertEqual(selected?.windowID, viewer.windowID)
+    }
+
+    func testWindowCapturePrefersOffscreenAccessibilityRootOverOnscreenWindow() {
+        let onscreen = captureCandidate(1, bounds: CGRect(x: 0, y: 0, width: 800, height: 600), frontToBackIndex: 0, isOnscreen: true)
+        let root = captureCandidate(2, bounds: CGRect(x: 0, y: 0, width: 800, height: 600), frontToBackIndex: 1, isOnscreen: false)
+
+        let selected = preferredWindowCaptureCandidate([onscreen, root], titleHint: nil, preferredWindowID: 2)
+
+        XCTAssertEqual(selected?.windowID, root.windowID)
+    }
+
+    func testWindowCaptureKeepsOverlappingModalInFrontOfAccessibilityRoot() {
+        let panel = captureCandidate(2, bounds: CGRect(x: 120, y: 180, width: 880, height: 448), title: "Open", frontToBackIndex: 0, isOnscreen: true)
+        let main = captureCandidate(1, bounds: CGRect(x: 100, y: 100, width: 800, height: 600), title: "Nomi", frontToBackIndex: 1, isOnscreen: true)
+
+        let selected = preferredWindowCaptureCandidate([panel, main], titleHint: "Nomi", preferredWindowID: 1)
+
+        XCTAssertEqual(selected?.windowID, panel.windowID)
+    }
+
+    func testWindowCaptureWithoutAccessibilityIDPrefersOnscreenOverEarlierOffscreenWindow() {
+        let phantom = captureCandidate(4352, bounds: CGRect(x: 0, y: 0, width: 420, height: 632), title: "Inbox", frontToBackIndex: 0, isOnscreen: false)
+        let viewer = captureCandidate(4344, bounds: CGRect(x: 0, y: 25, width: 1_458, height: 1_021), title: "Inbox", frontToBackIndex: 1, isOnscreen: true)
+
+        XCTAssertEqual(preferredWindowCaptureCandidate([phantom, viewer], titleHint: nil)?.windowID, viewer.windowID)
+        XCTAssertEqual(preferredWindowCaptureCandidate([phantom, viewer], titleHint: "Inbox")?.windowID, viewer.windowID)
+    }
+
+    func testWindowCaptureUnknownAccessibilityIDFallsBackToOnscreenWindow() {
+        let phantom = captureCandidate(10, bounds: CGRect(x: 0, y: 0, width: 420, height: 632), frontToBackIndex: 0, isOnscreen: false)
+        let viewer = captureCandidate(11, bounds: CGRect(x: 0, y: 25, width: 1_458, height: 1_021), frontToBackIndex: 1, isOnscreen: true)
+
+        let selected = preferredWindowCaptureCandidate([phantom, viewer], titleHint: nil, preferredWindowID: 99)
+
+        XCTAssertEqual(selected?.windowID, viewer.windowID)
+    }
+
+    func testWindowCaptureAllOffscreenKeepsZOrderAndTitleHint() {
+        let front = captureCandidate(1, bounds: CGRect(x: 0, y: 0, width: 400, height: 300), title: "Front", frontToBackIndex: 0, isOnscreen: false)
+        let back = captureCandidate(2, bounds: CGRect(x: 1_000, y: 0, width: 800, height: 600), title: "Back", frontToBackIndex: 1, isOnscreen: false)
+
+        XCTAssertEqual(preferredWindowCaptureCandidate([back, front], titleHint: nil)?.windowID, front.windowID)
+        XCTAssertEqual(preferredWindowCaptureCandidate([back, front], titleHint: "Back")?.windowID, back.windowID)
+    }
+
     func testListTraversalPrefersVisibleChildrenAndReadsContents() {
         let attributes = childTraversalAttributes(
             role: kAXListRole as String,

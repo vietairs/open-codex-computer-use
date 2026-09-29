@@ -410,7 +410,12 @@ enum SnapshotBuilder {
         // An off-stage window is located by its own id and AX frame; the window-server entry is only the strip
         // thumbnail, so it is neither matched by size nor captured.
         var windowCapture = liveOffStageWindow(for: rootWindow).map(WindowCapture.offStage(_:))
-            ?? WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
+            ?? WindowCapture.resolve(
+                for: app.pid,
+                titleHint: windowTitle,
+                accessibilityWindowID: accessibilityWindowID(of: rootWindow),
+                captureImage: capture == .always
+            )
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app) {
@@ -418,7 +423,12 @@ enum SnapshotBuilder {
             if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
                 rootWindow = recoveredWindow
                 windowTitle = stringValue(of: recoveredWindow, attribute: kAXTitleAttribute)
-                windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
+                windowCapture = WindowCapture.resolve(
+                    for: app.pid,
+                    titleHint: windowTitle,
+                    accessibilityWindowID: accessibilityWindowID(of: recoveredWindow),
+                    captureImage: capture == .always
+                )
             }
         }
 
@@ -656,7 +666,14 @@ private struct WindowCapture {
         )
     }
 
-    static func resolve(for pid: pid_t, titleHint: String?, captureImage shouldCaptureImage: Bool = true) -> WindowCapture? {
+    /// `accessibilityWindowID` is the window-server id of the snapshot's AX root window; when it is among the
+    /// candidates it is the window captured, so the screenshot and window bounds match the accessibility tree.
+    static func resolve(
+        for pid: pid_t,
+        titleHint: String?,
+        accessibilityWindowID: CGWindowID? = nil,
+        captureImage shouldCaptureImage: Bool = true
+    ) -> WindowCapture? {
         // Query all windows (not just onscreen) so Stage Manager background apps are included.
         guard let infoList = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
             return nil
@@ -688,7 +705,11 @@ private struct WindowCapture {
             )
         }
 
-        guard let best = preferredWindowCaptureCandidate(candidates, titleHint: titleHint) else {
+        guard let best = preferredWindowCaptureCandidate(
+            candidates,
+            titleHint: titleHint,
+            preferredWindowID: accessibilityWindowID
+        ) else {
             return nil
         }
 
@@ -761,7 +782,20 @@ struct WindowCaptureCandidate {
     let isOnscreen: Bool
 }
 
-func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], titleHint: String?) -> WindowCaptureCandidate? {
+/// Picks the window to capture for a snapshot.
+///
+/// 1. The window whose id is `preferredWindowID` (the AX root window), when it is a usable candidate.
+/// 2. Otherwise the title-hinted or frontmost usable window, searched among on-screen windows first: apps such as
+///    Mail keep hidden layer-0 windows ahead of the visible one in z-order, and those have no screenshot and
+///    unrelated bounds. Off-screen windows are considered only when no usable window is on screen.
+///
+/// A frontmost window in the same on-screen group that overlaps the chosen window (a modal panel) still wins, so
+/// the screenshot shows what covers the target.
+func preferredWindowCaptureCandidate(
+    _ candidates: [WindowCaptureCandidate],
+    titleHint: String?,
+    preferredWindowID: CGWindowID? = nil
+) -> WindowCaptureCandidate? {
     let usable = candidates
         .filter { $0.layer == 0 && $0.area >= 20_000 }
         .sorted { lhs, rhs in
@@ -774,17 +808,28 @@ func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], tit
         }.first
     }
 
-    guard let titleHint, !titleHint.isEmpty,
-          let hinted = usable.first(where: { $0.title == titleHint })
-    else {
-        return usable.first
+    let onscreen = usable.filter(\.isOnscreen)
+    let pool = onscreen.isEmpty ? usable : onscreen
+
+    let accessibilityMatch = preferredWindowID.flatMap { id in usable.first(where: { $0.windowID == id }) }
+    let titleMatch: WindowCaptureCandidate?
+    if let titleHint, !titleHint.isEmpty {
+        titleMatch = pool.first(where: { $0.title == titleHint })
+    } else {
+        titleMatch = nil
     }
 
-    guard let frontmost = usable.first else {
-        return hinted
+    // `usable` is non-empty, so `pool` is too.
+    let frontmost = pool[0]
+
+    guard let hinted = accessibilityMatch ?? titleMatch else {
+        return frontmost
     }
 
-    if frontmost.windowID != hinted.windowID,
+    // An off-screen AX root outside the on-screen pool is not covered by anything in that pool.
+    let hintedIsInPool = pool.contains(where: { $0.windowID == hinted.windowID })
+    if hintedIsInPool,
+       frontmost.windowID != hinted.windowID,
        frontmost.bounds.intersects(hinted.bounds)
     {
         return frontmost
