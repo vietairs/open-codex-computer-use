@@ -451,6 +451,51 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertNil(geometry.localFrame)
     }
 
+    func testBatchCoordinateClickFailsClosedWhenTheWindowResizedSinceThePinnedScreenshot() {
+        XCTAssertThrowsError(
+            try batchStepGeometry(
+                pinnedWindowBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+                liveWindowBounds: CGRect(x: 0, y: 0, width: 1000, height: 600),
+                liveLocalFrame: nil,
+                needsElementFrame: false,
+                elementIndex: nil,
+                scalesByPinnedScreenshot: true
+            )
+        ) { error in
+            XCTAssertEqual(BatchActionRunner.errorText(error), screenshotFrameMismatchMessage)
+        }
+    }
+
+    func testBatchCoordinateClickKeepsThePinnedScreenshotWhenOnlyTheWindowMoved() throws {
+        let live = CGRect(x: 40, y: 60, width: 800, height: 600)
+
+        let geometry = try batchStepGeometry(
+            pinnedWindowBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+            liveWindowBounds: live,
+            liveLocalFrame: nil,
+            needsElementFrame: false,
+            elementIndex: nil,
+            scalesByPinnedScreenshot: true
+        )
+
+        XCTAssertEqual(geometry.windowBounds, live)
+    }
+
+    func testBatchGeometryIgnoresResizeWhenNoPinnedScreenshotScalesCoordinates() throws {
+        let live = CGRect(x: 0, y: 0, width: 1000, height: 600)
+
+        let geometry = try batchStepGeometry(
+            pinnedWindowBounds: CGRect(x: 0, y: 0, width: 800, height: 600),
+            liveWindowBounds: live,
+            liveLocalFrame: nil,
+            needsElementFrame: false,
+            elementIndex: nil,
+            scalesByPinnedScreenshot: false
+        )
+
+        XCTAssertEqual(geometry.windowBounds, live)
+    }
+
     // MARK: - Upfront parse
 
     func testEmptyActionsAreRejectedBeforeAnyServiceWork() {

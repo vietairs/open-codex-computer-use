@@ -59,15 +59,22 @@ func typingTargetElement(
 
 /// Geometry for one batch step, taken from the live window and the live element frame and never from the pinned
 /// snapshot: the pinned values may be stale after an earlier step, and a stale frame would click the wrong place.
+/// When x/y coordinates are scaled by the screenshot pinned at batch start, that image only describes the window
+/// at its pinned size; after a resize the step fails closed with the same error a single x/y click gives.
 func batchStepGeometry(
     pinnedWindowBounds: CGRect?,
     liveWindowBounds: CGRect?,
     liveLocalFrame: CGRect?,
     needsElementFrame: Bool,
-    elementIndex: String?
+    elementIndex: String?,
+    scalesByPinnedScreenshot: Bool = false
 ) throws -> (windowBounds: CGRect?, localFrame: CGRect?) {
     if liveWindowBounds == nil, pinnedWindowBounds != nil {
         throw ComputerUseError.stateUnavailable("the target window is no longer on screen; call get_app_state")
+    }
+
+    if scalesByPinnedScreenshot, liveWindowBounds?.size != pinnedWindowBounds?.size {
+        throw ComputerUseError.stateUnavailable(screenshotFrameMismatchMessage)
     }
 
     guard needsElementFrame else {
@@ -1255,7 +1262,9 @@ public final class ComputerUseService {
             liveWindowBounds: liveBounds,
             liveLocalFrame: liveFrame,
             needsElementFrame: elementIndex != nil,
-            elementIndex: elementIndex
+            elementIndex: elementIndex,
+            // Only an x/y click reaches here without an index; it scales by the pinned image when there is one.
+            scalesByPinnedScreenshot: elementIndex == nil && pinned.screenshotPNGData != nil
         )
 
         var elements = pinned.elements
