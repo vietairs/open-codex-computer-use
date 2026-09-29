@@ -1060,7 +1060,7 @@ public final class ComputerUseService {
         let focusedElement = typingTargetElement(
             context: context,
             snapshotFocus: snapshot.focusedElement,
-            liveFocus: { liveFocusedElement(pid: snapshot.app.pid) }
+            liveFocus: { liveFocusedElement(pinned: snapshot) }
         )
 
         if try typeTextBySettingFocusedValueIfAvailable(text, focusedElement: focusedElement) {
@@ -1348,19 +1348,30 @@ public final class ComputerUseService {
         return (raw as! AXValue)
     }
 
-    private func liveFocusedElement(pid: pid_t) -> AXUIElement? {
+    /// The app's focused element, read live. A background app usually answers nil for its app-level focus, so the
+    /// fallback re-reads AXFocused live on the elements the pinned snapshot already holds (see
+    /// `backgroundFocusProbeOrder`), which costs one AX read per text-entry element instead of a new tree walk.
+    private func liveFocusedElement(pinned: AppSnapshot) -> AXUIElement? {
         var raw: CFTypeRef?
-        guard
-            AXUIElementCopyAttributeValue(
-                AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute as CFString, &raw
-            ) == .success,
+        if AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(pinned.app.pid), kAXFocusedUIElementAttribute as CFString, &raw
+        ) == .success,
             let raw,
             CFGetTypeID(raw) == AXUIElementGetTypeID()
-        else {
-            return nil
+        {
+            return (raw as! AXUIElement)
         }
 
-        return (raw as! AXUIElement)
+        return backgroundFocusProbeOrder(pinnedFocus: pinned.focusedElement, records: Array(pinned.elements.values))
+            .first(where: liveIsFocused(_:))
+    }
+
+    private func liveIsFocused(_ element: AXUIElement) -> Bool {
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedAttribute as CFString, &raw) == .success else {
+            return false
+        }
+        return (raw as? Bool) == true
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {

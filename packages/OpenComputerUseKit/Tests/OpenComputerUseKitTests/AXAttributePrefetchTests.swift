@@ -92,7 +92,7 @@ final class AXAttributePrefetchTests: XCTestCase {
             [
                 kAXRoleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXHelpAttribute, kAXValueAttribute,
                 kAXIdentifierAttribute, kAXSelectedAttribute, kAXExpandedAttribute, kAXEnabledAttribute,
-                kAXPositionAttribute, kAXSizeAttribute,
+                kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute,
             ]
         )
     }

@@ -440,11 +440,10 @@ enum SnapshotBuilder {
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let captureTiming = windowImageCaptureTiming(policy: capture, isOnscreen: windowCapture.isOnscreen)
-        let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
-        let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
+        let appLevelFocus = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let context = RenderContext(
             windowBounds: windowBounds,
-            focusedElement: focusedElement,
+            focusedElement: appLevelFocus,
             textLimit: textLimit,
             treeLimits: treeLimits
         )
@@ -452,6 +451,18 @@ enum SnapshotBuilder {
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
         let windowContentIsEmpty = !windowHasContentElements(renderer.records.values, windowRoot: rootElement)
+
+        // A background app usually reports no app-level focus; its window's first responder can still carry AXFocused.
+        var focusedElement = appLevelFocus
+        var focusedSummary = renderer.focusedSummary
+        if appLevelFocus == nil,
+           let fallback = selectBackgroundFocus(renderer.focusCandidates, role: { $0.role }, depth: { $0.depth }) {
+            focusedElement = fallback.element
+            focusedSummary = fallback.lineBody
+        }
+        renderer.collectsFocusCandidates = false
+        let selectedText = focusedElement.flatMap { copySelectedText($0, textLimit: textLimit) }
+
         if let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
            !CFEqual(menuBar, rootElement)
         {
@@ -477,7 +488,7 @@ enum SnapshotBuilder {
             mode: .accessibility,
             treeLines: renderer.buffer.lines,
             treeLineOffsets: renderer.buffer.offsets,
-            focusedSummary: renderer.focusedSummary,
+            focusedSummary: focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
             elements: renderer.records,
@@ -913,6 +924,14 @@ enum BlockingAsyncBridge {
     }
 }
 
+/// A rendered node that reported AXFocused == true, with the row text the focus line reuses.
+private struct RenderedFocusCandidate {
+    let element: AXUIElement
+    let role: String
+    let depth: Int
+    let lineBody: String
+}
+
 private struct RenderContext {
     let windowBounds: CGRect?
     let focusedElement: AXUIElement?
@@ -951,9 +970,14 @@ private struct TreeRenderer {
     var records: [Int: ElementRecord] = [:]
     var identifierIndex: [String: String] = [:]
     var focusedSummary: String?
+    /// Rendered nodes reporting AXFocused == true, collected only while the app-level focus is unknown (a background
+    /// app). The builder turns collection off before walking the menu bar.
+    var focusCandidates: [RenderedFocusCandidate] = []
+    var collectsFocusCandidates: Bool
 
     init(context: RenderContext) {
         self.context = context
+        self.collectsFocusCandidates = context.focusedElement == nil
     }
 
     mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = []) {
@@ -1133,6 +1157,9 @@ private struct TreeRenderer {
 
         if let focusedElement = context.focusedElement, CFEqual(focusedElement, root) {
             focusedSummary = lineBody
+        } else if collectsFocusCandidates,
+                  boolValue(of: root, attribute: kAXFocusedAttribute, prefetch: prefetch) == true {
+            focusCandidates.append(RenderedFocusCandidate(element: root, role: role, depth: depth, lineBody: lineBody))
         }
 
         if role == kAXRowRole as String, boolValue(of: root, attribute: kAXSelectedAttribute) != true {

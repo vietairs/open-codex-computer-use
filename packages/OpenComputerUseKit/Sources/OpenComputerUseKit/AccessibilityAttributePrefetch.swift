@@ -2,11 +2,12 @@ import ApplicationServices
 
 /// Attribute values for one element, fetched in a single multi-attribute accessibility round trip.
 struct AXAttributePrefetch {
-    /// Exactly the attributes TreeRenderer.render reads unconditionally for every node.
+    /// The attributes TreeRenderer.render reads for every node. AXFocused rides along so a background app, whose
+    /// app-level AXFocusedUIElement is nil, still reveals its focused element without an extra round trip.
     static let renderAttributes: [String] = [
         kAXRoleAttribute, kAXSubroleAttribute, kAXDescriptionAttribute, kAXHelpAttribute, kAXValueAttribute,
         kAXIdentifierAttribute, kAXSelectedAttribute, kAXExpandedAttribute, kAXEnabledAttribute,
-        kAXPositionAttribute, kAXSizeAttribute,
+        kAXPositionAttribute, kAXSizeAttribute, kAXFocusedAttribute,
     ]
 
     private let requested: Set<String>
