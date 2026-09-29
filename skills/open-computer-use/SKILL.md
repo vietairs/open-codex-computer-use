@@ -14,6 +14,7 @@ The macOS runtime requires macOS 14.0 or later. Windows and Linux use their own 
 It supports the same core tool surface across macOS, Linux, and Windows:
 `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`,
 `drag`, `type_text`, `press_key`, and `set_value`.
+On macOS, `perform_actions` also runs a short, fully specified action sequence in one call; the Linux and Windows runtimes do not have it.
 On macOS an optional, experimental `decide_next_action` advisory tool is also available when a local decision model
 is configured; see [references/decision-model.md](references/decision-model.md).
 
@@ -26,17 +27,18 @@ is configured; see [references/decision-model.md](references/decision-model.md).
 5. Capture current UI state with `open-computer-use call get_app_state --args '{"app":"TextEdit"}'`. The default state is usually enough for UI operation.
 6. When the task needs longer semantic text, such as chat history, email bodies, document text, or long form content, call `get_app_state` with `text_limit: 1000` or `text_limit: "max"`.
 7. When visible long pages or lists appear incomplete even after scrolling, call `get_app_state` with a larger `max_tree_nodes` or `max_tree_depth`.
-8. Prefer element-targeted actions using `element_index` from the latest `get_app_state` result.
-9. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
-10. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` or `ocu mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
-11. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
+8. Prefer element-targeted actions using `element_index` from the latest `get_app_state` or action result. Action results are text-only; pass `include_screenshot: true` when you need to see the window.
+9. On macOS, batch short sequences you can fully specify (focus a field, type, press Return) into one `perform_actions` call; keep externally visible steps such as Send in their own call.
+10. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
+11. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` or `ocu mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
+12. If communication, permission, or desktop-session access fails, read [references/troubleshooting.md](references/troubleshooting.md).
 
 ## Operating Rules
 
 - Treat the target desktop as the user's real session. Do not inspect password managers, unrelated private content, or sensitive apps unless the user explicitly asked for that task.
 - Ask before sending, deleting, purchasing, approving, uploading, or making other externally visible changes.
 - Do not assume Codex.app plugin helpers are available. Use the installed `open-computer-use` / `ocu` CLI or an explicit MCP config.
-- Always run `get_app_state` before using `element_index`; do not guess indexes across sessions or after large UI changes.
+- Always run `get_app_state` at the start of a turn before using `element_index`; within a turn, use indices from the latest `get_app_state` or action result. Do not guess indexes across sessions or after large UI changes.
 - Prefer semantic actions and `set_value` for editable controls. Use coordinate `click`, `scroll`, and `drag` only when the element tree does not expose a safer target.
 - On macOS, do not enable `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` unless the user explicitly requested `click_method: "global"`, a `drag` that must drive a window-server drag session (window move, drag-select text, Finder drag-and-drop), or other diagnostic behavior that may move the real pointer. Without it `drag` reports `Drag delivered via app_post` and those operations have no effect; see `references/usage.md` for alternatives.
 - On Windows and Linux, confirm the command is running inside the logged-in desktop session before assuming GUI automation is available.

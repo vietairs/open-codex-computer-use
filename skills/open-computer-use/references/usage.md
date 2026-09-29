@@ -85,6 +85,8 @@ The same `text_limit` tool argument and `--text-limit` snapshot flag apply on ma
 
 Action tools return refreshed app state with the default 500 character text limit. If longer text is still needed after an action, run `get_app_state` again with `text_limit: 1000` or `text_limit: "max"`.
 
+Action results are text-only by default; add `include_screenshot: true` to any action (or to `perform_actions`) to attach the window screenshot. A screenshot is attached automatically when the accessibility tree is empty.
+
 ## Larger Tree Budgets
 
 Accessibility tree rendering defaults to 1200 nodes and 64 levels on macOS, Linux, and Windows. This keeps normal snapshots bounded while preserving most interactive UI.
@@ -101,9 +103,10 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 ## Choosing Targets
 
 - Prefer app names or bundle identifiers returned by `list_apps`.
-- Run `get_app_state` immediately before element-targeted actions.
+- Run `get_app_state` at the start of a turn before using `element_index`; within a turn, use indices from the latest `get_app_state` or action result. Do not guess indexes across sessions or after large UI changes.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
+- Mail search: focus the toolbar search field (for example with `press_key` `cmd+option+f`), then `type_text` and `press_key Return`; `set_value` fills the field but does not run the search.
 
 ## Choosing a Click Method
 
@@ -150,9 +153,32 @@ Every non-fixture `drag` result includes a text item that begins `Drag delivered
 
 When the gate is not enabled, treat window-server drags as unavailable and reach the same outcome another way: copy or move files with a shell command instead of a Finder drag, use `set_value` or keyboard selection instead of drag-selecting text, and use the app's own window controls instead of dragging a title bar.
 
+## Batching Actions (macOS)
+
+`perform_actions` runs a short, fully specified sequence on one app in a single call. Each step is a `{tool, args}` object, the same shape as the CLI `--calls` entries, with `args` holding the single tool's arguments minus `app`. Allowed step tools are `click`, `type_text`, `press_key`, `set_value`, `scroll`, and `perform_secondary_action`; a batch holds 1 to 10 steps.
+
+- Steps run in order and stop at the first failure. The result has one line per step, then one final app state.
+- Every `element_index` refers to the state you last received, so a step cannot target an element that an earlier step in the same batch reveals.
+- Live focus and window geometry are read per step, and nearby hit-testing is off inside a batch.
+- The batch holds the per-call environment lock for its whole duration.
+- Keep externally visible steps such as Send in their own call, after you confirm them.
+
+```sh
+open-computer-use call perform_actions --args '{
+  "app":"Mail",
+  "actions":[
+    {"tool":"press_key","args":{"key":"cmd+option+f"}},
+    {"tool":"type_text","args":{"text":"invoice"}},
+    {"tool":"press_key","args":{"key":"Return"}}
+  ]
+}'
+```
+
 ## Platform Notes
 
 ### macOS
+
+`perform_actions` is macOS-only; the Windows and Linux runtimes do not have it.
 
 The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and an explicit private-SkyLight `sky_click` route. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
 
