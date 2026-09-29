@@ -866,6 +866,20 @@ public final class ComputerUseService {
                 throw error
             }
 
+            // A click on a background app's text field does not move its keyboard focus; an accessibility focus
+            // write does, without activating the app. Only a primary click means "put the caret here".
+            if button == .left, let element = record.element {
+                focusTextEntryAfterClick(
+                    role: record.role,
+                    readSubrole: { stringValue(of: element, attribute: kAXSubroleAttribute) },
+                    isFocusSettable: { isSettable(element: element, attribute: kAXFocusedAttribute) },
+                    setFocused: {
+                        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+                            == .success
+                    }
+                )
+            }
+
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
         } else if let x, let y {
             let screenshotPoint = CGPoint(x: x, y: y)

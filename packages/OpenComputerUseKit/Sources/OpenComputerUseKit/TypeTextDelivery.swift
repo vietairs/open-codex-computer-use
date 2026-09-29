@@ -32,8 +32,8 @@ func typeTextRoute(focus: TypeTextFocus?) -> TypeTextRoute {
 
 func typeTextNeedsTextFocusMessage(appName: String) -> String {
     "type_text found no focused text field in \(appName). Open Computer Use types without bringing the app to the "
-        + "front, so the field must already hold focus: click it or focus it with a shortcut (for example "
-        + "cmd+option+f for a search field), check the focus line in the returned state, then retry. To fill a "
+        + "front, so the field must already hold focus: click the field by element_index (that focuses a text field "
+        + "without bringing the app forward), check the focus line in the returned state, then retry. To fill a "
         + "field directly, use set_value on it."
 }
 

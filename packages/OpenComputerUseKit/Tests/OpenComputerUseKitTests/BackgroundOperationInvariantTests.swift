@@ -83,6 +83,24 @@ final class BackgroundOperationInvariantTests: XCTestCase {
         XCTAssertFalse(body.contains("activates = true"))
     }
 
+    func testClickTextEntryFocusIsAnAccessibilityWriteOnly() throws {
+        let sources = try kitSources()
+        let focusFile = try XCTUnwrap(sources.first { $0.name == "ClickTextEntryFocus.swift" })
+        for line in focusFile.lines where !isComment(line) {
+            for forbidden in [".activate(", "kAXRaiseAction", "AXRaise", "SLS", "CGS", "setFrontmost"] {
+                XCTAssertFalse(line.contains(forbidden), "click focus path uses \(forbidden): \(line)")
+            }
+        }
+
+        // The live wiring writes AXFocused on the clicked element and nothing that brings the app forward.
+        let service = try XCTUnwrap(sources.first { $0.name == "ComputerUseService.swift" })
+        let wiring = try XCTUnwrap(service.lines.firstIndex { $0.contains("focusTextEntryAfterClick(") })
+        let block = service.lines[wiring..<min(wiring + 10, service.lines.count)].joined(separator: "\n")
+        XCTAssertTrue(block.contains("kAXFocusedAttribute as CFString, kCFBooleanTrue"))
+        XCTAssertFalse(block.contains(".activate("))
+        XCTAssertFalse(block.contains("Raise"))
+    }
+
     func testNoWindowErrorKeepsOfficialPrefixAndSaysWhy() {
         let message = noBackgroundWindowMessage(appName: "Mail")
         XCTAssertTrue(message.hasPrefix(computerUseNoWindowFoundMessage))

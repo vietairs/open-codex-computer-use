@@ -129,7 +129,7 @@ public final class ComputerUseToolDispatcher {
             return try service.setValue(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                value: requireString("value", in: arguments),
+                value: requireValueString("value", in: arguments),
                 includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "perform_actions":
@@ -162,6 +162,16 @@ public final class ComputerUseToolDispatcher {
 
     private func requireString(_ key: String, in arguments: [String: Any]) throws -> String {
         guard let value = arguments[key] as? String, !value.isEmpty else {
+            throw ComputerUseError.missingArgument(key)
+        }
+
+        return value
+    }
+
+    /// Like `requireString`, but an empty string is a real value: set_value with "" clears a field. Only an absent
+    /// or non-string argument is missing.
+    private func requireValueString(_ key: String, in arguments: [String: Any]) throws -> String {
+        guard let value = arguments[key] as? String else {
             throw ComputerUseError.missingArgument(key)
         }
 
@@ -539,7 +549,7 @@ extension ComputerUseToolDispatcher {
         case "set_value":
             return .setValue(
                 elementIndex: try requireElementIndex(in: arguments),
-                value: try requireString("value", in: arguments)
+                value: try requireValueString("value", in: arguments)
             )
         case "scroll":
             let direction = try requireString("direction", in: arguments)

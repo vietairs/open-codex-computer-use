@@ -106,8 +106,8 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 - Run `get_app_state` at the start of a turn before using `element_index`; within a turn, use indices from the latest `get_app_state` or action result. Do not guess indexes across sessions or after large UI changes.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
-- Mail search: focus the toolbar search field (for example with `press_key` `cmd+option+f`), then `type_text` and `press_key Return`; `set_value` fills the field but does not run the search.
-- `type_text` never brings the app to the front. It needs a focused text field: check that the focus line of the latest state names the field. When no text field holds focus, `type_text` fails instead of typing into whatever else has focus; click or focus the field first, or use `set_value`.
+- Mail search: click the toolbar search field by `element_index`, then `type_text` and `press_key Return`; this works while Mail stays in the background. A keyboard shortcut such as `cmd+option+f` does not move focus in a background app, and `set_value` fills the field but does not run the search. `press_key Escape` clears the search.
+- `type_text` never brings the app to the front. It needs a focused text field: check that the focus line of the latest state names the field. When no text field holds focus, `type_text` fails instead of typing into whatever else has focus. Click the field by `element_index` first: clicking a text field (text field, text area, combo box, search or secure field) also writes its accessibility focus, so the field takes keyboard focus without the app coming to the front. Or use `set_value`; `set_value` with `""` clears a field.
 
 ## Choosing a Click Method
 

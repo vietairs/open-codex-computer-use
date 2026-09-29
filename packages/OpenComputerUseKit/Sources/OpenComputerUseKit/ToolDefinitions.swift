@@ -32,7 +32,7 @@ public enum ToolDefinitions {
     public static let all: [ToolDefinition] = [
         ToolDefinition(
             name: "click",
-            description: "Click an element by index or pixel coordinates from screenshot. This tool is part of plugin `Computer Use`.",
+            description: "Click an element by index or pixel coordinates from screenshot. Clicking a text field by element_index gives it keyboard focus without bringing the app to the front, so type_text can follow. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
@@ -135,7 +135,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "set_value",
-            description: "Set the value of a settable accessibility element. This tool is part of plugin `Computer Use`.",
+            description: "Set the value of a settable accessibility element. An empty string clears the field. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
@@ -149,7 +149,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "type_text",
-            description: "Type literal text using keyboard input. Types into the app's focused text field without bringing the app to the front, and fails when no text field holds focus: click or focus the field first, or use set_value. This tool is part of plugin `Computer Use`.",
+            description: "Type literal text using keyboard input. Types into the app's focused text field without bringing the app to the front, and fails when no text field holds focus: click the field by element_index first (this focuses it in the background), or use set_value. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
