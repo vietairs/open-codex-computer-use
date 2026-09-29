@@ -52,6 +52,8 @@ other four) is refused: scripts run only in the MCP server process.
   `load script`, `store script`, `do script`, raw Apple Event forms, `use framework`, JXA `doShellScript`, `ObjC.` and
   similar, over a normalized view of the text. Known bypass classes stay open by design: iTerm `write text`, Finder
   opening a `.command` file, JXA bracket access, System Events keystrokes into Terminal.
+- Scripts can read and write any file the user can (Standard Additions `read`/`write`), including credentials and
+  LaunchAgents. The scrubbed environment does not protect secrets stored on disk.
 - Shell-capable hosts (Claude Code, Codex) bypass the filter entirely with Bash `osascript`.
 - **On an MCP-only host, enabling the flag is equivalent to granting that host a shell**, under the host's own
   Automation grants.
@@ -66,8 +68,9 @@ other four) is refused: scripts run only in the MCP server process.
 - The `open_url` policy is friction only: a script can `open location` or drive Finder around it. Blocked schemes
   include `file`, `shortcuts`, `x-man-page`, `ssh`, `telnet`, `smb`, `afp`, `nfs`, `cifs`, `ftp`, `ftps`, `sftp`, `vnc`
   and `help`. Blocked handlers include Terminal, iTerm, Script Editor, Shortcuts, Automator, the network mount agent,
-  VS Code and several launcher and automation apps. The URL must resolve to a handler that is a `.app`, and the checked
-  handler is the one that opens it.
+  VS Code and its forks, Zed, Warp, JetBrains Toolbox, Script Debugger and several launcher and automation apps. The URL
+  must resolve to a handler that is a `.app` with a readable bundle identifier, and the checked handler is the one that
+  opens it.
 - A Shortcuts shortcut can contain a "Run Shell Script" action. `run_shortcut` runs whatever the named shortcut does;
   review shortcuts before letting an agent run them. Names beginning with `-` are refused, and input travels through a
   private temporary file that is removed afterward.
@@ -92,6 +95,7 @@ other four) is refused: scripts run only in the MCP server process.
   permission prompt has time to appear.
 - On timeout the relay stops its `osascript` child (SIGTERM, then SIGKILL to its process group). **A killed script keeps
   running inside the target app:** Mail keeps executing an Apple Event that is already in flight. Keep queries small.
+- A Shortcuts run keeps going after a timeout, because `/usr/bin/shortcuts` hands the shortcut off to a background runner.
 - If the MCP host kills the relay mid-script (Ctrl-C, SIGTERM, SIGHUP), the `osascript` child is orphaned and runs to
   completion; the log then shows a request with no result. Signals are not forwarded.
 - Scripts are refused while the Mac is locked, using the same lock policy as the other tools.
