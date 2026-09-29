@@ -15,6 +15,7 @@ It supports the same core tool surface across macOS, Linux, and Windows:
 `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`,
 `drag`, `type_text`, `press_key`, and `set_value`.
 On macOS, `perform_actions` also runs a short, fully specified action sequence in one call; the Linux and Windows runtimes do not have it.
+On macOS the server also exposes `find_elements`, a lean accessibility search (see "Fast channels" below).
 On macOS an optional, experimental `decide_next_action` advisory tool is also available when a local decision model
 is configured; see [references/decision-model.md](references/decision-model.md).
 
@@ -42,6 +43,22 @@ is configured; see [references/decision-model.md](references/decision-model.md).
 - Prefer semantic actions and `set_value` for editable controls. Use coordinate `click`, `scroll`, and `drag` only when the element tree does not expose a safer target.
 - On macOS, do not enable `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` unless the user explicitly requested `click_method: "global"`, a `drag` that must drive a window-server drag session (window move, drag-select text, Finder drag-and-drop), or other diagnostic behavior that may move the real pointer. Without it `drag` reports `Drag delivered via app_post` and those operations have no effect; see `references/usage.md` for alternatives.
 - On Windows and Linux, confirm the command is running inside the logged-in desktop session before assuming GUI automation is available.
+
+## Fast channels (macOS)
+
+- `find_elements` searches one app window by `role`, `label` or `identifier` without rendering the whole tree or a
+  screenshot, and returns up to `max_results` rows. Its `element_index` values work with `click`, `set_value`,
+  `scroll` and `perform_secondary_action` until the next state refresh (any `get_app_state` or action result). Use it
+  to reach one specific control, and after a script changed the UI. Full-mailbox search in Mail goes through Mail's
+  search field: locate it with `find_elements`, then drive it with the action tools or `perform_actions`.
+- Setting `OPEN_COMPUTER_USE_ENABLE_SCRIPTING=1` in the MCP server's launch environment (never per call) adds
+  `run_script`, `get_scripting_dictionary`, `open_url`, `run_shortcut` and `list_shortcuts`. It is off by default. The
+  turn-start `get_app_state` applies to UI work; a turn that only uses `run_script` skips it. Keep script queries small
+  (one mailbox, the newest N messages): a large `whose` query stalls Mail for 20 to 60 seconds and blocks
+  accessibility reads meanwhile. cmux terminates app-targeting `osascript` children, so `run_script` fails when the
+  host runs under cmux.
+- Read [references/scripting.md](references/scripting.md) before enabling: the shell-verb filter is not a security
+  boundary, and on an MCP-only host enabling the flag is equivalent to granting a shell.
 
 ## Common CLI Actions
 

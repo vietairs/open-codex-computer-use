@@ -7,14 +7,15 @@ Call `get_app_state` at the start of each assistant turn that uses Computer Use,
 
 Use `perform_actions` for any short sequence you can fully specify from the current state, such as focusing a field, typing text and pressing Return. It runs the steps in order, stops at the first failure, and returns one final state with a line per step. Every `element_index` refers to the state you last received. Keep externally visible steps such as Send in their own call, after you confirm them.
 
-The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are not available, use tool_search to surface them, and load `perform_actions` together with `get_app_state`.
+The available tools are list_apps, get_app_state, find_elements, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are not available, use tool_search to surface them, and load `perform_actions` together with `get_app_state`.
 
 Computer Use drives the user's apps in the background while they keep using other apps. Do not disrupt their session, for example by overwriting the clipboard, unless they asked you to.
 
 Verify each action from its result; call `get_app_state` only when the result lacks what you need. Results are text-only unless you pass `include_screenshot: true`; take x/y coordinates only from the most recent screenshot.
 Prefer `element_index` over coordinate clicks; indices are the integers in the app state's accessibility tree.
-Avoid falling back to AppleScript during a computer use session. Prefer Computer Use tools as much as possible to complete tasks.
+\(appleScriptAvoidanceInstructionLine)
 Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing, and ask follow-up questions when the request is unclear.
+To act on one specific control without reading the whole tree, call `find_elements` with a role, label or identifier; its element_index values work with the action tools and `perform_actions` until the next state refresh.
 """
 
 /// The base instructions under their original name, for existing callers that compare against the unmodified text.

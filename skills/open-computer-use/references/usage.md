@@ -39,7 +39,13 @@ drag
 type_text
 press_key
 set_value
+find_elements   (macOS only)
+perform_actions (macOS only)
 ```
+
+With `OPEN_COMPUTER_USE_ENABLE_SCRIPTING=1` in the MCP server's launch environment, five more tools are listed
+(`run_script`, `get_scripting_dictionary`, `open_url`, `run_shortcut`, `list_shortcuts`); see
+[scripting.md](scripting.md).
 
 ## Direct CLI Tool Calls
 
@@ -67,6 +73,24 @@ Use `--calls-file` when the sequence is too large for a readable shell command:
 ```sh
 open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 ```
+
+## Finding One Element
+
+`find_elements` (macOS) reads one window's accessibility tree and returns only the rows that match, without a
+screenshot. Arguments: `app` (required); at least one of `role` (with or without the `AX` prefix), `label` (compared
+with each element's title and description) or `identifier`; optional `match` (`contains` by default, or `exact`; both
+ignore case), `max_results` (1 to 20, default 5) and `max_nodes` (default 1200). Every provided criterion must match.
+
+The returned `element_index` values work with `click`, `set_value`, `scroll` and `perform_secondary_action` until the
+next state refresh (any `get_app_state` or action result). A hit outside the window is listed without a frame and
+cannot be clicked.
+
+```sh
+open-computer-use call find_elements --args '{"app":"Mail","role":"AXTextField","label":"Search"}'
+```
+
+The scripting tools are not reachable from the CLI: `open-computer-use call run_script` (and the other four local
+tools) is not supported, because scripts run only in the MCP server process. See [scripting.md](scripting.md).
 
 ## Text Limits
 
