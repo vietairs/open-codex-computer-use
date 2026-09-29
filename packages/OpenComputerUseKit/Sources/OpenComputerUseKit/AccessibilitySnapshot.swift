@@ -119,6 +119,9 @@ public struct AppSnapshot {
     let selectedText: String?
 
     let elements: [Int: ElementRecord]
+    /// True when the window walk found nothing below the window root. Menu-bar items do not count,
+    /// so a window whose content exposes no accessibility elements still reads as empty.
+    let windowContentIsEmpty: Bool
 
     public var renderedText: String {
         renderedText(style: .fullState)
@@ -315,8 +318,19 @@ enum SnapshotCapturePolicy: Equatable, Sendable {
     case always
     /// The window image is never requested, so SCScreenshotManager is never called.
     case never
-    /// Walk first; capture only if the walk produced zero element records.
+    /// Walk first; capture only if the window has no content elements (see `windowHasContentElements`).
     case whenTreeEmpty
+}
+
+/// Whether the window walk recorded any element other than the window root itself. Call it with the
+/// records produced by the window walk only, before the menu bar is walked.
+func windowHasContentElements(_ windowWalkRecords: some Collection<ElementRecord>, windowRoot: AXUIElement) -> Bool {
+    windowWalkRecords.contains { record in
+        guard let element = record.element else {
+            return true
+        }
+        return !CFEqual(element, windowRoot)
+    }
 }
 
 enum WindowImageCaptureTiming: Equatable {
@@ -437,6 +451,7 @@ enum SnapshotBuilder {
 
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
+        let windowContentIsEmpty = !windowHasContentElements(renderer.records.values, windowRoot: rootElement)
         if let menuBar = copyElement(appElement, attribute: kAXMenuBarAttribute),
            !CFEqual(menuBar, rootElement)
         {
@@ -444,9 +459,9 @@ enum SnapshotBuilder {
         }
 
         // The image was captured before the walk for .beforeWalk; for .afterWalkIfTreeEmpty it is
-        // taken now, only when the walk found nothing to act on.
+        // taken now, only when the window itself had nothing to act on (menu-bar items do not count).
         let screenshotPNGData: Data?
-        if captureTiming == .afterWalkIfTreeEmpty, renderer.records.isEmpty {
+        if captureTiming == .afterWalkIfTreeEmpty, windowContentIsEmpty {
             screenshotPNGData = windowCapture.capturingImage().pngDataIfAvailable()
         } else {
             screenshotPNGData = windowCapture.pngDataIfAvailable()
@@ -465,7 +480,8 @@ enum SnapshotBuilder {
             focusedSummary: renderer.focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
-            elements: renderer.records
+            elements: renderer.records,
+            windowContentIsEmpty: windowContentIsEmpty
         )
     }
 
@@ -622,7 +638,8 @@ enum SnapshotBuilder {
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: nil,
-            elements: records
+            elements: records,
+            windowContentIsEmpty: records.isEmpty
         )
     }
 }

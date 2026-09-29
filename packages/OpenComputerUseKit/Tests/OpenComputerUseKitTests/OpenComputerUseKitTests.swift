@@ -3192,7 +3192,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
-            elements: elements
+            elements: elements,
+            windowContentIsEmpty: elements.isEmpty
         )
     }
 
@@ -3465,7 +3466,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 
@@ -3488,7 +3490,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 
@@ -3511,7 +3514,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 

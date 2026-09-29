@@ -265,7 +265,7 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
     return property
 }
 
-private let includeScreenshotPropertyDescription = "Attach a window screenshot to the result. Defaults to false: action results are text-only unless the accessibility tree is empty."
+private let includeScreenshotPropertyDescription = "Attach a window screenshot to the result. Defaults to false: action results are text-only unless the window exposes no accessibility elements."
 
 private func booleanProperty(description: String) -> [String: Any] {
     [

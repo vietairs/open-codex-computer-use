@@ -85,7 +85,7 @@ The same `text_limit` tool argument and `--text-limit` snapshot flag apply on ma
 
 Action tools return refreshed app state with the default 500 character text limit. If longer text is still needed after an action, run `get_app_state` again with `text_limit: 1000` or `text_limit: "max"`.
 
-Action results are text-only by default; add `include_screenshot: true` to any action (or to `perform_actions`) to attach the window screenshot. A screenshot is attached automatically when the accessibility tree is empty.
+Action results are text-only by default; add `include_screenshot: true` to any action (or to `perform_actions`) to attach the window screenshot. A screenshot is attached automatically when the window exposes no accessibility elements (menu-bar items do not count).
 
 ## Larger Tree Budgets
 

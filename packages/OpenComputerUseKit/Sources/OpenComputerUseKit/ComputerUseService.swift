@@ -327,7 +327,7 @@ func actionCapturePolicy(includeScreenshot: Bool) -> SnapshotCapturePolicy {
 }
 
 /// The full state always carries its screenshot, the compact view never does, and an action result
-/// carries one only on request or when the accessibility tree came back empty.
+/// carries one only on request or when the window has no content elements (menu-bar items do not count).
 func shouldAttachScreenshot(style: SnapshotTextStyle, includeScreenshot: Bool, treeIsEmpty: Bool) -> Bool {
     switch style {
     case .compactActionable:
@@ -1279,7 +1279,8 @@ public final class ComputerUseService {
             focusedSummary: pinned.focusedSummary,
             focusedElement: pinned.focusedElement,
             selectedText: pinned.selectedText,
-            elements: elements
+            elements: elements,
+            windowContentIsEmpty: pinned.windowContentIsEmpty
         )
     }
 
@@ -1356,7 +1357,7 @@ public final class ComputerUseService {
     }
 
     /// The single tail of every action: rebuild the snapshot and return it as a text-only action
-    /// result, capturing and attaching the window image only on request or when the tree is empty.
+    /// result, capturing and attaching the window image only on request or when the window has no content elements.
     /// A batch step observes nothing: the batch takes one final state after its last step instead.
     private func finishAction(
         query: String,
@@ -2487,7 +2488,7 @@ public final class ComputerUseService {
     ) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
         // The compact view exists to cut tokens; attaching the screenshot would defeat it.
-        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.elements.isEmpty),
+        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.windowContentIsEmpty),
            let screenshotPNGData = snapshot.screenshotPNGData {
             content.append(.pngImage(screenshotPNGData))
             rememberReturnedScreenshotFrame(for: snapshot, pngData: screenshotPNGData)

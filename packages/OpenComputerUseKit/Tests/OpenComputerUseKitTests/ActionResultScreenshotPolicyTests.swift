@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import XCTest
 @testable import OpenComputerUseKit
@@ -37,6 +38,31 @@ final class ActionResultScreenshotPolicyTests: XCTestCase {
 
     func testActionResultAttachesScreenshotWhenTreeIsEmpty() {
         XCTAssertTrue(shouldAttachScreenshot(style: .actionResult, includeScreenshot: false, treeIsEmpty: true))
+    }
+
+    // MARK: - Window content (what "tree is empty" means)
+
+    func testWindowWithOnlyItsRootRecordHasNoContent() {
+        let windowRoot = AXUIElementCreateApplication(getpid())
+
+        XCTAssertFalse(windowHasContentElements([record(0, windowRoot)], windowRoot: windowRoot))
+    }
+
+    func testWindowWalkThatRecordedNothingHasNoContent() {
+        XCTAssertFalse(windowHasContentElements([], windowRoot: AXUIElementCreateApplication(getpid())))
+    }
+
+    func testWindowWithAnElementBelowTheRootHasContent() {
+        let windowRoot = AXUIElementCreateApplication(getpid())
+        let button = AXUIElementCreateApplication(1)
+
+        XCTAssertTrue(windowHasContentElements([record(0, windowRoot), record(1, button)], windowRoot: windowRoot))
+    }
+
+    func testWindowWithAnElidedRootAndOneChildHasContent() {
+        let windowRoot = AXUIElementCreateApplication(getpid())
+
+        XCTAssertTrue(windowHasContentElements([record(0, AXUIElementCreateApplication(1))], windowRoot: windowRoot))
     }
 
     func testFullStateAlwaysAttachesScreenshot() {
@@ -153,6 +179,10 @@ final class ActionResultScreenshotPolicyTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    private func record(_ index: Int, _ element: AXUIElement) -> ElementRecord {
+        ElementRecord(index: index, identifier: nil, element: element, localFrame: nil, rawActions: [], prettyActions: [])
+    }
 
     private func carriedFrame() -> ReturnedScreenshotFrame {
         ReturnedScreenshotFrame(

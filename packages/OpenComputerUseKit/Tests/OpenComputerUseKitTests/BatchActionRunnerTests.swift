@@ -57,7 +57,8 @@ final class BatchActionRunnerTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: focusedElement,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 
