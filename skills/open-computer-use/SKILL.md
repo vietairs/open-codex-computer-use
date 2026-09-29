@@ -27,7 +27,7 @@ is configured; see [references/decision-model.md](references/decision-model.md).
 5. Capture current UI state with `open-computer-use call get_app_state --args '{"app":"TextEdit"}'`. The default state is usually enough for UI operation.
 6. When the task needs longer semantic text, such as chat history, email bodies, document text, or long form content, call `get_app_state` with `text_limit: 1000` or `text_limit: "max"`.
 7. When visible long pages or lists appear incomplete even after scrolling, call `get_app_state` with a larger `max_tree_nodes` or `max_tree_depth`.
-8. Prefer element-targeted actions using `element_index` from the latest `get_app_state` or action result. Action results are text-only; pass `include_screenshot: true` when you need to see the window.
+8. Prefer element-targeted actions using `element_index` from the latest `get_app_state` or action result. On macOS, action results are text-only; pass `include_screenshot: true` when you need to see the window. Linux and Windows action results still carry the screenshot, and their schemas reject `include_screenshot`.
 9. On macOS, batch short sequences you can fully specify (focus a field, type, press Return) into one `perform_actions` call; keep externally visible steps such as Send in their own call.
 10. For multi-step CLI work, use `open-computer-use call --calls '<json-array>'` so one process can reuse the latest element index mapping.
 11. For agent runtimes that support local MCP servers, configure `open-computer-use mcp` or `ocu mcp` and call the exposed Computer Use tools directly. Read [references/usage.md](references/usage.md).
