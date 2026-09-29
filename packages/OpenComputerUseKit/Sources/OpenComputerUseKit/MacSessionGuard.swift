@@ -58,12 +58,15 @@ public enum MacSessionLockPolicy: String, Sendable {
     /// call this, so the two can never drift apart — a previous drift between them was exactly
     /// how a forged lock-screen opt-in became reachable.
     ///
-    /// Two rules: only `OPEN_COMPUTER_USE_` keys cross the socket, and the lock-screen opt-in
-    /// never does. That opt-in is fixed at agent launch, because honoring a forged one would let
-    /// any same-uid process drive apps while the Mac is locked.
+    /// Two rules: only `OPEN_COMPUTER_USE_` keys cross the socket, and two opt-ins never do. The
+    /// lock-screen opt-in is fixed at agent launch, because honoring a forged one would let any
+    /// same-uid process drive apps while the Mac is locked. The scripting opt-in is read only by
+    /// the relay from its own launch environment and never crosses the socket.
     public static func sanitizePeerEnvironment(_ environment: [String: String]) -> [String: String] {
         environment.filter { key, _ in
-            key.hasPrefix("OPEN_COMPUTER_USE_") && key != environmentKey
+            key.hasPrefix("OPEN_COMPUTER_USE_")
+                && key != environmentKey
+                && key != LocalChannelPolicy.environmentKey
         }
     }
 
