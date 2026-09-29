@@ -87,6 +87,8 @@ Action tools return refreshed app state with the default 500 character text limi
 
 On macOS, action results are text-only by default; add `include_screenshot: true` to any action (or to `perform_actions`) to attach the window screenshot. A screenshot is attached automatically when the window exposes no accessibility elements (menu-bar items do not count). The Linux and Windows runtimes still attach the screenshot to every action result and reject `include_screenshot` as an unknown argument, so do not send it there.
 
+Under Stage Manager, a macOS window that is off stage (shown in the left strip) has no screenshot: `get_app_state` and action results return the full accessibility tree plus a note saying so, `element_index` actions still work, and x/y `click` / `drag` fail with an error. The server never switches stages or activates the app to fix this; bring the window on stage yourself if you need a screenshot or coordinates.
+
 ## Larger Tree Budgets
 
 Accessibility tree rendering defaults to 1200 nodes and 64 levels on macOS, Linux, and Windows. This keeps normal snapshots bounded while preserving most interactive UI.

@@ -810,7 +810,8 @@ public final class ComputerUseService {
                 throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
             }
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: windowPoint)
-            let cursorTarget = makeVisualCursorTarget(
+            // An off-stage window is not where its AX frame says, so the software cursor would point at empty space.
+            let cursorTarget: VisualCursorTarget? = snapshot.isOffStage ? nil : makeVisualCursorTarget(
                 at: targetPoint,
                 targetWindowID: snapshot.targetWindowID,
                 targetWindowLayer: snapshot.targetWindowLayer
@@ -882,6 +883,7 @@ public final class ComputerUseService {
 
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
         } else if let x, let y {
+            try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
             let screenshotPoint = CGPoint(x: x, y: y)
             let point = try screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
@@ -1044,6 +1046,7 @@ public final class ComputerUseService {
             return try finishAction(query: query, context: .single(includeScreenshot: includeScreenshot))
         }
 
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
         let end = try screenshotToGlobalPoint(snapshot: snapshot, x: toX, y: toY)
         let path = try performDragEvent(
@@ -1260,7 +1263,10 @@ public final class ComputerUseService {
             return pinned
         }
 
-        let liveBounds = pinned.targetWindowID.flatMap { liveWindowBounds(forWindowID: $0) }
+        // An off-stage window's window-server frame is its strip thumbnail, so its pinned AX frame stays the bounds.
+        let liveBounds = pinned.isOffStage
+            ? pinned.windowBounds
+            : pinned.targetWindowID.flatMap { liveWindowBounds(forWindowID: $0) }
         let record = try elementIndex.map { try lookupElement(snapshot: pinned, index: $0) }
         let liveFrame = record.flatMap { liveLocalFrame(of: $0, windowBounds: liveBounds) }
         let geometry = try batchStepGeometry(
@@ -1301,7 +1307,8 @@ public final class ComputerUseService {
             focusedElement: pinned.focusedElement,
             selectedText: pinned.selectedText,
             elements: elements,
-            windowContentIsEmpty: pinned.windowContentIsEmpty
+            windowContentIsEmpty: pinned.windowContentIsEmpty,
+            isOffStage: pinned.isOffStage
         )
     }
 
@@ -2376,6 +2383,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
@@ -2398,6 +2406,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws -> DragDeliveryPath {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventStart = inputEventPoint(fromScreenStatePoint: start)
         let eventEnd = inputEventPoint(fromScreenStatePoint: end)
         let path = dragDeliveryPath(environment: ProcessInfo.processInfo.environment)
@@ -2425,6 +2434,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
@@ -2475,6 +2485,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         switch method {

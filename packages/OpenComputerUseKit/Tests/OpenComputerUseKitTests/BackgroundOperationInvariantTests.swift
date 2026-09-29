@@ -101,6 +101,35 @@ final class BackgroundOperationInvariantTests: XCTestCase {
         XCTAssertFalse(block.contains("Raise"))
     }
 
+    func testStageManagerOffStageDetectionOnlyReadsFrames() throws {
+        let sources = try kitSources()
+        let offStageFile = try XCTUnwrap(sources.first { $0.name == "StageManagerOffStageWindow.swift" })
+        let forbidden = [
+            ".activate(", "AXRaise", "AXAddToStage", "AXPress", "AXUIElementPerformAction", "AXUIElementSetAttributeValue",
+            "SLS", "SkyLight", "CGEventPost", "CGWarpMouseCursorPosition", "setFrontmost",
+        ]
+        for line in offStageFile.lines where !isComment(line) {
+            for token in forbidden {
+                XCTAssertFalse(line.contains(token), "off-stage detection uses \(token): \(line)")
+            }
+        }
+    }
+
+    /// Every service function that posts pointer events at a screen position refuses an off-stage window first.
+    func testPointerEventPathsRefuseOffStageWindows() throws {
+        let service = try XCTUnwrap(try kitSources().first { $0.name == "ComputerUseService.swift" })
+        for function in ["performScrollEvent", "performDragEvent", "performNonAXClickFallback", "performExplicitMouseClick"] {
+            let start = try XCTUnwrap(
+                service.lines.firstIndex { $0.contains("func \(function)(") }, "\(function) not found"
+            )
+            let body = service.lines[start..<min(start + 14, service.lines.count)].joined(separator: "\n")
+            XCTAssertTrue(
+                body.contains("try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)"),
+                "\(function) does not refuse off-stage windows"
+            )
+        }
+    }
+
     func testNoWindowErrorKeepsOfficialPrefixAndSaysWhy() {
         let message = noBackgroundWindowMessage(appName: "Mail")
         XCTAssertTrue(message.hasPrefix(computerUseNoWindowFoundMessage))

@@ -123,6 +123,8 @@ public struct AppSnapshot {
     /// True when the window walk found nothing below the window root. Menu-bar items do not count,
     /// so a window whose content exposes no accessibility elements still reads as empty.
     let windowContentIsEmpty: Bool
+    /// True when Stage Manager holds the window off stage: no screenshot, and x/y coordinates are refused.
+    var isOffStage: Bool = false
 
     public var renderedText: String {
         renderedText(style: .fullState)
@@ -135,6 +137,9 @@ public struct AppSnapshot {
 
         lines.append("App=\(appReference) (pid \(app.pid))")
         lines.append("Window: \(quoted(displayTitle)), App: \(app.name).")
+        if isOffStage {
+            lines.append(offStageWindowNote)
+        }
         if style == .compactActionable {
             lines.append(contentsOf: compactActionableLines())
         } else {
@@ -340,9 +345,14 @@ enum WindowImageCaptureTiming: Equatable {
     case skip
 }
 
-/// Off-screen windows are never captured (the capture API cannot see them), whatever the policy.
-func windowImageCaptureTiming(policy: SnapshotCapturePolicy, isOnscreen: Bool) -> WindowImageCaptureTiming {
-    guard isOnscreen else {
+/// Off-screen windows are never captured (the capture API cannot see them), whatever the policy. Neither are
+/// off-stage Stage Manager windows: every capture API returns only their strip thumbnail.
+func windowImageCaptureTiming(
+    policy: SnapshotCapturePolicy,
+    isOnscreen: Bool,
+    isOffStage: Bool = false
+) -> WindowImageCaptureTiming {
+    guard isOnscreen, !isOffStage else {
         return .skip
     }
 
@@ -397,7 +407,10 @@ enum SnapshotBuilder {
         rootWindow = resolvedFocusedWindow
 
         var windowTitle = stringValue(of: rootWindow, attribute: kAXTitleAttribute)
-        var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
+        // An off-stage window is located by its own id and AX frame; the window-server entry is only the strip
+        // thumbnail, so it is neither matched by size nor captured.
+        var windowCapture = liveOffStageWindow(for: rootWindow).map(WindowCapture.offStage(_:))
+            ?? WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app) {
@@ -440,7 +453,11 @@ enum SnapshotBuilder {
         capture: SnapshotCapturePolicy
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
-        let captureTiming = windowImageCaptureTiming(policy: capture, isOnscreen: windowCapture.isOnscreen)
+        let captureTiming = windowImageCaptureTiming(
+            policy: capture,
+            isOnscreen: windowCapture.isOnscreen,
+            isOffStage: windowCapture.isOffStage
+        )
         let appLevelFocus = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let context = RenderContext(
             windowBounds: windowBounds,
@@ -473,7 +490,7 @@ enum SnapshotBuilder {
         // The image was captured before the walk for .beforeWalk; for .afterWalkIfTreeEmpty it is
         // taken now, only when the window itself had nothing to act on (menu-bar items do not count).
         let screenshotPNGData: Data?
-        if captureTiming == .afterWalkIfTreeEmpty, windowContentIsEmpty {
+        if captureTiming == .afterWalkIfTreeEmpty, windowContentIsEmpty, !windowCapture.isOffStage {
             screenshotPNGData = windowCapture.capturingImage().pngDataIfAvailable()
         } else {
             screenshotPNGData = windowCapture.pngDataIfAvailable()
@@ -493,7 +510,8 @@ enum SnapshotBuilder {
             focusedElement: focusedElement,
             selectedText: selectedText,
             elements: renderer.records,
-            windowContentIsEmpty: windowContentIsEmpty
+            windowContentIsEmpty: windowContentIsEmpty,
+            isOffStage: windowCapture.isOffStage
         )
     }
 
@@ -624,6 +642,19 @@ private struct WindowCapture {
     let bounds: CGRect
     let image: CGImage?
     let isOnscreen: Bool
+    var isOffStage = false
+
+    /// An off-stage window: bounds are its AX frame, so element frames stay window-relative, and there is no image.
+    static func offStage(_ window: OffStageWindow) -> WindowCapture {
+        WindowCapture(
+            windowID: window.windowID,
+            layer: 0,
+            bounds: window.accessibilityFrame,
+            image: nil,
+            isOnscreen: false,
+            isOffStage: true
+        )
+    }
 
     static func resolve(for pid: pid_t, titleHint: String?, captureImage shouldCaptureImage: Bool = true) -> WindowCapture? {
         // Query all windows (not just onscreen) so Stage Manager background apps are included.
@@ -671,7 +702,7 @@ private struct WindowCapture {
     /// Returns this capture with the window image taken now, reusing the already-resolved window
     /// id and bounds. Off-screen windows and captures that already hold an image are unchanged.
     func capturingImage() -> WindowCapture {
-        guard isOnscreen, image == nil else {
+        guard isOnscreen, !isOffStage, image == nil else {
             return self
         }
 
