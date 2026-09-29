@@ -151,7 +151,7 @@ final class ShortcutAndUrlLauncherTests: XCTestCase {
         )
     }
 
-    func testBlockedSetsCoverTheVerifiedEntries() {
+    func testBlockedSetsCoverTheVerifiedEntries() throws {
         XCTAssertEqual(
             UrlOpenPolicy.blockedSchemes,
             ["file", "shortcuts", "x-man-page", "ssh", "telnet", "smb", "afp", "nfs", "cifs", "ftp", "ftps", "sftp", "vnc", "help"]
@@ -159,9 +159,18 @@ final class ShortcutAndUrlLauncherTests: XCTestCase {
         for identifier in [
             "com.apple.terminal", "com.apple.scripteditor2", "com.apple.shortcuts", "com.apple.automator",
             "com.apple.netauthagent", "com.microsoft.vscode", "com.runningwithcrayons.alfred",
+            "com.microsoft.vscodeinsiders", "com.vscodium", "com.exafunction.windsurf", "dev.zed.zed",
+            "com.jetbrains.toolbox", "dev.warp.warp-stable",
         ] {
             XCTAssertTrue(UrlOpenPolicy.blockedHandlerBundleIdentifiers.contains(identifier), identifier)
         }
+        for identifier in ["com.latenightsw.ScriptDebugger", "com.latenightsw.ScriptDebugger8"] {
+            assertRejected(try evaluate("applescript://x", bundleIdentifier: identifier), "handler id \(identifier)")
+        }
+    }
+
+    func testHandlerWithoutReadableBundleIdentifierIsRejected() throws {
+        assertRejected(try evaluate("myscheme://x", bundleIdentifier: nil), "a handler with no bundle id")
     }
 
     // MARK: - Opening URLs

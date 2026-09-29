@@ -37,6 +37,18 @@ public enum UrlOpenPolicy {
         "org.hammerspoon.hammerspoon",
         "com.hegenberg.bettertouchtool",
         "com.stairways.keyboardmaestro.engine",
+        "com.microsoft.vscodeinsiders",
+        "com.vscodium",
+        "com.exafunction.windsurf",
+        "dev.zed.zed",
+        "com.jetbrains.toolbox",
+        "dev.warp.warp-stable",
+    ]
+
+    /// Handlers blocked by bundle id prefix, for apps that ship one id per major version (Script Debugger is
+    /// `com.latenightsw.ScriptDebugger8` and so on). Stored lowercased; compared lowercased.
+    public static let blockedHandlerBundleIdentifierPrefixes: [String] = [
+        "com.latenightsw.scriptdebugger",
     ]
 
     public static func evaluate(
@@ -56,8 +68,12 @@ public enum UrlOpenPolicy {
         guard handler.pathExtension.lowercased() == "app" else {
             return .rejected("the handler for \(scheme): URLs is not an app bundle")
         }
-        if let identifier = bundleIdentifierResolver(handler)?.lowercased(),
-           blockedHandlerBundleIdentifiers.contains(identifier) {
+        // A handler whose identity cannot be read cannot be checked against the lists, so it is refused.
+        guard let identifier = bundleIdentifierResolver(handler)?.lowercased(), !identifier.isEmpty else {
+            return .rejected("the handler for \(scheme): URLs has no readable bundle identifier")
+        }
+        if blockedHandlerBundleIdentifiers.contains(identifier)
+            || blockedHandlerBundleIdentifierPrefixes.contains(where: identifier.hasPrefix) {
             return .rejected("the handler for \(scheme): URLs (\(identifier)) is blocked")
         }
         return .allowed(handler: handler)
