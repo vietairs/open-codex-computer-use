@@ -8,6 +8,15 @@ struct TypeTextFocus: Equatable {
     let acceptsKeyboardText: Bool
 }
 
+/// Pure. Builds the focus description from the focused element's attributes. Whether it accepts keyboard text comes
+/// from its text-entry role, subrole or role description only, never from whether its value is settable.
+func makeTypeTextFocus(role: String?, subrole: String?, roleDescription: String?, isValueSettable: Bool) -> TypeTextFocus {
+    TypeTextFocus(
+        isValueSettable: isValueSettable,
+        acceptsKeyboardText: canUseKeyboardTextFallback(role: role, subrole: subrole, roleDescription: roleDescription)
+    )
+}
+
 /// How type_text delivers text. No route brings the target app to the front.
 enum TypeTextRoute: Equatable {
     case setFocusedValue
@@ -17,17 +26,15 @@ enum TypeTextRoute: Equatable {
 
 /// Pure. Chooses the delivery for the focus the snapshot (or a batch step's live read) found.
 ///
-/// A settable value is written through accessibility. A text control that is not settable gets key events posted to
-/// the app's process, which does not activate it. Without a confirmed text focus there is nowhere safe to send the
-/// keys: they could land in whatever the app's first responder happens to be, such as a message list.
+/// Only a text-entry focus receives anything. Its value is written through accessibility when settable; otherwise key
+/// events are posted to the app's process, which does not activate it. Any other focus is refused before any write or
+/// keystroke, even when its value is settable (a slider, a list): keys could land in whatever the app's first responder
+/// happens to be, such as a message list.
 func typeTextRoute(focus: TypeTextFocus?) -> TypeTextRoute {
-    guard let focus else {
+    guard let focus, focus.acceptsKeyboardText else {
         return .refuse
     }
-    if focus.isValueSettable {
-        return .setFocusedValue
-    }
-    return focus.acceptsKeyboardText ? .postKeysToProcess : .refuse
+    return focus.isValueSettable ? .setFocusedValue : .postKeysToProcess
 }
 
 func typeTextNeedsTextFocusMessage(appName: String) -> String {
@@ -37,8 +44,8 @@ func typeTextNeedsTextFocusMessage(appName: String) -> String {
         + "field directly, use set_value on it."
 }
 
-/// Runs the chosen route. `setValue` returns false when the accessibility write is refused, in which case a text
-/// control still receives the text as posted keys; anything else fails closed with `typeTextNeedsTextFocusMessage`.
+/// Runs the chosen route. `setValue` returns false when the accessibility write is refused, in which case the text
+/// control still receives the text as posted keys; a non-text focus fails closed with `typeTextNeedsTextFocusMessage`.
 func deliverTypedText(
     focus: TypeTextFocus?,
     appName: String,
@@ -50,9 +57,7 @@ func deliverTypedText(
         if try setValue() {
             return .setFocusedValue
         }
-        guard focus?.acceptsKeyboardText == true else {
-            throw ComputerUseError.message(typeTextNeedsTextFocusMessage(appName: appName))
-        }
+        // The route already required a text-entry focus, so the refused write falls back to keys on that control.
         try postKeys()
         return .postKeysToProcess
     case .postKeysToProcess:

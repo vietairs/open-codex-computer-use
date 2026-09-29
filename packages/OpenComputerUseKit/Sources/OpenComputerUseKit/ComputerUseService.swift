@@ -524,20 +524,16 @@ func canUseActivationOnlyClickFallback(role: String?) -> Bool {
     return role == kAXWindowRole as String
 }
 
-func canUseKeyboardTextFallback(role: String?, roleDescription: String?, isValueSettable: Bool) -> Bool {
-    if isValueSettable {
+/// Pure. Whether the element is a text-entry control, judged by role, subrole and role description only.
+///
+/// Value settability is deliberately not a signal: sliders, steppers and some lists and tables expose a settable
+/// AXValue, and typing into them would move a selection or a setting instead of entering text.
+func canUseKeyboardTextFallback(role: String?, subrole: String?, roleDescription: String?) -> Bool {
+    if isClickFocusTextEntry(role: role, subrole: subrole) {
         return true
     }
 
-    guard let role else {
-        return false
-    }
-
-    if role == kAXTextFieldRole as String || role == "AXTextArea" || role == "AXTextView" {
-        return true
-    }
-
-    guard let roleDescription = roleDescription?.lowercased() else {
+    guard role != nil, let roleDescription = roleDescription?.lowercased() else {
         return false
     }
 
@@ -2026,14 +2022,12 @@ public final class ComputerUseService {
         let roleDescription = role.flatMap {
             stringValue(of: element, attribute: kAXRoleDescriptionAttribute) ?? humanizedRoleDescription(for: $0)
         }
-        let isValueSettable = try isSettableForSetValue(element: element, attribute: kAXValueAttribute)
-        return TypeTextFocus(
-            isValueSettable: isValueSettable,
-            acceptsKeyboardText: canUseKeyboardTextFallback(
-                role: role,
-                roleDescription: roleDescription,
-                isValueSettable: isValueSettable
-            )
+        let subrole = stringValue(of: element, attribute: kAXSubroleAttribute)
+        return makeTypeTextFocus(
+            role: role,
+            subrole: subrole,
+            roleDescription: roleDescription,
+            isValueSettable: try isSettableForSetValue(element: element, attribute: kAXValueAttribute)
         )
     }
 

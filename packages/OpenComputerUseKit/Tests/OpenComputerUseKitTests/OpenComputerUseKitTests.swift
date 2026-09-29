@@ -940,8 +940,8 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(
             canUseKeyboardTextFallback(
                 role: "AXWebArea",
-                roleDescription: "HTML content",
-                isValueSettable: false
+                subrole: nil,
+                roleDescription: "HTML content"
             )
         )
     }
@@ -950,20 +950,38 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(
             canUseKeyboardTextFallback(
                 role: kAXTextFieldRole as String,
-                roleDescription: "text field",
-                isValueSettable: false
+                subrole: nil,
+                roleDescription: "text field"
             )
         )
     }
 
-    func testKeyboardTextFallbackAcceptsSettableValueElement() {
+    func testKeyboardTextFallbackAcceptsWebTextEntryByRoleDescription() {
         XCTAssertTrue(
             canUseKeyboardTextFallback(
                 role: kAXGroupRole as String,
-                roleDescription: "text entry area",
-                isValueSettable: true
+                subrole: nil,
+                roleDescription: "text entry area"
             )
         )
+    }
+
+    func testKeyboardTextFallbackAcceptsTextEntryRolesAndSubroles() {
+        for role in ["AXTextField", "AXTextArea", "AXTextView", "AXComboBox", "AXSecureTextField"] {
+            XCTAssertTrue(canUseKeyboardTextFallback(role: role, subrole: nil, roleDescription: nil), role)
+        }
+        for subrole in ["AXSearchField", "AXSecureTextField"] {
+            XCTAssertTrue(
+                canUseKeyboardTextFallback(role: "AXTextField", subrole: subrole, roleDescription: nil),
+                subrole
+            )
+        }
+    }
+
+    func testKeyboardTextFallbackRejectsNonTextControls() {
+        for (role, description) in [("AXSlider", "slider"), ("AXList", "list"), ("AXIncrementor", "stepper")] {
+            XCTAssertFalse(canUseKeyboardTextFallback(role: role, subrole: nil, roleDescription: description), role)
+        }
     }
 
     func testSnapshotRenderedTextStartsDirectlyWithAppHeader() {
