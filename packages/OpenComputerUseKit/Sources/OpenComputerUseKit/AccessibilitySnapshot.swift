@@ -41,6 +41,7 @@ enum SnapshotMode {
 }
 
 enum SnapshotRecoveryPolicy: Equatable {
+    /// May unhide a hidden app to find its window. The name predates the rule that recovery never activates the app.
     case allowActivation
     case readOnly
 }
@@ -384,14 +385,14 @@ enum SnapshotBuilder {
         }
         if focusedWindow == nil,
            recoveryPolicy == .allowActivation,
-           recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
+           recoverVisibleWindow(for: app) {
             focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
             focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         }
 
         var rootWindow: AXUIElement
         guard let resolvedFocusedWindow = focusedWindow else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+            throw ComputerUseError.stateUnavailable(noBackgroundWindowMessage(appName: app.name))
         }
         rootWindow = resolvedFocusedWindow
 
@@ -399,7 +400,7 @@ enum SnapshotBuilder {
         var windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle, captureImage: capture == .always)
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
-           recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: rootWindow) {
+           recoverVisibleWindow(for: app) {
             focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
             if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
                 rootWindow = recoveredWindow
@@ -409,7 +410,7 @@ enum SnapshotBuilder {
         }
 
         guard let windowCapture else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
+            throw ComputerUseError.stateUnavailable(noBackgroundWindowMessage(appName: app.name))
         }
 
         return buildAccessibilitySnapshot(
@@ -496,46 +497,20 @@ enum SnapshotBuilder {
         )
     }
 
-    private static func recoverVisibleWindow(for app: RunningAppDescriptor, appElement: AXUIElement, preferredWindow: AXUIElement?) -> Bool {
-        var recovered = false
-
-        if let runningApplication = NSRunningApplication(processIdentifier: app.pid) {
-            recovered = runningApplication.unhide() || recovered
-            recovered = runningApplication.activate(options: [.activateAllWindows]) || recovered
-        }
-
-        if let bundleIdentifier = app.bundleIdentifier {
-            recovered = openBundleIdentifier(bundleIdentifier) || recovered
-        }
-
-        if let window = preferredWindow ?? firstAnyWindow(for: appElement) {
-            recovered = unminimize(window) || recovered
-            recovered = raise(window) || recovered
-            recovered = setBoolAttribute(named: kAXMainAttribute as String, on: window) || recovered
-            recovered = setBoolAttribute(named: kAXFocusedAttribute as String, on: window) || recovered
-        }
-
-        if recovered {
-            Thread.sleep(forTimeInterval: windowVisibilityRecoveryDelay)
-        }
-
-        return recovered
-    }
-
-    private static func openBundleIdentifier(_ bundleIdentifier: String) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-b", bundleIdentifier]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-            return process.terminationStatus == 0
-        } catch {
+    /// Brings back a window only by unhiding a hidden app, which shows its windows without activating it. It never
+    /// activates the app, runs `open -b`, raises, unminimizes, or makes a window main or focused: each of those can
+    /// put the target in front of the app the user is working in. When unhiding is not enough, the snapshot fails
+    /// with `noBackgroundWindowMessage` and the user decides whether to show a window.
+    private static func recoverVisibleWindow(for app: RunningAppDescriptor) -> Bool {
+        guard let runningApplication = NSRunningApplication(processIdentifier: app.pid),
+              runningApplication.isHidden,
+              runningApplication.unhide()
+        else {
             return false
         }
+
+        Thread.sleep(forTimeInterval: windowVisibilityRecoveryDelay)
+        return true
     }
 
     private static func firstWindow(for appElement: AXUIElement) -> AXUIElement? {
@@ -549,26 +524,6 @@ enum SnapshotBuilder {
     private static func firstAnyWindow(for appElement: AXUIElement) -> AXUIElement? {
         copyElement(appElement, attribute: kAXFocusedWindowAttribute)
             ?? copyArray(appElement, attribute: kAXWindowsAttribute)?.first(where: { stringValue(of: $0, attribute: kAXRoleAttribute) == kAXWindowRole as String })
-    }
-
-    private static func unminimize(_ window: AXUIElement) -> Bool {
-        guard boolValue(of: window, attribute: kAXMinimizedAttribute) == true else {
-            return false
-        }
-
-        return AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success
-    }
-
-    private static func raise(_ window: AXUIElement) -> Bool {
-        guard copyActions(window)?.contains(where: { $0.caseInsensitiveCompare(kAXRaiseAction as String) == .orderedSame }) == true else {
-            return false
-        }
-
-        return AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
-    }
-
-    private static func setBoolAttribute(named attribute: String, on element: AXUIElement) -> Bool {
-        AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue) == .success
     }
 
     private static func preferredFocusedWindow(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {

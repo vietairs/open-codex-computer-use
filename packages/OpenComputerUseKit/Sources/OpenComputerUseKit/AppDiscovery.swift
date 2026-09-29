@@ -362,6 +362,8 @@ enum AppDiscovery {
 
     private static func openApplication(at appURL: URL) throws {
         let configuration = NSWorkspace.OpenConfiguration()
+        // Launch in the background: the user's frontmost app keeps focus.
+        configuration.activates = false
         let semaphore = DispatchSemaphore(value: 0)
         let errorBox = LaunchErrorBox()
 

@@ -52,7 +52,10 @@
 By default, all MCP tool operations target apps by PID using accessibility APIs and targeted CGEvents — no app activation (`NSRunningApplication.activate`) is ever called on the normal path.
 
 - `globalPointerFallbacksEnabled()` returns `false` unless `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` is set; the global pointer paths (`clickGlobally` / `scrollGlobally` / `dragGlobally`) are never invoked without this explicit opt-in.
-- Keyboard events use `CGEvent.postToPid` with the target PID; the target app need not be frontmost.
+- Keyboard events use `CGEvent.postToPid` with the target PID; the target app need not be frontmost. `type_text` never activates the target: it writes a settable focused value through accessibility, posts keys only when a text control holds focus, and otherwise fails asking the caller to focus the field or use `set_value`.
+- A background app's focus is read from the per-element `AXFocused` when its app-level `AXFocusedUIElement` is nil.
+- Launching a non-running target uses `NSWorkspace.OpenConfiguration.activates = false`, and snapshot window recovery only unhides a hidden app; when no window can be read, the call fails instead of activating, raising, or unminimizing.
+- `BackgroundOperationInvariantTests` fails when a new `.activate(` call appears in the kit outside the gated global-pointer path.
 - Mouse events use `AXUIElement` `performAction` or `CGEvent.postToPid` targeted to the app's PID; no front-most requirement exists.
 - This guarantees MCP tools do not steal focus, move the user's hardware cursor, or interrupt the user's active workflow.
 
