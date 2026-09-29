@@ -433,8 +433,8 @@ final class DecisionAdvisorTests: XCTestCase {
 
     // MARK: - ToolDefinitions.listed
 
-    func testToolDefinitionsAllStaysTenAndExcludesDecideNextAction() {
-        XCTAssertEqual(ToolDefinitions.all.count, 10)
+    func testToolDefinitionsAllStaysElevenAndExcludesDecideNextAction() {
+        XCTAssertEqual(ToolDefinitions.all.count, 11)
         XCTAssertFalse(ToolDefinitions.all.contains { $0.name == "decide_next_action" })
     }
 
@@ -445,16 +445,16 @@ final class DecisionAdvisorTests: XCTestCase {
 
     func testToolDefinitionsListedWithValidLoopbackURLAppendsDecideNextActionLast() throws {
         let listed = ToolDefinitions.listed(environment: [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"])
-        XCTAssertEqual(listed.count, 11)
+        XCTAssertEqual(listed.count, 12)
         let last = try XCTUnwrap(listed.last)
         XCTAssertEqual(last.name, "decide_next_action")
         XCTAssertEqual(last.annotations["readOnlyHint"] as? Bool, true)
         XCTAssertEqual(last.inputSchema["required"] as? [String], ["app", "goal"])
     }
 
-    func testToolDefinitionsListedWithNonLoopbackURLStaysAtTen() {
+    func testToolDefinitionsListedWithNonLoopbackURLStaysAtEleven() {
         let listed = ToolDefinitions.listed(environment: [DecisionModelEndpoint.environmentKey: "http://10.0.0.1:1"])
-        XCTAssertEqual(listed.count, 10)
+        XCTAssertEqual(listed.count, 11)
     }
 
     // MARK: - StdioMCPServer wiring

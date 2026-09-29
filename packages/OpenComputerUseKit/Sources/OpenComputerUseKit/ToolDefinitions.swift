@@ -161,6 +161,31 @@ public enum ToolDefinitions {
             )
         ),
         ToolDefinition(
+            name: "find_elements",
+            description: "Search the app's window for elements by role, label or identifier without rendering the whole accessibility tree. At least one of role, label or identifier is required; every provided criterion must match. Label is compared with each element's title and description. Returns up to max_results rows; the returned element_index values work with click, set_value, scroll and perform_secondary_action until the next state refresh (any get_app_state or action result). Results are read from the accessibility tree only, with no screenshot. An element outside the window is listed without a frame and cannot be clicked. This tool is part of plugin `Computer Use`.",
+            annotations: readOnlyAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "app": stringProperty(description: "App name or bundle identifier"),
+                    "role": stringProperty(description: "Accessibility role, with or without the AX prefix, for example button or AXButton"),
+                    "label": stringProperty(description: "Text to find in the element's title or description"),
+                    "identifier": stringProperty(description: "Accessibility identifier to find"),
+                    "match": stringProperty(
+                        description: "How label and identifier are compared: contains (default) or exact. Both ignore case.",
+                        enumValues: ["exact", "contains"]
+                    ),
+                    "max_results": [
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 20,
+                        "description": "Maximum number of matches to return. Defaults to 5",
+                    ],
+                    "max_nodes": positiveIntegerProperty(description: "Maximum number of accessibility nodes to read. Defaults to 1200"),
+                ],
+                required: ["app"]
+            )
+        ),
+        ToolDefinition(
             name: "perform_actions",
             description: "Run a short, fully specified sequence of Computer Use actions on one app in a single call. Steps run in order and stop at the first failure; the result has one line per step followed by one final app state. Every element_index refers to the state you last received for this app. Allowed step tools: click, type_text, press_key, set_value, scroll, perform_secondary_action. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
