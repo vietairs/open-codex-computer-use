@@ -31,8 +31,10 @@ final class MCPClient {
         stdout = stdoutPipe.fileHandleForReading
     }
 
-    func initialize() throws {
-        _ = try request(method: "initialize", params: [
+    /// Sends `initialize` and returns the server's `instructions` text (empty when absent).
+    @discardableResult
+    func initialize() throws -> String {
+        let response = try request(method: "initialize", params: [
             "clientInfo": [
                 "name": "OpenComputerUseSmokeSuite",
                 "version": "0.3.9-vietairs.1",
@@ -42,6 +44,7 @@ final class MCPClient {
         ])
 
         try notify(method: "notifications/initialized", params: [:])
+        return response.result?["instructions"] as? String ?? ""
     }
 
     func listTools() throws -> [[String: Any]] {
@@ -196,9 +199,14 @@ enum OpenComputerUseSmokeSuite {
         try client.initialize()
 
         let tools = try client.listTools()
-        guard tools.count == 10 else {
-            throw SmokeError.message("Expected 10 tools, got \(tools.count)")
+        guard tools.count == 11 else {
+            throw SmokeError.message("Expected 11 tools, got \(tools.count)")
         }
+        let listedNames = Set(tools.compactMap { $0["name"] as? String })
+        for localTool in ["run_script", "get_scripting_dictionary", "open_url", "run_shortcut", "list_shortcuts"] {
+            try expect(!listedNames.contains(localTool), "\(localTool) must not be listed when the scripting flag is unset")
+        }
+        try expect(listedNames.contains("find_elements"), "find_elements should be listed")
 
         print("1. list_apps")
         let apps = try client.callTool("list_apps", arguments: [:])
@@ -342,7 +350,43 @@ enum OpenComputerUseSmokeSuite {
             "a rejected batch should not run any of its steps"
         )
 
+        try runScriptingChannelSmoke(serverURL: serverURL, visualCursor: true)
+        try runScriptingChannelSmoke(serverURL: serverURL, visualCursor: false)
+
         print("Smoke suite completed.")
+    }
+
+    /// Starts a second server with the scripting flag set and checks the relay-local channel surface.
+    /// `visualCursor: true` covers the MCPAppRuntime path, `false` covers the plain stdio-loop path.
+    private static func runScriptingChannelSmoke(serverURL: URL, visualCursor: Bool) throws {
+        let path = visualCursor ? "MCPAppRuntime (visual cursor on)" : "plain stdio loop (visual cursor off)"
+        print("12. scripting channel, \(path)")
+
+        var environment = smokeServerEnvironment()
+        environment["OPEN_COMPUTER_USE_ENABLE_SCRIPTING"] = "1"
+        if !visualCursor {
+            environment["OPEN_COMPUTER_USE_VISUAL_CURSOR"] = "0"
+        }
+
+        let client = try MCPClient(executableURL: serverURL, arguments: ["mcp"], environment: environment)
+        defer {
+            client.terminate()
+        }
+
+        let instructions = try client.initialize()
+        try expect(
+            !instructions.contains("Avoid falling back to AppleScript"),
+            "scripting flag should swap the AppleScript avoidance line for the script-first guide"
+        )
+
+        let tools = try client.listTools()
+        try expect(tools.count == 16, "Expected 16 tools with the scripting flag set, got \(tools.count)")
+
+        let result = try client.callTool("run_script", arguments: [
+            "app": "OpenComputerUseFixture",
+            "source": "return 1 + 1",
+        ])
+        try expect(result.hasPrefix("2"), "run_script 'return 1 + 1' should return 2, got: \(result)")
     }
 
     private static func runCursorIdleSmoke(serverURL: URL, appName: String) throws {
@@ -395,6 +439,8 @@ enum OpenComputerUseSmokeSuite {
         var environment = ProcessInfo.processInfo.environment
         environment["OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"] = "1"
         environment.removeValue(forKey: "OPEN_COMPUTER_USE_DECISION_MODEL_URL")
+        environment.removeValue(forKey: "OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND")
+        environment.removeValue(forKey: "OPEN_COMPUTER_USE_ENABLE_SCRIPTING")
         return environment
     }
 

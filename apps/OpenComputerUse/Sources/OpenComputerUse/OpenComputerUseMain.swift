@@ -46,7 +46,7 @@ enum OpenComputerUseMain {
                     try MCPAppRuntime.run(server: server)
                 }
             } else {
-                try server.run()
+                try LocalChannelRouter().run { server.handle(line: $0) }
             }
         case .doctor:
             let permissions = PermissionDiagnostics.current()
