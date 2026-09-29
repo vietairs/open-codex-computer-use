@@ -951,22 +951,24 @@ private struct TreeRenderer {
 
         let index = nextIndex
 
-        let role = stringValue(of: root, attribute: kAXRoleAttribute) ?? "AXUnknown"
-        let subrole = stringValue(of: root, attribute: kAXSubroleAttribute)
+        // One round trip for the attributes every node reads; nil falls back to single reads.
+        let prefetch = AXAttributePrefetch.fetch(root)
+        let role = stringValue(of: root, attribute: kAXRoleAttribute, prefetch: prefetch) ?? "AXUnknown"
+        let subrole = stringValue(of: root, attribute: kAXSubroleAttribute, prefetch: prefetch)
         let baseRoleText = roleDescription(of: root, role: role, subrole: subrole)
-        let label = stringValue(of: root, attribute: kAXDescriptionAttribute)
+        let label = stringValue(of: root, attribute: kAXDescriptionAttribute, prefetch: prefetch)
             .map { sanitizeText($0, textLimit: context.textLimit) }
-        let help = stringValue(of: root, attribute: kAXHelpAttribute)
+        let help = stringValue(of: root, attribute: kAXHelpAttribute, prefetch: prefetch)
             .map { sanitizeText($0, textLimit: context.textLimit) }
-        let value = sanitizedValue(of: root, textLimit: context.textLimit)
-        let axIdentifier = displayIdentifier(stringValue(of: root, attribute: kAXIdentifierAttribute))
-        let traits = summarizeTraits(of: root)
+        let value = sanitizedValue(of: root, textLimit: context.textLimit, prefetch: prefetch)
+        let axIdentifier = displayIdentifier(stringValue(of: root, attribute: kAXIdentifierAttribute, prefetch: prefetch))
+        let traits = summarizeTraits(of: root, prefetch: prefetch)
         let actions = copyActions(root) ?? []
         let exposesPrimaryClickAction = hasPrimaryClickAction(actions)
         let prettyActions = meaningfulActions(actions, role: role)
         let placeholder = placeholderValue(of: root, textLimit: context.textLimit)
         let webAreaDepth = webAreaDepth(role: role, ancestors: ancestors)
-        let localFrame = resolveLocalFrame(of: root, windowBounds: context.windowBounds)
+        let localFrame = resolveLocalFrame(of: root, windowBounds: context.windowBounds, prefetch: prefetch)
         let rowTexts = role == kAXRowRole as String ? flattenedRowTexts(of: root, textLimit: context.textLimit) : []
         let childElements = children(of: root)
         let hasActionableLinkDescendant =
@@ -1298,38 +1300,39 @@ func shouldContinueRendering(
     nextIndex < limits.maxNodeCount && depth < limits.maxDepth
 }
 
-private func summarizeTraits(of element: AXUIElement) -> [String] {
+private func summarizeTraits(of element: AXUIElement, prefetch: AXAttributePrefetch?) -> [String] {
     var values: [String] = []
 
-    if boolValue(of: element, attribute: kAXSelectedAttribute) == true {
+    if boolValue(of: element, attribute: kAXSelectedAttribute, prefetch: prefetch) == true {
         values.append("selected")
     }
 
-    if boolValue(of: element, attribute: kAXExpandedAttribute) == true {
+    if boolValue(of: element, attribute: kAXExpandedAttribute, prefetch: prefetch) == true {
         values.append("expanded")
     }
 
-    if boolValue(of: element, attribute: kAXEnabledAttribute) == false {
+    if boolValue(of: element, attribute: kAXEnabledAttribute, prefetch: prefetch) == false {
         values.append("disabled")
     }
 
-    if isSettable(of: element, attribute: kAXValueAttribute) {
+    let isValueSettable = isSettable(of: element, attribute: kAXValueAttribute)
+    if isValueSettable {
         values.append("settable")
     }
 
-    if let valueType = valueTypeTrait(of: element) {
+    if let valueType = valueTypeTrait(of: element, isValueSettable: isValueSettable, prefetch: prefetch) {
         values.append(valueType)
     }
 
     return values
 }
 
-private func valueTypeTrait(of element: AXUIElement) -> String? {
-    guard isSettable(of: element, attribute: kAXValueAttribute) else {
+private func valueTypeTrait(of element: AXUIElement, isValueSettable: Bool, prefetch: AXAttributePrefetch?) -> String? {
+    guard isValueSettable else {
         return nil
     }
 
-    guard let value = attributeValue(of: element, attribute: kAXValueAttribute) else {
+    guard let value = attributeValue(of: element, attribute: kAXValueAttribute, prefetch: prefetch) else {
         return nil
     }
 
@@ -1388,8 +1391,16 @@ private func attributeValue(of element: AXUIElement, attribute: String) -> CFTyp
     return value
 }
 
+private func attributeValue(of element: AXUIElement, attribute: String, prefetch: AXAttributePrefetch?) -> CFTypeRef? {
+    prefetchedOrLive(prefetch, attribute) { attributeValue(of: element, attribute: attribute) }
+}
+
 private func stringValue(of element: AXUIElement, attribute: String) -> String? {
-    guard let value = attributeValue(of: element, attribute: attribute) else {
+    stringValue(of: element, attribute: attribute, prefetch: nil)
+}
+
+private func stringValue(of element: AXUIElement, attribute: String, prefetch: AXAttributePrefetch?) -> String? {
+    guard let value = attributeValue(of: element, attribute: attribute, prefetch: prefetch) else {
         return nil
     }
 
@@ -1414,7 +1425,11 @@ private func copySelectedText(_ element: AXUIElement, textLimit: SnapshotTextLim
 }
 
 private func boolValue(of element: AXUIElement, attribute: String) -> Bool? {
-    guard let value = attributeValue(of: element, attribute: attribute) else {
+    boolValue(of: element, attribute: attribute, prefetch: nil)
+}
+
+private func boolValue(of element: AXUIElement, attribute: String, prefetch: AXAttributePrefetch?) -> Bool? {
+    guard let value = attributeValue(of: element, attribute: attribute, prefetch: prefetch) else {
         return nil
     }
 
@@ -1433,13 +1448,17 @@ private func isSettable(of element: AXUIElement, attribute: String) -> Bool {
     return error == .success && settable.boolValue
 }
 
-private func sanitizedValue(of element: AXUIElement, textLimit: SnapshotTextLimit = .defaults) -> String? {
-    if let string = stringValue(of: element, attribute: kAXValueAttribute) {
+private func sanitizedValue(
+    of element: AXUIElement,
+    textLimit: SnapshotTextLimit = .defaults,
+    prefetch: AXAttributePrefetch? = nil
+) -> String? {
+    if let string = stringValue(of: element, attribute: kAXValueAttribute, prefetch: prefetch) {
         let sanitized = sanitizeText(string, textLimit: textLimit)
         return sanitized.isEmpty ? nil : sanitized
     }
 
-    guard let value = attributeValue(of: element, attribute: kAXValueAttribute) else {
+    guard let value = attributeValue(of: element, attribute: kAXValueAttribute, prefetch: prefetch) else {
         return nil
     }
 
@@ -1718,17 +1737,15 @@ private func displayIdentifierSegment(for element: AXUIElement, role: String, id
     return " ID: \(identifier)"
 }
 
-private func resolveLocalFrame(of element: AXUIElement, windowBounds: CGRect?) -> CGRect? {
-    var positionValue: CFTypeRef?
-    var sizeValue: CFTypeRef?
-    let positionError = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue)
-    let sizeError = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue)
-    guard
-        positionError == .success,
-        sizeError == .success,
-        let positionValue,
-        let sizeValue
-    else {
+private func resolveLocalFrame(
+    of element: AXUIElement,
+    windowBounds: CGRect?,
+    prefetch: AXAttributePrefetch? = nil
+) -> CGRect? {
+    // Absent prefetched values (error sentinel or null) resolve to nil here, so they never reach the AXValue cast.
+    let positionValue = attributeValue(of: element, attribute: kAXPositionAttribute, prefetch: prefetch)
+    let sizeValue = attributeValue(of: element, attribute: kAXSizeAttribute, prefetch: prefetch)
+    guard let positionValue, let sizeValue else {
         return nil
     }
 
