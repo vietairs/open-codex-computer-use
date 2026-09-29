@@ -30,6 +30,59 @@ func clickActionSnapshotRecoveryPolicy(for method: ClickMethod) -> SnapshotRecov
     method == .skyClick ? .readOnly : .allowActivation
 }
 
+/// What a core action needs to know about the call it runs in. A single action carries only the screenshot
+/// choice. A batch step also carries the snapshot pinned at batch start, which resolves `element_index` only.
+struct ActionContext {
+    let includeScreenshot: Bool
+    let pinnedSnapshot: AppSnapshot?
+
+    var isBatchStep: Bool { pinnedSnapshot != nil }
+
+    static func single(includeScreenshot: Bool) -> ActionContext {
+        ActionContext(includeScreenshot: includeScreenshot, pinnedSnapshot: nil)
+    }
+
+    static func batchStep(pinned: AppSnapshot) -> ActionContext {
+        ActionContext(includeScreenshot: false, pinnedSnapshot: pinned)
+    }
+}
+
+/// The element `type_text` writes to. A batch reads focus live because an earlier step may have moved it; a single
+/// action keeps using the focus its snapshot recorded (`liveFocus` is not called).
+func typingTargetElement(
+    context: ActionContext,
+    snapshotFocus: AXUIElement?,
+    liveFocus: () -> AXUIElement?
+) -> AXUIElement? {
+    context.isBatchStep ? liveFocus() : snapshotFocus
+}
+
+/// Geometry for one batch step, taken from the live window and the live element frame and never from the pinned
+/// snapshot: the pinned values may be stale after an earlier step, and a stale frame would click the wrong place.
+func batchStepGeometry(
+    pinnedWindowBounds: CGRect?,
+    liveWindowBounds: CGRect?,
+    liveLocalFrame: CGRect?,
+    needsElementFrame: Bool,
+    elementIndex: String?
+) throws -> (windowBounds: CGRect?, localFrame: CGRect?) {
+    if liveWindowBounds == nil, pinnedWindowBounds != nil {
+        throw ComputerUseError.stateUnavailable("the target window is no longer on screen; call get_app_state")
+    }
+
+    guard needsElementFrame else {
+        return (liveWindowBounds, nil)
+    }
+
+    guard let liveLocalFrame else {
+        throw ComputerUseError.stateUnavailable(
+            "element_index \(elementIndex ?? "") is no longer on screen; call get_app_state"
+        )
+    }
+
+    return (liveWindowBounds, liveLocalFrame)
+}
+
 func parseClickMethod(_ rawValue: String?) throws -> ClickMethod {
     let normalized = rawValue?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -676,6 +729,28 @@ public final class ComputerUseService {
         clickMethod: ClickMethod = .auto,
         includeScreenshot: Bool = false
     ) throws -> ToolCallResult {
+        try click(
+            app: query,
+            elementIndex: elementIndex,
+            x: x,
+            y: y,
+            clickCount: clickCount,
+            mouseButton: mouseButton,
+            clickMethod: clickMethod,
+            context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func click(
+        app query: String,
+        elementIndex: String?,
+        x: Double?,
+        y: Double?,
+        clickCount: Int,
+        mouseButton: String,
+        clickMethod: ClickMethod,
+        context: ActionContext
+    ) throws -> ToolCallResult {
         try validateClickMethod(
             clickMethod,
             hasElementIndex: elementIndex != nil,
@@ -687,7 +762,7 @@ public final class ComputerUseService {
             clickCount: clickCount
         )
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
             guard clickMethod == .auto else {
@@ -716,7 +791,7 @@ public final class ComputerUseService {
 
             Thread.sleep(forTimeInterval: postActionSettleInterval)
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
         if let elementIndex {
@@ -741,7 +816,7 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: true,
+                        includeNearbyHitTesting: !context.isBatchStep,
                         allowActivationFallback: true
                     )) {
                         try performNonAXClickFallback(
@@ -758,7 +833,7 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: true,
+                        includeNearbyHitTesting: !context.isBatchStep,
                         allowActivationFallback: true
                     ) else {
                         throw ComputerUseError.message(
@@ -847,13 +922,19 @@ public final class ComputerUseService {
 
         return try finishAction(
             query: query,
-            includeScreenshot: includeScreenshot,
+            context: context,
             recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
         )
     }
 
     public func performSecondaryAction(app query: String, elementIndex: String, action: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        try performSecondaryAction(
+            app: query, elementIndex: elementIndex, action: action, context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func performSecondaryAction(app query: String, elementIndex: String, action: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -861,7 +942,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.message(invalidSecondaryActionMessage(action: action, record: record))
             }
 
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
         guard let rawAction = matchingAction(requested: action, record: record) else {
@@ -878,10 +959,17 @@ public final class ComputerUseService {
         }
 
         Thread.sleep(forTimeInterval: postActionSettleInterval)
-        return try finishAction(query: query, includeScreenshot: includeScreenshot)
+        return try finishAction(query: query, context: context)
     }
 
     public func scroll(app query: String, direction: String, elementIndex: String, pages: Double, includeScreenshot: Bool = false) throws -> ToolCallResult {
+        try scroll(
+            app: query, direction: direction, elementIndex: elementIndex, pages: pages,
+            context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func scroll(app query: String, direction: String, elementIndex: String, pages: Double, context: ActionContext) throws -> ToolCallResult {
         let normalized = direction.lowercased()
         guard ["up", "down", "left", "right"].contains(normalized) else {
             throw ComputerUseError.message("Invalid scroll direction: \(direction)")
@@ -890,7 +978,7 @@ public final class ComputerUseService {
             throw ComputerUseError.message("pages must be > 0")
         }
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -899,7 +987,7 @@ public final class ComputerUseService {
             }
             try FixtureBridge.post(FixtureCommand(kind: "scroll", identifier: identifier, direction: normalized, pages: pages))
             Thread.sleep(forTimeInterval: postActionSettleInterval)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
         if let repeatCount = integralScrollPageCount(pages),
@@ -921,7 +1009,7 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no scrollable frame")
         }
 
-        return try finishAction(query: query, includeScreenshot: includeScreenshot)
+        return try finishAction(query: query, context: context)
     }
 
     public func drag(app query: String, fromX: Double, fromY: Double, toX: Double, toY: Double, includeScreenshot: Bool = false) throws -> ToolCallResult {
@@ -929,7 +1017,7 @@ public final class ComputerUseService {
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "drag", identifier: "fixture-drag-pad", x: fromX, y: fromY, toX: toX, toY: toY))
             Thread.sleep(forTimeInterval: postActionSettleInterval)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: .single(includeScreenshot: includeScreenshot))
         }
 
         let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
@@ -941,25 +1029,36 @@ public final class ComputerUseService {
             snapshot: snapshot
         )
         return appendingDragDeliveryNote(
-            to: try finishAction(query: query, includeScreenshot: includeScreenshot),
+            to: try finishAction(query: query, context: .single(includeScreenshot: includeScreenshot)),
             path: path
         )
     }
 
     public func typeText(app query: String, text: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        try typeText(app: query, text: text, context: .single(includeScreenshot: includeScreenshot))
+    }
+
+    func typeText(app query: String, text: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
             Thread.sleep(forTimeInterval: postActionSettleInterval)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
-        if try typeTextBySettingFocusedValueIfAvailable(text, in: snapshot) {
+        // A batch reads focus live: an earlier step may have moved it since the pinned snapshot was built.
+        let focusedElement = typingTargetElement(
+            context: context,
+            snapshotFocus: snapshot.focusedElement,
+            liveFocus: { liveFocusedElement(pid: snapshot.app.pid) }
+        )
+
+        if try typeTextBySettingFocusedValueIfAvailable(text, focusedElement: focusedElement) {
             Thread.sleep(forTimeInterval: 0.1)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
-        if !(try canTypeTextUsingKeyboardFallback(in: snapshot)) {
+        if !(try canTypeTextUsingKeyboardFallback(focusedElement: focusedElement)) {
             // Stage Manager background app has no focused element; briefly activate to accept input, then restore.
             let originalPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
             NSRunningApplication(processIdentifier: snapshot.app.pid)?.activate(options: [])
@@ -968,27 +1067,37 @@ public final class ComputerUseService {
             if let orig = originalPID {
                 NSRunningApplication(processIdentifier: orig)?.activate(options: [])
             }
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
         try InputSimulation.typeText(text, pid: snapshot.app.pid)
-        return try finishAction(query: query, includeScreenshot: includeScreenshot)
+        return try finishAction(query: query, context: context)
     }
 
     public func pressKey(app query: String, key: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        try pressKey(app: query, key: key, context: .single(includeScreenshot: includeScreenshot))
+    }
+
+    func pressKey(app query: String, key: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
             Thread.sleep(forTimeInterval: postActionSettleInterval)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
-        return try finishAction(query: query, includeScreenshot: includeScreenshot)
+        return try finishAction(query: query, context: context)
     }
 
     public func setValue(app query: String, elementIndex: String, value: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+        try setValue(
+            app: query, elementIndex: elementIndex, value: value, context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func setValue(app query: String, elementIndex: String, value: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -1001,7 +1110,7 @@ public final class ComputerUseService {
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
             Thread.sleep(forTimeInterval: postActionSettleInterval)
             settleVisualCursor(at: cursorTarget)
-            return try finishAction(query: query, includeScreenshot: includeScreenshot)
+            return try finishAction(query: query, context: context)
         }
 
         guard let element = record.element else {
@@ -1028,7 +1137,211 @@ public final class ComputerUseService {
         }
 
         settleVisualCursor(at: cursorTarget)
-        return try finishAction(query: query, includeScreenshot: includeScreenshot)
+        return try finishAction(query: query, context: context)
+    }
+
+    /// Runs a short, fully specified sequence of actions against the snapshot pinned at batch start, then
+    /// returns the step lines plus one final state. Nothing is observed between steps.
+    func performActions(
+        app query: String,
+        steps: [ActionStep],
+        includeScreenshot: Bool,
+        checkLock: () throws -> Void
+    ) throws -> ToolCallResult {
+        let pinned = try currentSnapshot(for: query)
+
+        // Validate every step before any of them runs, so a bad step never leaves a half-applied batch.
+        for (offset, step) in steps.enumerated() {
+            guard case let .click(elementIndex, _, _, clickCount, mouseButton, clickMethod) = step else {
+                continue
+            }
+
+            do {
+                try validateClickMethod(
+                    clickMethod,
+                    hasElementIndex: elementIndex != nil,
+                    environment: ProcessInfo.processInfo.environment
+                )
+                try validateSkyClickArguments(method: clickMethod, mouseButton: mouseButton, clickCount: clickCount)
+            } catch {
+                throw ComputerUseError.invalidArguments("step \(offset + 1): \(BatchActionRunner.errorText(error))")
+            }
+        }
+
+        let unknown = BatchActionRunner.unknownElementIndices(in: steps, knownIndices: Set(pinned.elements.keys))
+        if let first = unknown.first, let offset = steps.firstIndex(where: { $0.elementIndex == first }) {
+            throw ComputerUseError.invalidArguments(
+                "step \(offset + 1): element_index \(first) is not in the state you last received for this app; call get_app_state"
+            )
+        }
+
+        let context = ActionContext.batchStep(pinned: pinned)
+        let report = BatchActionRunner.run(
+            steps: steps,
+            beforeEachStep: { index in
+                try checkLock()
+                if index > 0 {
+                    Thread.sleep(forTimeInterval: postActionSettleInterval)
+                }
+            },
+            perform: { _, step in
+                _ = try performBatchStep(step, query: query, context: context)
+            }
+        )
+
+        do {
+            try checkLock()
+        } catch {
+            return BatchActionRunner.result(
+                report: report, finalState: nil, notReadReason: BatchActionRunner.errorText(error)
+            )
+        }
+
+        let finalState = Result {
+            try finishAction(
+                query: query,
+                context: .single(includeScreenshot: includeScreenshot),
+                recoveryPolicy: BatchActionRunner.mostRestrictiveRecoveryPolicy(for: steps)
+            )
+        }
+        return BatchActionRunner.result(report: report, finalState: finalState, notReadReason: nil)
+    }
+
+    private func performBatchStep(_ step: ActionStep, query: String, context: ActionContext) throws -> ToolCallResult {
+        switch step {
+        case let .click(elementIndex, x, y, clickCount, mouseButton, clickMethod):
+            return try click(
+                app: query, elementIndex: elementIndex, x: x, y: y, clickCount: clickCount,
+                mouseButton: mouseButton, clickMethod: clickMethod, context: context
+            )
+        case let .typeText(text):
+            return try typeText(app: query, text: text, context: context)
+        case let .pressKey(key):
+            return try pressKey(app: query, key: key, context: context)
+        case let .setValue(elementIndex, value):
+            return try setValue(app: query, elementIndex: elementIndex, value: value, context: context)
+        case let .scroll(direction, elementIndex, pages):
+            return try scroll(
+                app: query, direction: direction, elementIndex: elementIndex, pages: pages, context: context
+            )
+        case let .performSecondaryAction(elementIndex, action):
+            return try performSecondaryAction(
+                app: query, elementIndex: elementIndex, action: action, context: context
+            )
+        }
+    }
+
+    /// The pinned snapshot with the window bounds and the target element's frame re-read live. Fixture snapshots
+    /// come from the fixture bridge and carry no live geometry, so they are returned unchanged.
+    private func liveGeometrySnapshot(from pinned: AppSnapshot, elementIndex: String?) throws -> AppSnapshot {
+        if pinned.mode == .fixture {
+            return pinned
+        }
+
+        let liveBounds = pinned.targetWindowID.flatMap { liveWindowBounds(forWindowID: $0) }
+        let record = try elementIndex.map { try lookupElement(snapshot: pinned, index: $0) }
+        let liveFrame = record.flatMap { liveLocalFrame(of: $0, windowBounds: liveBounds) }
+        let geometry = try batchStepGeometry(
+            pinnedWindowBounds: pinned.windowBounds,
+            liveWindowBounds: liveBounds,
+            liveLocalFrame: liveFrame,
+            needsElementFrame: elementIndex != nil,
+            elementIndex: elementIndex
+        )
+
+        var elements = pinned.elements
+        if let record, let localFrame = geometry.localFrame {
+            elements[record.index] = ElementRecord(
+                index: record.index,
+                identifier: record.identifier,
+                element: record.element,
+                localFrame: localFrame,
+                role: record.role,
+                rawActions: record.rawActions,
+                prettyActions: record.prettyActions,
+                isSyntheticText: record.isSyntheticText
+            )
+        }
+
+        return AppSnapshot(
+            app: pinned.app,
+            windowTitle: pinned.windowTitle,
+            windowBounds: geometry.windowBounds,
+            targetWindowID: pinned.targetWindowID,
+            targetWindowLayer: pinned.targetWindowLayer,
+            screenshotPNGData: pinned.screenshotPNGData,
+            mode: pinned.mode,
+            treeLines: pinned.treeLines,
+            treeLineOffsets: pinned.treeLineOffsets,
+            focusedSummary: pinned.focusedSummary,
+            focusedElement: pinned.focusedElement,
+            selectedText: pinned.selectedText,
+            elements: elements
+        )
+    }
+
+    private func liveWindowBounds(forWindowID windowID: CGWindowID) -> CGRect? {
+        guard
+            let windowInfo = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+            let entry = windowInfo.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID }),
+            let boundsDictionary = entry[kCGWindowBounds as String] as? NSDictionary
+        else {
+            return nil
+        }
+
+        return CGRect(dictionaryRepresentation: boundsDictionary)
+    }
+
+    /// The element's frame relative to the live window, or in screen space when there is no window.
+    private func liveLocalFrame(of record: ElementRecord, windowBounds: CGRect?) -> CGRect? {
+        guard
+            let element = record.element,
+            let positionValue = liveAXValue(of: element, attribute: kAXPositionAttribute),
+            let sizeValue = liveAXValue(of: element, attribute: kAXSizeAttribute)
+        else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &position), AXValueGetValue(sizeValue, .cgSize, &size) else {
+            return nil
+        }
+
+        let frame = CGRect(origin: position, size: size)
+        guard let windowBounds else {
+            return frame
+        }
+
+        return windowRelativeFrame(elementFrame: frame, windowBounds: windowBounds)
+    }
+
+    private func liveAXValue(of element: AXUIElement, attribute: String) -> AXValue? {
+        var raw: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success,
+            let raw,
+            CFGetTypeID(raw) == AXValueGetTypeID()
+        else {
+            return nil
+        }
+
+        return (raw as! AXValue)
+    }
+
+    private func liveFocusedElement(pid: pid_t) -> AXUIElement? {
+        var raw: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(
+                AXUIElementCreateApplication(pid), kAXFocusedUIElementAttribute as CFString, &raw
+            ) == .success,
+            let raw,
+            CFGetTypeID(raw) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+
+        return (raw as! AXUIElement)
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
@@ -1041,20 +1354,35 @@ public final class ComputerUseService {
 
     /// The single tail of every action: rebuild the snapshot and return it as a text-only action
     /// result, capturing and attaching the window image only on request or when the tree is empty.
+    /// A batch step observes nothing: the batch takes one final state after its last step instead.
     private func finishAction(
         query: String,
-        includeScreenshot: Bool,
+        context: ActionContext,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
     ) throws -> ToolCallResult {
-        snapshotResult(
+        if context.isBatchStep {
+            return ToolCallResult(content: [])
+        }
+
+        return snapshotResult(
             for: try refreshSnapshot(
                 for: query,
                 recoveryPolicy: recoveryPolicy,
-                capture: actionCapturePolicy(includeScreenshot: includeScreenshot)
+                capture: actionCapturePolicy(includeScreenshot: context.includeScreenshot)
             ),
             style: .actionResult,
-            includeScreenshot: includeScreenshot
+            includeScreenshot: context.includeScreenshot
         )
+    }
+
+    /// The snapshot a core action reads its target from: the cached one for a single action, or the batch's
+    /// pinned snapshot with live window bounds and the target's live frame for a batch step.
+    private func actionSnapshot(for query: String, context: ActionContext, elementIndex: String?) throws -> AppSnapshot {
+        guard let pinned = context.pinnedSnapshot else {
+            return try currentSnapshot(for: query)
+        }
+
+        return try liveGeometrySnapshot(from: pinned, elementIndex: elementIndex)
     }
 
     @discardableResult
@@ -1625,8 +1953,8 @@ public final class ComputerUseService {
         }
     }
 
-    private func typeTextBySettingFocusedValueIfAvailable(_ text: String, in snapshot: AppSnapshot) throws -> Bool {
-        guard let element = snapshot.focusedElement else {
+    private func typeTextBySettingFocusedValueIfAvailable(_ text: String, focusedElement: AXUIElement?) throws -> Bool {
+        guard let element = focusedElement else {
             return false
         }
 
@@ -1646,8 +1974,8 @@ public final class ComputerUseService {
         }
     }
 
-    private func canTypeTextUsingKeyboardFallback(in snapshot: AppSnapshot) throws -> Bool {
-        guard let element = snapshot.focusedElement else {
+    private func canTypeTextUsingKeyboardFallback(focusedElement: AXUIElement?) throws -> Bool {
+        guard let element = focusedElement else {
             return false
         }
 

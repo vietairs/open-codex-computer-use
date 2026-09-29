@@ -196,8 +196,8 @@ enum OpenComputerUseSmokeSuite {
         try client.initialize()
 
         let tools = try client.listTools()
-        guard tools.count == 9 else {
-            throw SmokeError.message("Expected 9 tools, got \(tools.count)")
+        guard tools.count == 10 else {
+            throw SmokeError.message("Expected 10 tools, got \(tools.count)")
         }
 
         print("1. list_apps")
@@ -295,6 +295,52 @@ enum OpenComputerUseSmokeSuite {
         ])
         try expect(state.contains("Last drag:"), "drag should update the drag status label")
         try expect(!state.contains("Last drag: none"), "drag should report a captured path")
+
+        print("11. perform_actions")
+        state = try client.callTool("get_app_state", arguments: ["app": appName])
+        index = parseElementIndex(state)
+        let batchIncrementIndex = index["fixture-increment"]!.index
+        let batchStartCounter = parseCounterValue(state)
+        state = try client.callTool("perform_actions", arguments: [
+            "app": appName,
+            "actions": [
+                ["tool": "click", "args": ["element_index": batchIncrementIndex]],
+                ["tool": "type_text", "args": ["text": "-batch"]],
+                ["tool": "press_key", "args": ["key": "Escape"]],
+            ],
+        ])
+        try expect(parseCounterValue(state) == batchStartCounter + 1, "perform_actions click step should increment the counter")
+        try expect(state.contains("-batch"), "perform_actions type_text step should reach the fixture input")
+        try expect(state.contains("Last key: Escape"), "perform_actions press_key step should update the key capture view")
+        try expect(state.contains("Step 1 click element_index="), "perform_actions should report the click step")
+        try expect(state.contains("Step 2 type_text: ok"), "perform_actions should report the type_text step")
+        try expect(state.contains("Step 3 press_key key=Escape: ok"), "perform_actions should report the press_key step")
+
+        var badBatchMessage: String?
+        do {
+            _ = try client.callTool("perform_actions", arguments: [
+                "app": appName,
+                "actions": [
+                    ["tool": "click", "args": ["element_index": batchIncrementIndex]],
+                    ["tool": "click", "args": ["element_index": "99999"]],
+                    ["tool": "press_key", "args": ["key": "Tab"]],
+                ],
+            ])
+        } catch SmokeError.message(let text) {
+            badBatchMessage = text
+        }
+        guard let badBatchMessage else {
+            throw SmokeError.message("perform_actions with an unknown element_index should fail instead of returning")
+        }
+        try expect(
+            badBatchMessage.contains("step 2") && badBatchMessage.contains("99999"),
+            "perform_actions should name the failing step and index, got: \(badBatchMessage)"
+        )
+        state = try client.callTool("get_app_state", arguments: ["app": appName])
+        try expect(
+            parseCounterValue(state) == batchStartCounter + 1 && state.contains("Last key: Escape"),
+            "a rejected batch should not run any of its steps"
+        )
 
         print("Smoke suite completed.")
     }

@@ -160,6 +160,38 @@ public enum ToolDefinitions {
                 required: ["app", "text"]
             )
         ),
+        ToolDefinition(
+            name: "perform_actions",
+            description: "Run a short, fully specified sequence of Computer Use actions on one app in a single call. Steps run in order and stop at the first failure; the result has one line per step followed by one final app state. Every element_index refers to the state you last received for this app. Allowed step tools: click, type_text, press_key, set_value, scroll, perform_secondary_action. This tool is part of plugin `Computer Use`.",
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "app": stringProperty(description: "App name or bundle identifier"),
+                    "actions": [
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": BatchActionRunner.maxSteps,
+                        "items": [
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["tool", "args"],
+                            "properties": [
+                                "tool": stringProperty(
+                                    description: "The single tool to run for this step",
+                                    enumValues: ActionStep.allowedToolNames
+                                ),
+                                "args": [
+                                    "type": "object",
+                                    "description": "The same arguments as the single tool, without app",
+                                ],
+                            ],
+                        ],
+                    ],
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
+                ],
+                required: ["app", "actions"]
+            )
+        ),
     ]
 }
 

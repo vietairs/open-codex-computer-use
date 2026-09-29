@@ -253,7 +253,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 9)
+        XCTAssertEqual(ToolDefinitions.all.count, 10)
     }
 
     func testReadToolArgumentsAcceptsJSONObject() throws {
@@ -2962,8 +2962,8 @@ final class OpenComputerUseKitTests: XCTestCase {
         let lockedGuard = MacSessionGuard(provider: FakeLockedSessionProvider())
         let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: lockedGuard)
         let guiTools = ["list_apps", "get_app_state", "click", "perform_secondary_action",
-                        "scroll", "drag", "type_text", "press_key", "set_value"]
-        XCTAssertEqual(guiTools.count, 9)
+                        "scroll", "drag", "type_text", "press_key", "set_value", "perform_actions"]
+        XCTAssertEqual(guiTools.count, 10)
         for tool in guiTools {
             let result = dispatcher.callToolAsResult(name: tool, arguments: ["app": "Finder"])
             XCTAssertTrue(result.isError, "Expected error for tool: \(tool)")
