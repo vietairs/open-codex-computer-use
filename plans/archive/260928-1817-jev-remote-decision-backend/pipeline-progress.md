@@ -1,0 +1,7 @@
+- [x] 1. Review Part 1 plan — done 18:25 — plans/reports/review-260928-1817-hybrid-fast-engine-part1.md
+- [x] 2. Direction gate (user: advisory backend; HTTPS + token) — done 18:40
+- [x] 3. Worktree + plan — done 18:50 — plan.md
+- [x] 4. Implement — done 19:26
+- [x] 5. Test + code review (3 rounds, converged) — done 19:44
+- [x] 6. Ship: PR #21, checks green, docs sweep — done 19:45
+- [ ] 7. Merge (user) → release → deploy to this Mac — pending
