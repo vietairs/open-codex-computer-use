@@ -3,8 +3,9 @@ import Foundation
 /// Refuses a document whose parser would read it in an encoding where the XML delimiters are not the ASCII code units
 /// the document type stripper scans for.
 ///
-/// The parser (libxml2) follows the `encoding` of the XML declaration even after a byte-order mark, so a document can
-/// look like plain bytes to a scan and still be read as UTF-7 or EBCDIC, where `<` is not 0x3C. Only encodings that
+/// The parser (libxml2) follows the `encoding` of the XML declaration even after a UTF-8 byte-order mark (after a
+/// UTF-16 one it stays in UTF-16), so a document can look like plain bytes to a scan and still be read as UTF-7 or
+/// EBCDIC, where `<` is not 0x3C. Only encodings that
 /// keep every ASCII character at its ASCII value are let through, plus UTF-16 when a byte-order mark fixes the unit
 /// order. Every other name, known or not, is refused.
 enum XMLDeclaredEncodingCheck {
@@ -40,8 +41,9 @@ enum XMLDeclaredEncodingCheck {
 
     /// Every `encoding` pseudo-attribute of an XML declaration at the very start of `units`, in any letter case; empty
     /// when there is no declaration. The attributes are read in any order and without requiring whitespace between
-    /// them, because the parser also honours an encoding in those malformed shapes. A declaration this cannot read to
-    /// its `?>` is refused rather than guessed at.
+    /// them, so every `encoding` a lenient reader could find is checked. Anything else that is not a well-formed
+    /// `name = "value"` list closed by `?>` is refused rather than guessed at, which is stricter than the parser on
+    /// purpose.
     private static func declaredEncodings(in units: [UInt16]) throws -> [String] {
         guard startsDeclaration(units, at: 0) else { return [] }
         var index = 5

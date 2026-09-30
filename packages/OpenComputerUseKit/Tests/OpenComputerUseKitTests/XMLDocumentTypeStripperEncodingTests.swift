@@ -75,13 +75,22 @@ final class XMLDocumentTypeStripperEncodingTests: XCTestCase {
         assertRefused(ascii("<?xml version=\"1.0\" encoding=\"UTF-16\"?><r/>"))
     }
 
-    /// The parser follows the declared encoding even after a byte-order mark.
+    /// The parser follows the declared encoding after a UTF-8 byte-order mark; a UTF-16 one is checked as well.
     func testDeclarationBehindByteOrderMarkIsChecked() throws {
         assertRefused(Data([0xEF, 0xBB, 0xBF]) + ascii("<?xml version=\"1.0\" encoding=\"UTF-7\"?><r/>"))
         let utf16 = try XCTUnwrap("<?xml version=\"1.0\" encoding=\"UTF-7\"?><r/>".data(using: .utf16))
         assertRefused(utf16)
         let latin = try XCTUnwrap("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><r/>".data(using: .utf16))
         assertRefused(latin)
+    }
+
+    /// Behind a UTF-16 mark only the plain `UTF-16` name is accepted; naming the unit order is refused, even when it
+    /// matches the mark.
+    func testUTF16MarkWithUnitOrderNamedIsRefused() throws {
+        let bigEndian = "<?xml version=\"1.0\" encoding=\"UTF-16BE\"?><r/>"
+        assertRefused(Data([0xFE, 0xFF]) + (try XCTUnwrap(bigEndian.data(using: .utf16BigEndian))))
+        let littleEndian = "<?xml version=\"1.0\" encoding=\"UTF-16LE\"?><r/>"
+        assertRefused(Data([0xFF, 0xFE]) + (try XCTUnwrap(littleEndian.data(using: .utf16LittleEndian))))
     }
 
     func testDeclarationSpellingsCannotHideTheEncoding() {
@@ -93,6 +102,8 @@ final class XMLDocumentTypeStripperEncodingTests: XCTestCase {
             "<?xml version=\"1.0\" ENCODING=\"UTF-7\"?>",
             "<?XML version=\"1.0\" encoding=\"UTF-7\"?>",
             "<?xml version=\"1.0\" encoding=\"UTF-8\" encoding=\"UTF-7\"?>",
+            "<?xml version=\"1.0\" encoding=\" UTF-7\"?>",
+            "<?xml version=\"1.0\" encoding=\"UTF-8 \"?>",
         ]
         for spelling in spellings {
             assertRefused(ascii(spelling + "<r/>"))
@@ -101,6 +112,7 @@ final class XMLDocumentTypeStripperEncodingTests: XCTestCase {
 
     func testUnreadableOrMisplacedDeclarationIsRefused() {
         assertRefused(ascii("<?xml version=\"1.0\" encoding=UTF-8?><r/>"), .unreadableXMLDeclaration)
+        assertRefused(ascii("<?xml version=\"1.0\" junk encoding=\"UTF-7\"?><r/>"), .unreadableXMLDeclaration)
         assertRefused(ascii("<?xml version=\"1.0\" encoding=\"UTF-8"), .unreadableXMLDeclaration)
         assertRefused(ascii("\n<?xml version=\"1.0\" encoding=\"UTF-7\"?><r/>"), .unreadableXMLDeclaration)
         assertRefused(ascii("<!-- c --><?xml version=\"1.0\"?><r/>"), .unreadableXMLDeclaration)
@@ -128,7 +140,12 @@ final class XMLDocumentTypeStripperEncodingTests: XCTestCase {
 
     func testEntityInAcceptedDocumentStillFailsAsUndeclared() throws {
         let text = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" + Self.amplifyingSubset + Self.body
-        XCTAssertThrowsError(try strippedRootText(ascii(text)))
+        let stripped = try XMLDocumentTypeStripper.strippingDocumentType(from: ascii(text))
+        XCTAssertThrowsError(try XMLDocument(data: stripped, options: [.nodeLoadExternalEntitiesNever])) {
+            let error = $0 as NSError
+            XCTAssertEqual(error.domain, XMLParser.errorDomain)
+            XCTAssertEqual(error.code, XMLParser.ErrorCode.undeclaredEntityError.rawValue)
+        }
     }
 
     func testDocumentsWithoutDeclarationOrWithUTF16MarkAreAccepted() throws {
