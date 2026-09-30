@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import OpenComputerUseKit
@@ -468,6 +469,96 @@ final class ScriptingDictionaryLookupTests: XCTestCase {
             bundleRoot: "/Applications/Fake.app"
         ))
         XCTAssertFalse(ScriptingDictionaryLookup.isAllowedIncludePath("/etc/hosts", bundleRoot: "/Applications/Fake.app"))
+    }
+
+    // MARK: - Running app matching
+
+    private func candidate(
+        _ name: String?,
+        _ bundleIdentifier: String?,
+        _ path: String?,
+        _ policy: NSApplication.ActivationPolicy = .regular,
+        terminated: Bool = false
+    ) -> ScriptingDictionaryLookup.RunningAppCandidate {
+        ScriptingDictionaryLookup.RunningAppCandidate(
+            name: name,
+            bundleIdentifier: bundleIdentifier,
+            bundleURL: path.map { URL(fileURLWithPath: $0, isDirectory: true) },
+            activationPolicy: policy,
+            isTerminated: terminated
+        )
+    }
+
+    func testRunningMatchSkipsAppExtensionWithSameName() {
+        let candidates = [
+            candidate(
+                "Messages", "com.apple.messages.AssistantExtension",
+                "/System/Library/Messages/PlugIns/AssistantExtension.appex", .prohibited
+            ),
+            candidate("Messages", "com.apple.MobileSMS", "/System/Applications/Messages.app"),
+        ]
+        XCTAssertEqual(
+            ScriptingDictionaryLookup.bestRunningMatch("Messages", among: candidates)?.path,
+            "/System/Applications/Messages.app"
+        )
+    }
+
+    func testRunningMatchPrefersRegularOverBackgroundOnlyWithSameName() {
+        let candidates = [
+            candidate("Helper", "test.helper.agent", "/Applications/Helper Agent.app", .prohibited),
+            candidate("Helper", "test.helper.menu", "/Applications/Helper Menu.app", .accessory),
+            candidate("helper", "test.helper", "/Applications/Helper.app", .regular),
+        ]
+        XCTAssertEqual(
+            ScriptingDictionaryLookup.bestRunningMatch("Helper", among: candidates)?.path,
+            "/Applications/Helper.app"
+        )
+    }
+
+    func testBackgroundOnlyAppMatchesWhenItIsTheOnlyCandidate() {
+        let candidates = [
+            candidate("Finder", "com.apple.finder", "/System/Library/CoreServices/Finder.app"),
+            candidate(
+                "System Events", "com.apple.systemevents",
+                "/System/Library/CoreServices/System Events.app", .prohibited
+            ),
+        ]
+        XCTAssertEqual(
+            ScriptingDictionaryLookup.bestRunningMatch("system events", among: candidates)?.path,
+            "/System/Library/CoreServices/System Events.app"
+        )
+    }
+
+    func testMenuBarAccessoryAppMatches() {
+        let candidates = [
+            candidate("Tray", "test.tray", "/Applications/Tray.app", .accessory),
+        ]
+        XCTAssertEqual(
+            ScriptingDictionaryLookup.bestRunningMatch("Tray", among: candidates)?.path,
+            "/Applications/Tray.app"
+        )
+    }
+
+    func testBundleIdentifierMatchBeatsNameMatch() {
+        let candidates = [
+            candidate("test.target", "test.impostor", "/Applications/Impostor.app"),
+            candidate("Target", "test.target", "/Applications/Target.app", .prohibited),
+        ]
+        XCTAssertEqual(
+            ScriptingDictionaryLookup.bestRunningMatch("TEST.TARGET", among: candidates)?.path,
+            "/Applications/Target.app"
+        )
+    }
+
+    func testNoRunningCandidateReturnsNil() {
+        let candidates = [
+            candidate("Messages", "com.apple.messages.ext", "/System/Library/PlugIns/Ext.appex"),
+            candidate("Messages", "com.apple.MobileSMS", "/System/Applications/Messages.app", terminated: true),
+            candidate("Messages", "com.apple.MobileSMS", nil),
+            candidate("Notes", "com.apple.Notes", "/System/Applications/Notes.app"),
+        ]
+        XCTAssertNil(ScriptingDictionaryLookup.bestRunningMatch("Messages", among: candidates))
+        XCTAssertNil(ScriptingDictionaryLookup.bestRunningMatch("Messages", among: []))
     }
 }
 
