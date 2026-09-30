@@ -1,32 +1,29 @@
 import Foundation
 
+/// Hosts such as Claude Code cut server instructions at 2048 characters, and the relay may swap the AppleScript line
+/// for the longer script-first guide, so this text keeps headroom below that. The advisory tool's cascade guide lives
+/// in that tool's own description instead. The newest tools lead so their guidance is read first. Tool behavior
+/// already in a tool's own description is not repeated here.
 let baseComputerUseServerInstructions = """
-Computer Use tools let you interact with macOS apps by performing UI actions. If an app's dedicated plugin or skill can do the task, prefer it.
+Use `perform_actions` for any short sequence you can fully specify; put externally visible steps such as Send in their own call, after you confirm them.
+To act on one control without reading the whole tree, call `find_elements` with a role, label or identifier; its indices work in actions and `perform_actions` until the next refresh.
+The available tools are list_apps, get_app_state, find_elements, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are missing, surface them with tool_search, and load `perform_actions` together with `get_app_state`.
 
-Call `get_app_state` at the start of each assistant turn that uses Computer Use, because the user may have changed the app since your last turn. Within a turn, action results already include the refreshed text state, so do not call `get_app_state` after every action.
-
-Use `perform_actions` for any short sequence you can fully specify from the current state, such as focusing a field, typing text and pressing Return. It runs the steps in order, stops at the first failure, and returns one final state with a line per step. Every `element_index` refers to the state you last received. Keep externally visible steps such as Send in their own call, after you confirm them.
-
-The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are not available, use tool_search to surface them, and load `perform_actions` together with `get_app_state`.
-
-Computer Use drives the user's apps in the background while they keep using other apps. Do not disrupt their session, for example by overwriting the clipboard, unless they asked you to.
-
-Verify each action from its result; call `get_app_state` only when the result lacks what you need. Results are text-only unless you pass `include_screenshot: true`; take x/y coordinates only from the most recent screenshot.
-Prefer `element_index` over coordinate clicks; indices are the integers in the app state's accessibility tree.
-Avoid falling back to AppleScript during a computer use session. Prefer Computer Use tools as much as possible to complete tasks.
-Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing, and ask follow-up questions when the request is unclear.
+Call `get_app_state` at the start of each assistant turn that uses Computer Use; verify actions from their results, and do not call `get_app_state` after every action.
+Results are text-only unless you pass `include_screenshot: true`; take x/y only from the latest screenshot, and prefer `element_index`.
+Prefer an app's own plugin or skill when it can do the task.
+Work in the background: never disrupt the user or overwrite the clipboard unless asked.
+\(appleScriptAvoidanceInstructionLine)
+Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing, and when the request is unclear.
 """
 
 /// The base instructions under their original name, for existing callers that compare against the unmodified text.
 let computerUseServerInstructions = baseComputerUseServerInstructions
 
-/// The base instructions byte-for-byte when the advisory tool is not listed; otherwise the base plus the cascade
-/// guide, so the host only ever sees guidance for a tool it can actually call.
-func computerUseServerInstructions(environment: [String: String]) -> String {
-    guard ToolDefinitions.listed(environment: environment).count > ToolDefinitions.all.count else {
-        return baseComputerUseServerInstructions
-    }
-    return baseComputerUseServerInstructions + "\n\n" + DecisionAdvisor.cascadeGuide
+/// The same base instructions for every host: the advisory tool's guidance travels in its own description, so the
+/// per-call environment no longer changes this text.
+func computerUseServerInstructions(environment _: [String: String]) -> String {
+    baseComputerUseServerInstructions
 }
 
 public final class StdioMCPServer {
@@ -42,16 +39,14 @@ public final class StdioMCPServer {
         self.dispatcher = ComputerUseToolDispatcher(service: service, environment: environment)
     }
 
+    /// Serves standard input to standard output through `LocalChannelRouter`, the same path the `mcp` command takes,
+    /// so the opt-in local script tools behave the same for embedders as for the CLI.
+    ///
+    /// The router reads the local-channel flag from this process's own environment, not from the `environment`
+    /// closure given to `init`. That is deliberate: the flag is a security opt-in, and injected state (a test double,
+    /// or a host's per-call overrides) must not be able to turn the local script tools on.
     public func run() throws {
-        while let line = readLine(strippingNewline: true) {
-            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-
-            if let response = handle(line: line) {
-                FileHandle.standardOutput.write((response + "\n").data(using: .utf8)!)
-            }
-        }
+        try LocalChannelRouter().run { self.handle(line: $0) }
     }
 
     /// True when `line` is a request whose whole configuration comes from the environment dictionary passed to
@@ -66,7 +61,7 @@ public final class StdioMCPServer {
     }
 
     /// `environment`, when given, is the calling host's per-call environment: it decides whether the advisory tool is
-    /// listed, whether `initialize` carries the cascade guide, and where `decide_next_action` sends its request. When
+    /// listed (with its cascade guide in the description) and where `decide_next_action` sends its request. When
     /// nil, the injected environment closure is read instead.
     public func handle(line: String, environment callEnvironment: [String: String]? = nil) -> String? {
         let environment = { callEnvironment ?? self.environment() }

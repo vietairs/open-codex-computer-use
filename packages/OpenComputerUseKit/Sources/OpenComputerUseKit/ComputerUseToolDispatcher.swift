@@ -139,6 +139,16 @@ public final class ComputerUseToolDispatcher {
                 includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false,
                 checkLock: { try self.macSessionGuard.requireUnlocked(for: "perform_actions") }
             )
+        case "find_elements":
+            let search = try ElementSearchQuery(
+                role: optionalString("role", in: arguments),
+                label: optionalString("label", in: arguments),
+                identifier: optionalString("identifier", in: arguments),
+                matchMode: try ElementSearchQuery.MatchMode(argument: optionalString("match", in: arguments)),
+                maxResults: try optionalPositiveInt("max_results", in: arguments) ?? ElementSearchQuery.defaultMaxResults,
+                maxNodes: try optionalPositiveInt("max_nodes", in: arguments) ?? ElementSearchQuery.defaultMaxNodes
+            )
+            return try service.findElements(app: requireString("app", in: arguments), search: search)
         default:
             throw ComputerUseError.unsupportedTool(name)
         }

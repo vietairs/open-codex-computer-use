@@ -93,7 +93,7 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
     @objc
     private func processStandardIO() {
         do {
-            try server.run()
+            try LocalChannelRouter().run { self.server.handle(line: $0) }
         } catch {
             runtimeError = error
         }

@@ -640,7 +640,7 @@ final class BatchActionRunnerTests: XCTestCase {
         let tool = try XCTUnwrap(itemProperties["tool"] as? [String: Any])
         XCTAssertEqual(tool["enum"] as? [String], ActionStep.allowedToolNames)
         XCTAssertNotNil(properties["include_screenshot"])
-        XCTAssertEqual(ToolDefinitions.all.count, 10)
+        XCTAssertEqual(ToolDefinitions.all.count, 11)
     }
 
     func testLockedDispatcherRefusesPerformActionsBeforeParsing() {

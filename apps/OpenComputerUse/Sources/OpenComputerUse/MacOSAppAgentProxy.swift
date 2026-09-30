@@ -119,21 +119,19 @@ enum MacOSAppAgentProxy {
     }
 
     private static func proxyMCP(client: AppAgentSocketClient) throws {
-        while let line = readLine(strippingNewline: true) {
-            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-
-            let response = try client.request([
-                "kind": "mcp",
-                "line": line,
-                "environment": proxiedEnvironment(),
-            ])
-
-            if let responseLine = response["response"] as? String {
-                FileHandle.standardOutput.write(Data((responseLine + "\n").utf8))
-            }
+        try LocalChannelRouter().run { line in
+            try relayMCPLine(line, client: client)
         }
+    }
+
+    /// Forwards one MCP request line to the app agent and returns its response line, if any.
+    private static func relayMCPLine(_ line: String, client: AppAgentSocketClient) throws -> String? {
+        let response = try client.request([
+            "kind": "mcp",
+            "line": line,
+            "environment": proxiedEnvironment(),
+        ])
+        return response["response"] as? String
     }
 
     private static func sendCLIRequest(arguments: [String], client: AppAgentSocketClient) throws -> CLIProxyResponse {
@@ -552,6 +550,11 @@ private final class AppAgentSocketClient: @unchecked Sendable {
     static func connect(path: String) -> AppAgentSocketClient? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
+            return nil
+        }
+        // Close-on-exec so a script or helper process spawned later never inherits the relay socket.
+        guard fcntl(fd, F_SETFD, FD_CLOEXEC) == 0 else {
+            close(fd)
             return nil
         }
 

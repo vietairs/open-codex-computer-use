@@ -1525,17 +1525,16 @@ public final class ComputerUseService {
             capture: capture
         )
 
-        let keys = Set([
-            query.lowercased(),
-            app.name.lowercased(),
-            (app.bundleIdentifier ?? "").lowercased(),
-        ].filter { !$0.isEmpty })
-
-        for key in keys {
-            snapshotsByApp[key] = snapshot
-        }
+        storeSnapshot(snapshot, query: query, app: app)
 
         return snapshot
+    }
+
+    /// The only writer of `snapshotsByApp`: caches a snapshot under every key a later lookup may use.
+    private func storeSnapshot(_ snapshot: AppSnapshot, query: String, app: RunningAppDescriptor) {
+        for key in snapshotCacheKeys(query: query, app: app) {
+            snapshotsByApp[key] = snapshot
+        }
     }
 
     private func lookupElement(snapshot: AppSnapshot, index: String) throws -> ElementRecord {
@@ -2604,5 +2603,82 @@ public final class ComputerUseService {
             windowSize: windowBounds.size,
             pixelSize: pixelSize
         )
+    }
+}
+
+// MARK: - find_elements
+
+/// Lives in this file because it reads and writes the private snapshot cache. Searches the target window's
+/// accessibility tree without rendering it, and caches the hits so their indices work with the action tools.
+extension ComputerUseService {
+    public func findElements(app query: String, search: ElementSearchQuery) throws -> ToolCallResult {
+        let app = try AppDiscovery.resolve(query)
+        // A hits-only snapshot would replace the fixture snapshot and bypass the fixture bridge.
+        if app.name == FixtureBridge.appName {
+            throw ComputerUseError.invalidArguments("find_elements is not available for the fixture app; use get_app_state")
+        }
+
+        guard PermissionDiagnostics.current().accessibilityTrusted else {
+            throw ComputerUseError.permissionDenied("Accessibility permission is required. Run `open-computer-use doctor` and grant access to Open Computer Use.")
+        }
+
+        let window = try resolveElementSearchWindow(for: app)
+        let outcome = ElementSearchWalker.search(
+            root: window.root,
+            source: AccessibilityElementSearchSource(),
+            query: search
+        )
+
+        let cached = snapshotsByApp[query.lowercased()]
+        let indices = ElementSearchIndexAllocator.shared.allocate(
+            count: outcome.hits.count,
+            above: cached?.elements.keys.max()
+        )
+
+        var records: [ElementRecord] = []
+        var rows: [String] = []
+        for (hit, index) in zip(outcome.hits, indices) {
+            let details = readElementSearchHitDetails(hit.node, windowBounds: window.bounds)
+            let prettyActions = meaningfulActions(details.rawActions, role: hit.attributes.role ?? "")
+            records.append(
+                ElementRecord(
+                    index: index,
+                    identifier: hit.attributes.identifier,
+                    element: hit.node,
+                    localFrame: details.localFrame,
+                    role: hit.attributes.role,
+                    rawActions: details.rawActions,
+                    prettyActions: prettyActions
+                )
+            )
+            rows.append(
+                renderElementSearchRow(
+                    index: index,
+                    attributes: hit.attributes,
+                    localFrame: details.localFrame,
+                    prettyActions: prettyActions
+                )
+            )
+        }
+
+        let windowInfo: ElementSearchWindowInfo = (
+            windowID: window.windowID,
+            layer: window.layer,
+            bounds: window.bounds,
+            title: window.title,
+            focusedElement: window.focusedElement,
+            isOffStage: window.isOffStage
+        )
+        if let snapshot = elementSearchSnapshotToCache(records, rows: rows, into: cached, window: windowInfo, app: app) {
+            storeSnapshot(snapshot, query: query, app: app)
+        }
+
+        let header = [
+            "App=\(escapeElementSearchText(app.bundleIdentifier ?? app.name)) (pid \(app.pid))",
+            "Window: \"\(escapeElementSearchText(window.title ?? ""))\", App: \(escapeElementSearchText(app.name)).",
+            "find_elements: \(records.count) match(es), nodes_visited=\(outcome.nodesVisited), truncated=\(outcome.truncated)."
+                + " These element_index values work with click, set_value, scroll and perform_secondary_action until the next state refresh.",
+        ]
+        return ToolCallResult.text((header + rows).joined(separator: "\n"))
     }
 }

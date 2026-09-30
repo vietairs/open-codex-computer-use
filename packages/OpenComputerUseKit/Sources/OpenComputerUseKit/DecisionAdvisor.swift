@@ -50,7 +50,8 @@ public enum DecisionAdvisor {
     public static let resultNote: String =
         "Advisory only; the server never acts. Follow only when margin >= recommended_min_margin and the operation "
         + "is non-destructive; otherwise call get_app_state and decide yourself."
-    /// Host-side cascade guide. Appended to the MCP `initialize` instructions only when the tool is enabled.
+    /// Host-side cascade guide, carried in `decide_next_action`'s tool description, so a host sees it exactly when the
+    /// tool is listed and it does not share the host's server-instruction budget.
     /// skills/open-computer-use/references/decision-model.md carries the same text verbatim.
     public static let cascadeGuide: String = [
         "decide_next_action (experimental, advisory): a local model proposes the next operation and target from the current app state. It never acts.",

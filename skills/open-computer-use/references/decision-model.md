@@ -86,7 +86,7 @@ macOS-only. vm100 (the reference jev deployment) is never touched by open-comput
    with no control characters. `api_key` is 1-512 printable ASCII characters with no whitespace.
 2. Put `OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote` in the MCP server entry's `env` (not the calling shell),
    and leave `OPEN_COMPUTER_USE_DECISION_MODEL_URL` unset — setting both is rejected as ambiguous.
-3. Restart the host so it re-reads the server config. `tools/list` and the cascade guide are gated the same way as
+3. Restart the host so it re-reads the server config. `tools/list` (and with it the cascade guide in the tool's description) is gated the same way as
    the loopback backend, just on `OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote` instead of the URL.
 
 The destination, model, and key are read only from that file, never from the per-call environment — see "Security
@@ -103,8 +103,8 @@ deadline and fail, and is retried from scratch on the next call.
 
 ## Cascade guide
 
-The following text is the host-facing guidance shipped with the tool (embedded verbatim in the MCP `initialize`
-instructions when the tool is enabled, and mirrored here from
+The following text is the host-facing guidance shipped with the tool (embedded verbatim in the
+`decide_next_action` tool description, so a host sees it exactly when the tool is listed, and mirrored here from
 `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/DecisionAdvisor.swift`):
 
 ```text
