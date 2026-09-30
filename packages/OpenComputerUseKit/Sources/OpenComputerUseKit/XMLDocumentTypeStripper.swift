@@ -66,9 +66,9 @@ enum XMLDocumentTypeStripper {
         if (isUTF16LE || isUTF16BE) && !isUTF32LE {
             guard bytes.count % 2 == 0 else { throw Failure.unsupportedEncoding }
             let units = stride(from: 2, to: bytes.count, by: 2).map { index -> UInt16 in
-                isUTF16BE
-                    ? UInt16(bytes[index]) << 8 | UInt16(bytes[index + 1])
-                    : UInt16(bytes[index + 1]) << 8 | UInt16(bytes[index])
+                let high: UInt16 = UInt16(bytes[isUTF16BE ? index : index + 1])
+                let low: UInt16 = UInt16(bytes[isUTF16BE ? index + 1 : index])
+                return (high << 8) | low
             }
             return (units, 2, 2)
         }

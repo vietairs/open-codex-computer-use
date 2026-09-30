@@ -96,8 +96,11 @@ enum XMLDeclaredEncodingCheck {
     }
 
     private static func isNameUnit(_ unit: UInt16) -> Bool {
-        (unit >= 0x61 && unit <= 0x7A) || (unit >= 0x41 && unit <= 0x5A) || (unit >= 0x30 && unit <= 0x39)
-            || unit == 0x2D || unit == 0x2E || unit == 0x5F || unit == 0x3A
+        let isLower: Bool = unit >= 0x61 && unit <= 0x7A
+        let isUpper: Bool = unit >= 0x41 && unit <= 0x5A
+        let isDigit: Bool = unit >= 0x30 && unit <= 0x39
+        let isPunctuation: Bool = unit == 0x2D || unit == 0x2E || unit == 0x5F || unit == 0x3A
+        return isLower || isUpper || isDigit || isPunctuation
     }
 
     private static let lessThan = UInt16(UInt8(ascii: "<"))
