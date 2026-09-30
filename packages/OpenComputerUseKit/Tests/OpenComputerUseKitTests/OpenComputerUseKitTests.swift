@@ -749,6 +749,33 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(result.primaryText, "pages must be > 0")
     }
 
+    func testClickRejectsClickCountOutsideOneToThreeWithoutTrapping() {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+        let invalid: [Any] = [1e20, Double.infinity, Double.nan, 9_223_372_036_854_775_808.0, 0, -1, 4, 100_000, 1.5, true, "2"]
+
+        for value in invalid {
+            let result = dispatcher.callToolAsResult(
+                name: "click",
+                arguments: ["app": "Sublime Text", "element_index": "1", "click_count": value]
+            )
+            XCTAssertTrue(result.isError, "click_count \(value) was accepted")
+            XCTAssertTrue((result.primaryText ?? "").contains("click_count"), "click_count \(value): \(result.primaryText ?? "")")
+        }
+    }
+
+    func testClickAcceptsSingleDoubleAndTripleClickCounts() {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+
+        for value in [1, 2, 3, 2.0] as [Any] {
+            let result = dispatcher.callToolAsResult(
+                name: "click",
+                arguments: ["app": "Sublime Text", "element_index": "1", "click_count": value]
+            )
+            // The app does not exist here, so the call still fails, but never on click_count.
+            XCTAssertFalse((result.primaryText ?? "").contains("click_count"), "click_count \(value) was refused")
+        }
+    }
+
     func testGetAppStateRejectsUnparseableCompactFlag() {
         // Silently ignoring it would return the full tree plus a screenshot — the most expensive
         // possible answer to a request that explicitly asked for the cheapest.
@@ -926,14 +953,6 @@ final class OpenComputerUseKitTests: XCTestCase {
                 bundleIdentifier: "com.electron.lark"
             )
         )
-    }
-
-    func testActivationOnlyClickFallbackRejectsPlainStaticText() {
-        XCTAssertFalse(canUseActivationOnlyClickFallback(role: kAXStaticTextRole as String))
-    }
-
-    func testActivationOnlyClickFallbackKeepsWindowRaisePath() {
-        XCTAssertTrue(canUseActivationOnlyClickFallback(role: kAXWindowRole as String))
     }
 
     func testKeyboardTextFallbackRejectsPlainWebArea() {

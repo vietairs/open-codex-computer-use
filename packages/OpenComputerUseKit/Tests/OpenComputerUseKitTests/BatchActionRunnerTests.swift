@@ -567,6 +567,24 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertTrue(badPages.hasPrefix("step 1: "))
     }
 
+    func testBatchClickCountFollowsTheSingleClickRange() throws {
+        for value in [1e20, Double.infinity, 0, 4, 1.5] as [Any] {
+            let message = try XCTUnwrap(
+                parseFailureMessage([step("click", ["element_index": "1", "click_count": value])]),
+                "click_count \(value) was accepted"
+            )
+            XCTAssertTrue(message.hasPrefix("step 1: "), message)
+            XCTAssertTrue(message.contains("click_count"), message)
+        }
+
+        let steps = try makeUnlockedDispatcher().parseBatchSteps([
+            step("click", ["element_index": "1", "click_count": 3]),
+        ])
+        XCTAssertEqual(steps, [
+            .click(elementIndex: "1", x: nil, y: nil, clickCount: 3, mouseButton: "left", clickMethod: .auto),
+        ])
+    }
+
     // MARK: - Parse success
 
     func testParseBatchStepsBuildsTypedStepsWithSingleToolDefaults() throws {

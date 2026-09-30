@@ -16,14 +16,6 @@ private let backgroundFocusContainerRoles: Set<String> = [
     kAXMenuBarRole as String,
 ]
 
-/// Roles type_text can deliver text to. Matches the roles `canUseKeyboardTextFallback` accepts outright.
-let backgroundFocusTextEntryRoles: Set<String> = [
-    kAXTextFieldRole as String,
-    kAXTextAreaRole as String,
-    "AXTextView",
-    kAXComboBoxRole as String,
-]
-
 /// Pure. Chooses the focused element among rendered nodes that report AXFocused == true.
 ///
 /// Container roles (application, window, sheet, drawer, menu bar) are skipped. When more than one control reports
@@ -53,8 +45,9 @@ func selectBackgroundFocus<Candidate>(
 ///
 /// Walking the live tree again for every type_text step would cost a full snapshot. Instead the step probes the
 /// elements it already holds: the element the pinned snapshot saw as focused first, then every text-entry element of
-/// the pinned snapshot in index order. Only text-entry elements are probed because type_text can deliver nothing to
-/// any other focus. A field that appeared after the snapshot was taken is not found, and type_text then fails closed.
+/// the pinned snapshot in index order. Text entry is judged by `canUseKeyboardTextFallback`, the same role, subrole and
+/// role description test type_text applies to the focus it finds, because type_text delivers nothing to any other
+/// focus. A field that appeared after the snapshot was taken is not found, and type_text then fails closed.
 func backgroundFocusProbeOrder(pinnedFocus: AXUIElement?, records: [ElementRecord]) -> [AXUIElement] {
     var ordered: [AXUIElement] = []
     if let pinnedFocus {
@@ -64,7 +57,9 @@ func backgroundFocusProbeOrder(pinnedFocus: AXUIElement?, records: [ElementRecor
     let textEntries = records
         .filter { record in
             !record.isSyntheticText && record.element != nil
-                && record.role.map { backgroundFocusTextEntryRoles.contains($0) } == true
+                && canUseKeyboardTextFallback(
+                    role: record.role, subrole: record.subrole, roleDescription: record.roleDescription
+                )
         }
         .sorted { $0.index < $1.index }
 

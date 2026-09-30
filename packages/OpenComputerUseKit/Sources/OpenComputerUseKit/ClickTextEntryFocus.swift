@@ -14,11 +14,19 @@ private let clickFocusTextEntrySubroles: Set<String> = [
     "AXSecureTextField",
 ]
 
-/// Roles treated as text entry for the click focus write: every role type_text can deliver to, plus a password field
-/// that reports `AXSecureTextField` as its role rather than its subrole.
-private let clickFocusTextEntryRoles: Set<String> = backgroundFocusTextEntryRoles.union(["AXSecureTextField"])
+/// Roles treated as text entry, including a password field that reports `AXSecureTextField` as its role rather than
+/// its subrole.
+private let clickFocusTextEntryRoles: Set<String> = [
+    kAXTextFieldRole as String,
+    kAXTextAreaRole as String,
+    "AXTextView",
+    kAXComboBoxRole as String,
+    "AXSecureTextField",
+]
 
-/// Pure. Whether the role or subrole describes a text-entry control.
+/// Pure. Whether the role or subrole describes a text-entry control. The click focus write uses this alone;
+/// type_text and the batch focus probe use `canUseKeyboardTextFallback`, which accepts everything this accepts plus a
+/// text-entry role description (a web text area exposed as a group, for example).
 func isClickFocusTextEntry(role: String?, subrole: String?) -> Bool {
     if let role, clickFocusTextEntryRoles.contains(role) {
         return true

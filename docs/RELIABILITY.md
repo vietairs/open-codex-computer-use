@@ -55,7 +55,8 @@ By default, all MCP tool operations target apps by PID using accessibility APIs 
 - Keyboard events use `CGEvent.postToPid` with the target PID; the target app need not be frontmost. `type_text` never activates the target and acts only when a text-entry control (text field, text area, combo box, search or secure field, or web text entry) holds focus: it writes the control's value through accessibility when settable, posts keys to the process when the value is not settable or the write is refused, and fails for any other focus, even a settable one such as a slider or list, asking the caller to focus the field or use `set_value`.
 - A background app's focus is read from the per-element `AXFocused` when its app-level `AXFocusedUIElement` is nil.
 - Launching a non-running target uses `NSWorkspace.OpenConfiguration.activates = false`, and snapshot window recovery only unhides a hidden app; when no window can be read, the call fails instead of activating, raising, or unminimizing.
-- `BackgroundOperationInvariantTests` fails when a new `.activate(` call appears in the kit outside the gated global-pointer path.
+- `click` never raises a window or makes one main or focused, including a click on a window element: when no press-style accessibility action handles the target, `auto` falls through to pid-posted mouse events and `click_method=accessibility` fails. The only focus write after a click is `AXFocused = true` on a clicked text-entry control.
+- `BackgroundOperationInvariantTests` fails when a new `.activate(` call appears in the kit outside the gated global-pointer path, and when a raise, main-window or `AXFocused` write appears outside that path and the text-field click focus write.
 - Mouse events use `AXUIElement` `performAction` or `CGEvent.postToPid` targeted to the app's PID; no front-most requirement exists.
 - This guarantees MCP tools do not steal focus, move the user's hardware cursor, or interrupt the user's active workflow.
 

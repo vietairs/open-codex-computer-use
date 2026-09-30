@@ -61,13 +61,22 @@ final class BackgroundFocusResolutionTests: XCTestCase {
 
     // MARK: - Batch live probe order
 
-    private func record(_ index: Int, pid: pid_t, role: String?, synthetic: Bool = false) -> ElementRecord {
+    private func record(
+        _ index: Int,
+        pid: pid_t,
+        role: String?,
+        subrole: String? = nil,
+        roleDescription: String? = nil,
+        synthetic: Bool = false
+    ) -> ElementRecord {
         ElementRecord(
             index: index,
             identifier: nil,
             element: AXUIElementCreateApplication(pid),
             localFrame: nil,
             role: role,
+            subrole: subrole,
+            roleDescription: roleDescription,
             rawActions: [],
             prettyActions: [],
             isSyntheticText: synthetic
@@ -114,6 +123,29 @@ final class BackgroundFocusResolutionTests: XCTestCase {
             records: [record(2, pid: 202, role: "AXTextView"), record(1, pid: 111, role: kAXGroupRole as String)]
         )
         XCTAssertEqual(pids(order), [202])
+    }
+
+    /// A batch type_text must find every focus a single type_text call accepts, so the probe uses the same test.
+    func testProbeOrderAcceptsExactlyWhatTypeTextAccepts() {
+        let records = [
+            record(1, pid: 101, role: "AXSecureTextField"),
+            record(2, pid: 202, role: kAXGroupRole as String, subrole: "AXSearchField"),
+            record(3, pid: 303, role: kAXGroupRole as String, roleDescription: "text entry area"),
+            record(4, pid: 404, role: kAXGroupRole as String, roleDescription: "group"),
+            record(5, pid: 505, role: kAXSliderRole as String, roleDescription: "slider"),
+            record(6, pid: 606, role: kAXTextFieldRole as String),
+        ]
+
+        let order = backgroundFocusProbeOrder(pinnedFocus: nil, records: records)
+
+        XCTAssertEqual(pids(order), [101, 202, 303, 606])
+        for record in records {
+            let probed = pids(order).contains(pid_t(record.index * 101))
+            let accepted = makeTypeTextFocus(
+                role: record.role, subrole: record.subrole, roleDescription: record.roleDescription, isValueSettable: false
+            ).acceptsKeyboardText
+            XCTAssertEqual(probed, accepted, "record \(record.index) role \(record.role ?? "nil")")
+        }
     }
 
     func testProbeOrderIsEmptyWithNothingToProbe() {

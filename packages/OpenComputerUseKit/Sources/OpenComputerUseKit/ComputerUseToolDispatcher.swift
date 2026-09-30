@@ -84,7 +84,7 @@ public final class ComputerUseToolDispatcher {
                 elementIndex: optionalElementIndex(in: arguments),
                 x: optionalDouble("x", in: arguments),
                 y: optionalDouble("y", in: arguments),
-                clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
+                clickCount: try optionalClickCount(in: arguments),
                 mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
                 clickMethod: try parseClickMethod(optionalString("click_method", in: arguments)),
                 includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
@@ -272,6 +272,23 @@ public final class ComputerUseToolDispatcher {
         return try positiveInt(from: value, key: key, expectedDescription: "a positive integer")
     }
 
+    /// `click_count` for a single click and a batch click step: a whole number in 1...3 (single, double or triple
+    /// click), defaulting to 1. Anything else is an argument error rather than a trap on conversion or a long
+    /// loop of posted clicks.
+    private func optionalClickCount(in arguments: [String: Any]) throws -> Int {
+        guard let value = arguments["click_count"] else {
+            return 1
+        }
+
+        let expectedDescription = "an integer from 1 to 3"
+        let count = try positiveInt(from: value, key: "click_count", expectedDescription: expectedDescription)
+        guard (1...3).contains(count) else {
+            throw ComputerUseError.invalidArguments("click_count must be \(expectedDescription)")
+        }
+
+        return count
+    }
+
     private func positiveInt(from value: Any, key: String, expectedDescription: String) throws -> Int {
         if let integer = value as? Int {
             return try validatePositiveInt(integer, key: key, expectedDescription: expectedDescription)
@@ -296,7 +313,8 @@ public final class ComputerUseToolDispatcher {
             throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
         }
 
-        guard value >= Double(Int.min), value <= Double(Int.max) else {
+        // `Double(Int.max)` rounds up to 2^63, which `Int(_:)` cannot represent, so the upper bound is exclusive.
+        guard value >= Double(Int.min), value < Double(Int.max) else {
             throw ComputerUseError.invalidArguments("\(key) is outside the supported integer range")
         }
 
@@ -538,7 +556,7 @@ extension ComputerUseToolDispatcher {
                 elementIndex: elementIndex,
                 x: x,
                 y: y,
-                clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
+                clickCount: try optionalClickCount(in: arguments),
                 mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
                 clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
             )

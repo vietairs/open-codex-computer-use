@@ -9,11 +9,26 @@ import XCTest
 ///   `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`. The one allowed `.activate(` site.
 /// - `click_method=sky_click`: SkyLight synthetic focus records, no activation call.
 /// - `perform_secondary_action` with an explicit Raise: an accessibility action the caller asked for.
-/// - The AXWindow click fallback (`activateClickTarget`): AXRaise / AXMain / AXFocused on a window, no activation call.
+///
+/// No default path raises a window or makes one main or focused, including a click on a window element.
 final class BackgroundOperationInvariantTests: XCTestCase {
     /// `file:function` pairs allowed to contain `.activate(`.
     private static let allowedActivateSites: Set<String> = [
         "InputSimulation.swift:prepareAppForGlobalPointerInput",
+    ]
+
+    /// `file:function` pairs allowed to name the raise action or the main-window attribute. The global pointer
+    /// preparation is opt-in; `clickPriority` only reads them to rank hit-test candidates.
+    private static let allowedRaiseOrMainWindowSites: Set<String> = [
+        "InputSimulation.swift:raiseAppWindowViaAccessibility",
+        "ComputerUseService.swift:clickPriority",
+    ]
+
+    /// `file:function` pairs allowed to write `AXFocused`: the opt-in global pointer preparation (on a window) and
+    /// the text-field focus write after a click (on the clicked text-entry element only).
+    private static let allowedFocusedWriteSites: Set<String> = [
+        "InputSimulation.swift:raiseAppWindowViaAccessibility",
+        "ComputerUseService.swift:click",
     ]
 
     private static let kitSourcesDirectory: URL = {
@@ -66,6 +81,49 @@ final class BackgroundOperationInvariantTests: XCTestCase {
         XCTAssertTrue(unexpected.isEmpty, "default-path activation found at: \(unexpected)")
         // Keeps the allowlist honest: a moved or renamed opt-in site must be re-listed here, not silently dropped.
         XCTAssertEqual(Set(sites), Self.allowedActivateSites)
+    }
+
+    func testWindowRaiseAndMainWindowWritesStayOnOptInPaths() throws {
+        let raiseOrMainTokens = ["kAXRaiseAction", "\"AXRaise\"", "kAXMainAttribute", "\"AXMain\""]
+        let writeTokens = ["PerformAction", "performAction(", "SetAttributeValue", "setBoolAttribute("]
+        var raiseOrMainSites: [String] = []
+        var focusedWriteSites: [String] = []
+        for source in try kitSources() {
+            for (index, line) in source.lines.enumerated() where !isComment(line) {
+                let site = "\(source.name):\(enclosingFunction(in: source.lines, before: index))"
+                if raiseOrMainTokens.contains(where: line.contains) {
+                    raiseOrMainSites.append(site)
+                    if site == "ComputerUseService.swift:clickPriority" {
+                        XCTAssertFalse(writeTokens.contains(where: line.contains), "click ranking must only read: \(line)")
+                    }
+                }
+                if line.contains("kAXFocusedAttribute"), writeTokens.contains(where: line.contains) {
+                    focusedWriteSites.append(site)
+                }
+            }
+        }
+
+        let unexpectedRaise = raiseOrMainSites.filter { !Self.allowedRaiseOrMainWindowSites.contains($0) }
+        XCTAssertTrue(unexpectedRaise.isEmpty, "default-path raise or main-window write found at: \(unexpectedRaise)")
+        XCTAssertEqual(Set(raiseOrMainSites), Self.allowedRaiseOrMainWindowSites)
+
+        let unexpectedFocus = focusedWriteSites.filter { !Self.allowedFocusedWriteSites.contains($0) }
+        XCTAssertTrue(unexpectedFocus.isEmpty, "unexpected AXFocused write at: \(unexpectedFocus)")
+        XCTAssertEqual(Set(focusedWriteSites), Self.allowedFocusedWriteSites)
+    }
+
+    /// The element click sequence ends when no press-style action handles the target; it has no window fallback.
+    func testClickSequenceHasNoWindowFallback() throws {
+        let service = try XCTUnwrap(try kitSources().first { $0.name == "ComputerUseService.swift" })
+        let start = try XCTUnwrap(service.lines.firstIndex { $0.contains("func performAXClickSequence(") })
+        let end = try XCTUnwrap(
+            service.lines[(start + 1)...].firstIndex { $0.hasPrefix("    private func ") || $0.hasPrefix("    func ") }
+        )
+        for line in service.lines[start..<end] where !isComment(line) {
+            for forbidden in ["Raise", "kAXMainAttribute", "kAXFocusedAttribute", "setBoolAttribute(", ".activate("] {
+                XCTAssertFalse(line.contains(forbidden), "click sequence uses \(forbidden): \(line)")
+            }
+        }
     }
 
     func testKitNeverShellsOutToOpen() throws {

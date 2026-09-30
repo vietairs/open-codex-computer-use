@@ -10,6 +10,9 @@ final class ElementRecord {
     let element: AXUIElement?
     let localFrame: CGRect?
     let role: String?
+    /// The raw AXSubrole and AXRoleDescription, kept so a batch step can judge text entry exactly as type_text does.
+    let subrole: String?
+    let roleDescription: String?
     let rawActions: [String]
     let prettyActions: [String]
     let isSyntheticText: Bool
@@ -20,6 +23,8 @@ final class ElementRecord {
         element: AXUIElement?,
         localFrame: CGRect?,
         role: String? = nil,
+        subrole: String? = nil,
+        roleDescription: String? = nil,
         rawActions: [String],
         prettyActions: [String],
         isSyntheticText: Bool = false
@@ -29,6 +34,8 @@ final class ElementRecord {
         self.element = element
         self.localFrame = localFrame
         self.role = role
+        self.subrole = subrole
+        self.roleDescription = roleDescription
         self.rawActions = rawActions
         self.prettyActions = prettyActions
         self.isSyntheticText = isSyntheticText
@@ -1218,6 +1225,8 @@ struct TreeRenderer {
             element: root,
             localFrame: localFrame,
             role: role,
+            subrole: subrole,
+            roleDescription: stringValue(of: root, attribute: kAXRoleDescriptionAttribute, prefetch: prefetch),
             rawActions: actions,
             prettyActions: prettyActions
         )

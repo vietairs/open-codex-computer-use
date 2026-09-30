@@ -167,16 +167,23 @@ When the gate is not enabled, treat window-server drags as unavailable and reach
 - The batch holds the per-call environment lock for its whole duration.
 - Keep externally visible steps such as Send in their own call, after you confirm them.
 
+Mail search as a batch: click the toolbar search field by `element_index`, type, then press Return. Clicking the field gives it keyboard focus while Mail stays in the background; a shortcut such as `cmd+option+f` would not, so `type_text` would fail. Every CLI `call` is a new process with no cached state, so run `get_app_state` in the same `--calls` array as `perform_actions`. Read the search field's index from a `get_app_state` result first (`"12"` below stands for it); it stays valid while Mail's window does not change:
+
 ```sh
-open-computer-use call perform_actions --args '{
-  "app":"Mail",
-  "actions":[
-    {"tool":"press_key","args":{"key":"cmd+option+f"}},
-    {"tool":"type_text","args":{"text":"invoice"}},
-    {"tool":"press_key","args":{"key":"Return"}}
-  ]
-}'
+open-computer-use call --calls '[
+  {"tool":"get_app_state","args":{"app":"Mail"}},
+  {"tool":"perform_actions","args":{
+    "app":"Mail",
+    "actions":[
+      {"tool":"click","args":{"element_index":"12"}},
+      {"tool":"type_text","args":{"text":"invoice"}},
+      {"tool":"press_key","args":{"key":"Return"}}
+    ]
+  }}
+]'
 ```
+
+Over MCP the session keeps the state, so call `get_app_state` for Mail, then `perform_actions` with the same `actions` array, using the search field's index from that state.
 
 ## Platform Notes
 

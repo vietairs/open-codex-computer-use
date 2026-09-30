@@ -516,14 +516,6 @@ func isLikelyContainingRowActionFrame(
     return true
 }
 
-func canUseActivationOnlyClickFallback(role: String?) -> Bool {
-    guard let role else {
-        return false
-    }
-
-    return role == kAXWindowRole as String
-}
-
 /// Pure. Whether the element is a text-entry control, judged by role, subrole and role description only.
 ///
 /// Value settability is deliberately not a signal: sliders, steppers and some lists and tables expose a settable
@@ -823,8 +815,7 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: !context.isBatchStep,
-                        allowActivationFallback: true
+                        includeNearbyHitTesting: !context.isBatchStep
                     )) {
                         try performNonAXClickFallback(
                             at: targetPoint,
@@ -840,8 +831,7 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: !context.isBatchStep,
-                        allowActivationFallback: true
+                        includeNearbyHitTesting: !context.isBatchStep
                     ) else {
                         throw ComputerUseError.message(
                             "click_method 'accessibility' could not click element_index=\(elementIndex)"
@@ -902,8 +892,7 @@ public final class ComputerUseService {
                             snapshot: snapshot,
                             button: button,
                             clickCount: clickCount,
-                            includeNearbyHitTesting: false,
-                            allowActivationFallback: false
+                            includeNearbyHitTesting: false
                         ) {
                             handled = true
                             break
@@ -1588,8 +1577,7 @@ public final class ComputerUseService {
         snapshot: AppSnapshot,
         button: MouseButtonKind,
         clickCount: Int,
-        includeNearbyHitTesting: Bool,
-        allowActivationFallback: Bool
+        includeNearbyHitTesting: Bool
     ) throws -> Bool {
         let preferContainingWebRowAXClick = shouldPreferContainingWebRowAXClick(record, in: snapshot)
         debugClickDecision("record=\(clickDebugDescription(record)) preferContainingWebRowAXClick=\(preferContainingWebRowAXClick)")
@@ -1650,22 +1638,6 @@ public final class ComputerUseService {
             }
         }
 
-        guard
-            allowActivationFallback,
-            !record.isSyntheticText,
-            button == .left,
-            let element = record.element,
-            canUseActivationOnlyClickFallback(role: stringValue(of: element, attribute: kAXRoleAttribute))
-        else {
-            return false
-        }
-
-        if try activateClickTarget(element: element, availableActions: record.rawActions) {
-            debugClickDecision("handled by activation fallback \(clickDebugDescription(record))")
-            Thread.sleep(forTimeInterval: 0.15)
-            return true
-        }
-
         return false
     }
 
@@ -1692,36 +1664,6 @@ public final class ComputerUseService {
         }
 
         return true
-    }
-
-    private func activateClickTarget(element: AXUIElement, availableActions: [String]) throws -> Bool {
-        var activated = false
-
-        if try performAction(named: kAXRaiseAction as String, on: element, availableActions: availableActions) {
-            activated = true
-        }
-
-        if try setBoolAttribute(named: kAXMainAttribute, on: element) {
-            activated = true
-        }
-
-        if try setBoolAttribute(named: kAXFocusedAttribute, on: element) {
-            activated = true
-        }
-
-        return activated
-    }
-
-    private func setBoolAttribute(named attribute: String, on element: AXUIElement) throws -> Bool {
-        let result = AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue)
-        switch result {
-        case .success:
-            return true
-        case .failure, .attributeUnsupported, .actionUnsupported, .cannotComplete, .noValue, .invalidUIElement, .illegalArgument:
-            return false
-        default:
-            throw ComputerUseError.message("AXUIElementSetAttributeValue(\(attribute)) failed with \(result.rawValue)")
-        }
     }
 
     private func isSettable(element: AXUIElement, attribute: String) -> Bool {
