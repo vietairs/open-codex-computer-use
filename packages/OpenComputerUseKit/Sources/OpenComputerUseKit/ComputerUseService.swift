@@ -1525,17 +1525,16 @@ public final class ComputerUseService {
             capture: capture
         )
 
-        let keys = Set([
-            query.lowercased(),
-            app.name.lowercased(),
-            (app.bundleIdentifier ?? "").lowercased(),
-        ].filter { !$0.isEmpty })
-
-        for key in keys {
-            snapshotsByApp[key] = snapshot
-        }
+        storeSnapshot(snapshot, query: query, app: app)
 
         return snapshot
+    }
+
+    /// The only writer of `snapshotsByApp`: caches a snapshot under every key a later lookup may use.
+    private func storeSnapshot(_ snapshot: AppSnapshot, query: String, app: RunningAppDescriptor) {
+        for key in snapshotCacheKeys(query: query, app: app) {
+            snapshotsByApp[key] = snapshot
+        }
     }
 
     private func lookupElement(snapshot: AppSnapshot, index: String) throws -> ElementRecord {
@@ -2671,9 +2670,7 @@ extension ComputerUseService {
             isOffStage: window.isOffStage
         )
         let merged = mergeElementSearchHits(records, rows: rows, into: cached, window: windowInfo, app: app)
-        for key in snapshotCacheKeys(query: query, app: app) {
-            snapshotsByApp[key] = merged
-        }
+        storeSnapshot(merged, query: query, app: app)
 
         let header = [
             "App=\(escapeElementSearchText(app.bundleIdentifier ?? app.name)) (pid \(app.pid))",
