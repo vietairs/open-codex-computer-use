@@ -40,7 +40,7 @@ public enum ToolDefinitions {
                     "element_index": stringProperty(description: "Element index to click"),
                     "x": numberProperty(description: "X coordinate in screenshot pixel coordinates"),
                     "y": numberProperty(description: "Y coordinate in screenshot pixel coordinates"),
-                    "click_count": integerProperty(description: "Number of clicks. Defaults to 1"),
+                    "click_count": integerProperty(description: "Number of clicks, 1 to 3. Defaults to 1."),
                     "mouse_button": stringProperty(
                         description: "Mouse button to click. Defaults to left.",
                         enumValues: ["left", "right", "middle"]

@@ -64,3 +64,9 @@ func focusTextEntryAfterClick(
     }
     return setFocused()
 }
+
+/// The default path's only AXFocused write: on the clicked text-entry element, never on a window or the app.
+/// Kept as its own function so the background-operation invariant test can allow exactly this one write.
+func writeClickedTextEntryFocus(_ element: AXUIElement) -> Bool {
+    AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success
+}

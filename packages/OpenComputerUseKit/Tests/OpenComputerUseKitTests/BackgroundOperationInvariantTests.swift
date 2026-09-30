@@ -25,10 +25,31 @@ final class BackgroundOperationInvariantTests: XCTestCase {
     ]
 
     /// `file:function` pairs allowed to write `AXFocused`: the opt-in global pointer preparation (on a window) and
-    /// the text-field focus write after a click (on the clicked text-entry element only).
+    /// the one-statement helper that focuses a clicked text-entry element.
     private static let allowedFocusedWriteSites: Set<String> = [
         "InputSimulation.swift:raiseAppWindowViaAccessibility",
-        "ComputerUseService.swift:click",
+        "ClickTextEntryFocus.swift:writeClickedTextEntryFocus",
+    ]
+
+    /// Attributes that reorder windows or bring the app forward when written on the app or a window. Only the opt-in
+    /// global pointer preparation may write them; today nothing does.
+    private static let windowOrderAttributeTokens = [
+        "kAXMainWindowAttribute", "\"AXMainWindow\"",
+        "kAXFocusedWindowAttribute", "\"AXFocusedWindow\"",
+        "kAXFrontmostAttribute", "\"AXFrontmost\"",
+    ]
+
+    private static let optInGlobalPointerSites: Set<String> = [
+        "InputSimulation.swift:prepareAppForGlobalPointerInput",
+        "InputSimulation.swift:raiseAppWindowViaAccessibility",
+    ]
+
+    private static let focusedAttributeTokens = ["kAXFocusedAttribute", "\"AXFocused\""]
+
+    /// Call names that write an attribute or perform an action. Declarations of the kit's own helpers also match;
+    /// their text names no attribute token, so they add nothing.
+    private static let writeCallTokens = [
+        "AXUIElementSetAttributeValue(", "AXUIElementPerformAction(", "setBoolAttribute(", "performAction(",
     ]
 
     private static let kitSourcesDirectory: URL = {
@@ -83,22 +104,61 @@ final class BackgroundOperationInvariantTests: XCTestCase {
         XCTAssertEqual(Set(sites), Self.allowedActivateSites)
     }
 
+    /// Every write call in the kit with its full argument list, which may span several lines, and its site.
+    private func writeCallStatements() throws -> [(site: String, text: String)] {
+        var statements: [(site: String, text: String)] = []
+        for source in try kitSources() {
+            for (index, line) in source.lines.enumerated() where !isComment(line) {
+                guard let token = Self.writeCallTokens.first(where: line.contains),
+                      let start = line.range(of: token)?.lowerBound
+                else {
+                    continue
+                }
+
+                // Collect from the call name until its parentheses balance, so an attribute argument on a later
+                // line is still part of the statement.
+                var text = ""
+                var depth = 0
+                var opened = false
+                var lineIndex = index
+                var segment = Substring(line[start...])
+                scan: while lineIndex < source.lines.count, lineIndex < index + 12 {
+                    for character in segment {
+                        text.append(character)
+                        if character == "(" {
+                            depth += 1
+                            opened = true
+                        } else if character == ")" {
+                            depth -= 1
+                            if opened, depth == 0 {
+                                break scan
+                            }
+                        }
+                    }
+                    text.append("\n")
+                    lineIndex += 1
+                    if lineIndex < source.lines.count {
+                        segment = Substring(source.lines[lineIndex])
+                    }
+                }
+
+                statements.append(("\(source.name):\(enclosingFunction(in: source.lines, before: index))", text))
+            }
+        }
+        return statements
+    }
+
     func testWindowRaiseAndMainWindowWritesStayOnOptInPaths() throws {
         let raiseOrMainTokens = ["kAXRaiseAction", "\"AXRaise\"", "kAXMainAttribute", "\"AXMain\""]
-        let writeTokens = ["PerformAction", "performAction(", "SetAttributeValue", "setBoolAttribute("]
         var raiseOrMainSites: [String] = []
-        var focusedWriteSites: [String] = []
         for source in try kitSources() {
             for (index, line) in source.lines.enumerated() where !isComment(line) {
                 let site = "\(source.name):\(enclosingFunction(in: source.lines, before: index))"
                 if raiseOrMainTokens.contains(where: line.contains) {
                     raiseOrMainSites.append(site)
                     if site == "ComputerUseService.swift:clickPriority" {
-                        XCTAssertFalse(writeTokens.contains(where: line.contains), "click ranking must only read: \(line)")
+                        XCTAssertFalse(Self.writeCallTokens.contains(where: line.contains), "click ranking must only read: \(line)")
                     }
-                }
-                if line.contains("kAXFocusedAttribute"), writeTokens.contains(where: line.contains) {
-                    focusedWriteSites.append(site)
                 }
             }
         }
@@ -106,10 +166,30 @@ final class BackgroundOperationInvariantTests: XCTestCase {
         let unexpectedRaise = raiseOrMainSites.filter { !Self.allowedRaiseOrMainWindowSites.contains($0) }
         XCTAssertTrue(unexpectedRaise.isEmpty, "default-path raise or main-window write found at: \(unexpectedRaise)")
         XCTAssertEqual(Set(raiseOrMainSites), Self.allowedRaiseOrMainWindowSites)
+    }
+
+    func testFocusedWritesAreLimitedToTheOptInPathAndOneTextEntryWrite() throws {
+        let focusedWriteSites = try writeCallStatements()
+            .filter { statement in Self.focusedAttributeTokens.contains(where: statement.text.contains) }
+            .map(\.site)
 
         let unexpectedFocus = focusedWriteSites.filter { !Self.allowedFocusedWriteSites.contains($0) }
         XCTAssertTrue(unexpectedFocus.isEmpty, "unexpected AXFocused write at: \(unexpectedFocus)")
         XCTAssertEqual(Set(focusedWriteSites), Self.allowedFocusedWriteSites)
+        // The text-entry helper stays a single write, so the allowlist cannot absorb a second one.
+        XCTAssertEqual(
+            focusedWriteSites.filter { $0 == "ClickTextEntryFocus.swift:writeClickedTextEntryFocus" }.count,
+            1,
+            "the clicked text-entry focus helper must hold exactly one AXFocused write"
+        )
+    }
+
+    func testMainWindowFocusedWindowAndFrontmostAreNeverWrittenOnDefaultPaths() throws {
+        let sites = try writeCallStatements()
+            .filter { statement in Self.windowOrderAttributeTokens.contains(where: statement.text.contains) }
+            .map(\.site)
+        let unexpected = sites.filter { !Self.optInGlobalPointerSites.contains($0) }
+        XCTAssertTrue(unexpected.isEmpty, "main-window, focused-window or frontmost write found at: \(unexpected)")
     }
 
     /// The element click sequence ends when no press-style action handles the target; it has no window fallback.
@@ -154,7 +234,10 @@ final class BackgroundOperationInvariantTests: XCTestCase {
         let service = try XCTUnwrap(sources.first { $0.name == "ComputerUseService.swift" })
         let wiring = try XCTUnwrap(service.lines.firstIndex { $0.contains("focusTextEntryAfterClick(") })
         let block = service.lines[wiring..<min(wiring + 10, service.lines.count)].joined(separator: "\n")
-        XCTAssertTrue(block.contains("kAXFocusedAttribute as CFString, kCFBooleanTrue"))
+        XCTAssertTrue(block.contains("setFocused: { writeClickedTextEntryFocus(element) }"))
+        XCTAssertTrue(
+            focusFile.lines.contains { $0.contains("AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)") }
+        )
         XCTAssertFalse(block.contains(".activate("))
         XCTAssertFalse(block.contains("Raise"))
     }

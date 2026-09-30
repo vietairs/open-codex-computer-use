@@ -430,6 +430,26 @@ func localClickActionPoints(frame: CGRect, isSyntheticText: Bool) -> [CGPoint] {
     return [center, leading]
 }
 
+/// Subroles of a window's title-bar buttons. Pressing one closes, minimizes, zooms or full-screens the window.
+private let windowTitleBarButtonSubroles: Set<String> = [
+    "AXCloseButton",
+    "AXMinimizeButton",
+    "AXZoomButton",
+    "AXFullScreenButton",
+]
+
+/// Pure. Drops window title-bar buttons from the descendants an `auto` click may press on the target's behalf.
+/// On a window target they are often the smallest pressable children, so they would otherwise win the ranking.
+/// A click aimed at such a button by its own element_index never goes through this filter and still works.
+func excludingWindowTitleBarButtons(_ candidates: [ElementRecord]) -> [ElementRecord] {
+    candidates.filter { candidate in
+        guard let subrole = candidate.subrole else {
+            return true
+        }
+        return !windowTitleBarButtonSubroles.contains(subrole)
+    }
+}
+
 func isLikelySyntheticSideActionCandidate(
     parentFrame: CGRect?,
     candidateFrame: CGRect?,
@@ -860,10 +880,7 @@ public final class ComputerUseService {
                     role: record.role,
                     readSubrole: { stringValue(of: element, attribute: kAXSubroleAttribute) },
                     isFocusSettable: { isSettable(element: element, attribute: kAXFocusedAttribute) },
-                    setFocused: {
-                        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-                            == .success
-                    }
+                    setFocused: { writeClickedTextEntryFocus(element) }
                 )
             }
 
@@ -1770,7 +1787,7 @@ public final class ComputerUseService {
         }
 
         let sideActionParent = sideActionScope ?? record
-        return descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)
+        return excludingWindowTitleBarButtons(descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds))
             .filter { candidate in
                 !isLikelySyntheticSideAction(candidate, in: sideActionParent)
             }
@@ -1799,6 +1816,8 @@ public final class ComputerUseService {
                     identifier: nil,
                     element: child,
                     localFrame: localFrame(of: child, windowBounds: windowBounds),
+                    // Only an actionable child can be pressed, so only its subrole is worth a read.
+                    subrole: rawActions.isEmpty ? nil : stringValue(of: child, attribute: kAXSubroleAttribute),
                     rawActions: rawActions,
                     prettyActions: rawActions
                 )

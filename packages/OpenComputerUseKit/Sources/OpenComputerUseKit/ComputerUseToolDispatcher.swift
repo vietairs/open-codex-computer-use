@@ -290,6 +290,12 @@ public final class ComputerUseToolDispatcher {
     }
 
     private func positiveInt(from value: Any, key: String, expectedDescription: String) throws -> Int {
+        // The boolean check must run first: `JSONSerialization` decodes JSON `true` as a CFBoolean-backed
+        // NSNumber, and `as? Int` / `as? Double` would bridge it to 1.
+        if let number = value as? NSNumber, CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+            throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
+        }
+
         if let integer = value as? Int {
             return try validatePositiveInt(integer, key: key, expectedDescription: expectedDescription)
         }
@@ -299,9 +305,6 @@ public final class ComputerUseToolDispatcher {
         }
 
         if let number = value as? NSNumber {
-            if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
-                throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
-            }
             return try validatePositiveWholeNumber(number.doubleValue, key: key, expectedDescription: expectedDescription)
         }
 

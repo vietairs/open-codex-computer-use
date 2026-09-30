@@ -763,6 +763,32 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
+    /// Real MCP and CLI input reaches the dispatcher through `JSONSerialization`, where JSON `true` is an
+    /// NSNumber that bridges to `Int` 1. Build the arguments the same way so the boolean case is not a false pass.
+    func testClickCountFromDecodedJSONRejectsBooleansStringsAndOutOfRangeNumbers() throws {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+
+        func decodedArguments(clickCountJSON: String) throws -> [String: Any] {
+            let json = #"{"app": "Sublime Text", "element_index": "1", "click_count": \#(clickCountJSON)}"#
+            return try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                "could not decode \(json)"
+            )
+        }
+
+        for literal in ["true", "false", #""2""#, "0", "4", "1.5", "1e20", "9223372036854775808"] {
+            let result = dispatcher.callToolAsResult(name: "click", arguments: try decodedArguments(clickCountJSON: literal))
+            XCTAssertTrue(result.isError, "click_count \(literal) was accepted")
+            XCTAssertTrue((result.primaryText ?? "").contains("click_count"), "click_count \(literal): \(result.primaryText ?? "")")
+        }
+
+        for literal in ["1", "2", "2.0", "3"] {
+            let result = dispatcher.callToolAsResult(name: "click", arguments: try decodedArguments(clickCountJSON: literal))
+            // The app does not exist here, so the call still fails, but never on click_count.
+            XCTAssertFalse((result.primaryText ?? "").contains("click_count"), "click_count \(literal) was refused")
+        }
+    }
+
     func testClickAcceptsSingleDoubleAndTripleClickCounts() {
         let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
 

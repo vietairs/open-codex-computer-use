@@ -577,6 +577,13 @@ final class BatchActionRunnerTests: XCTestCase {
             XCTAssertTrue(message.contains("click_count"), message)
         }
 
+        // JSON `true` decodes to an NSNumber that bridges to 1; it must still be refused on the batch path.
+        let decodedTrue = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(#"{"element_index": "1", "click_count": true}"#.utf8)) as? [String: Any]
+        )
+        let booleanMessage = try XCTUnwrap(parseFailureMessage([step("click", decodedTrue)]), "click_count true was accepted")
+        XCTAssertTrue(booleanMessage.contains("click_count"), booleanMessage)
+
         let steps = try makeUnlockedDispatcher().parseBatchSteps([
             step("click", ["element_index": "1", "click_count": 3]),
         ])
