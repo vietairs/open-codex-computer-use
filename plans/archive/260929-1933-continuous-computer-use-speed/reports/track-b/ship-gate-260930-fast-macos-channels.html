@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ship gate: fast macOS channels</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#6e6e73;--bd:#d2d2d7;--ok:#1a7f37;--warn:#9a6700;--card:#f5f5f7}
+@media (prefers-color-scheme:dark){:root{--bg:#161618;--fg:#f5f5f7;--mut:#a1a1a6;--bd:#3a3a3c;--ok:#3fb950;--warn:#d29922;--card:#1f1f22}}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,system-ui,sans-serif;max-width:1000px;margin:0 auto;padding:24px 16px}
+h1{font-size:24px}h2{margin-top:32px;border-bottom:1px solid var(--bd);padding-bottom:4px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--bd);padding:6px 8px;vertical-align:top;text-align:left}th{background:var(--card)}
+.ok{color:var(--ok);font-weight:600}.warn{color:var(--warn);font-weight:600}code{font-size:12.5px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px 16px}
+</style></head><body>
+<h1>Ship gate: <code>feat/fast-macos-channels</code> → main (PR B)</h1>
+<p class="card">HEAD <code>5f1c25d</code>, base <code>1b14cb8</code>, 23 commits, 44 files, +7304/−93. <code>swift test</code> at HEAD: 770 tests, 2 skipped, 0 failures. Code review: SHIP_WITH_FIXES, and the Medium and Low items it asked for are fixed. Phase 10 live checks: all pass except the two items below that you accepted or skipped.</p>
+
+<h2>1. TL;DR</h2>
+<p>This branch adds faster ways for an agent to drive macOS apps than reading the full screen tree:</p>
+<ul>
+<li><code>find_elements</code>, a lean breadth-first search that finds one control in about 0.02s where <code>get_app_state</code> takes 0.88s on Mail.</li>
+<li>An opt-in, off-by-default <code>run_script</code> AppleScript channel with a deny filter, a confined child process and an audit log.</li>
+<li><code>get_scripting_dictionary</code>, which reads sdef files and never launches an app.</li>
+<li><code>open_url</code>, which opens in the background with blocked handlers, and <code>list_shortcuts</code> / <code>run_shortcut</code>.</li>
+<li>A router that passes MCP traffic through untouched when the flag is off.</li>
+</ul>
+
+<h2>2. Context</h2>
+<p>Your request: agents were slow, because they think and then call the MCP tool once per mouse action. Track B ("use something faster than screenshots, like AppleScript") is the second half. Track A (PR #23, batching and per-call latency) is already merged. Plan: <code>plans/260929-1933-continuous-computer-use-speed/plan-track-b/</code> (phases 00–10). Decisions: <code>outcome-lock.md</code> 1–25.</p>
+
+<h2>3. Intuition</h2>
+<ul>
+<li><b>Flag off (default):</b> the server behaves as before, plus <code>find_elements</code> (11 tools). The router forwards every line without parsing it.</li>
+<li><b>Flag on</b> (<code>OPEN_COMPUTER_USE_ENABLE_SCRIPTING=1</code>): the router intercepts the local tools (16 tools) and runs them in the MCP process rather than the app agent. Each script is filtered, logged to <code>scripts.log</code> (mode 600) and run in a confined <code>osascript</code> child with a timeout.</li>
+<li><code>find_elements</code> reads each node once and walks level by level, so toolbar buttons are found in a few dozen nodes. Deep content can be cut off at 1200 nodes (<code>truncated=true</code>); pass a larger <code>max_nodes</code> or use <code>get_app_state</code>. The hit indices work in click and <code>perform_actions</code> until the next refresh.</li>
+</ul>
+
+<h2>4. Blast radius</h2>
+<ul>
+<li><b>Every MCP entry path</b> now goes through <code>LocalChannelRouter</code>: relay (<code>MacOSAppAgentProxy</code>), direct (<code>OpenComputerUseMain</code>) and <code>MCPAppRuntime</code>. With the flag off, bytes are forwarded as-is. Live, relay and direct gave equal parsed JSON; only the key order differs between processes.</li>
+<li><b>Tool count</b> goes from 10 to 11 with the flag off, and to 16 with it on. Hosts with narrow allow lists should add <code>find_elements</code>.</li>
+<li><b>Server instructions</b> are 1795 characters in the worst case, under the 2048 host limit. The advisor cascade guide moved into <code>decide_next_action</code>'s description.</li>
+<li><b>Security residuals (documented):</b> the filter adds friction and is not a boundary. A killed relay does not stop an Apple Event already inside the target app. Script text is logged. The phase 08 red team and the post-rebase delta review left no Critical or High findings open.</li>
+<li><b>Nothing suspicious</b> was found embedded in the diff or the commit messages.</li>
+</ul>
+
+<h2>5. Predicted vs actual</h2>
+<p>The prediction report (<code>predict-fast-channels.md</code>, verdict CAUTION) has no formal Risk Summary table. The risks below come from its per-file predictions.</p>
+<table><tr><th>Risk</th><th>Sev</th><th>How the shipped code handles it</th><th>Verdict</th></tr>
+<tr><td>Pipe deadlock when the child fills a pipe</td><td>High</td><td><code>ConfinedChildProcessRunner</code> drains stdout and stderr on one poll(2) thread, with one deadline for spawn, reap and drain</td><td class="ok">handled</td></tr>
+<tr><td>XInclude traversal and entity bombs in sdef files</td><td>High</td><td>No external entities; <code>&lt;!ENTITY</code> is refused; includes are resolved after realpath with a prefix guard; depth, count and size caps</td><td class="ok">handled</td></tr>
+<tr><td>Router changes bytes or key order when the flag is off</td><td>Med</td><td>Early <code>forward(line)</code> return without parsing; tests plus live parsed-JSON equality</td><td class="ok">handled</td></tr>
+<tr><td>Batch arrays and notifications</td><td>Med</td><td>Forwarded untouched</td><td class="ok">handled</td></tr>
+<tr><td>fd inheritance on the relay socket</td><td>Med</td><td><code>FD_CLOEXEC</code> right after socket() in <code>MacOSAppAgentProxy</code></td><td class="ok">handled</td></tr>
+<tr><td>Symlink, TOCTOU and rotation races in the audit log</td><td>Med</td><td>O_NOFOLLOW, fstat and lstat re-check after flock, flock-guarded rotation</td><td class="ok">handled</td></tr>
+<tr><td>App target has no tests</td><td>Med</td><td>All logic lives in Kit with injected seams; the app files make one router call each</td><td class="ok">handled</td></tr>
+<tr><td>Private symbols block the service extension</td><td>Med</td><td>Same-file extension plus the <code>storeSnapshot</code> helper</td><td class="ok">handled</td></tr>
+<tr><td>find_elements index collision</td><td>Med</td><td>Hits are allocated above the highest cached key; they refresh after each action (documented)</td><td class="warn">partial (by design)</td></tr>
+<tr><td>A killed relay does not stop an Apple Event inside the app</td><td>Med</td><td>Accepted, documented residual (T24)</td><td class="ok">handled (accepted)</td></tr>
+<tr><td>Guard order lets a refusal test pass for the wrong reason</td><td>Low</td><td>Fake unlocked provider in the refusal tests; audit is written before the refusal</td><td class="ok">handled</td></tr>
+<tr><td>More tool-count sites than predicted</td><td>Low</td><td>All six updated (11/12/11/16)</td><td class="ok">handled</td></tr>
+<tr><td>Filter false positives</td><td>Low</td><td>Documented as friction; table-driven tests include a clean Mail search</td><td class="ok">handled</td></tr>
+<tr><td>A shortcut child keeps running after a timeout kill</td><td>Low</td><td>Documented; the live check (phase 10 step 9) was <b>skipped by you</b></td><td class="warn">partial (unverified)</td></tr>
+</table>
+
+<h2>6. Plan vs shipped</h2>
+<table><tr><th>Plan item</th><th>Status</th><th>Evidence</th></tr>
+<tr><td>00 Mail timing probe</td><td class="ok">shipped</td><td>The acceptance target was narrowed by decision 17 (a Mail search is Mail-bound)</td></tr>
+<tr><td>01 Filter, confined runner, osascript runner</td><td class="ok">shipped</td><td>New <code>ScriptPolicyFilter.swift</code>, <code>ConfinedChildProcessRunner.swift</code> and <code>OsascriptChildRunner.swift</code>, with tests</td></tr>
+<tr><td>02 Audit log</td><td class="ok">shipped</td><td>New <code>ScriptAuditLog.swift</code> with tests; live: mode 600, uid 501</td></tr>
+<tr><td>03 sdef lookup and URL/Shortcuts launcher</td><td class="warn">deviated, logged</td><td>The app-name ranking fix (d747be1, impl-notes "Dictionary app lookup fix") and <code>open_url</code> <code>activates=false</code> (cf6f5f5, "Pre-ship review fixes") came after live testing and review</td></tr>
+<tr><td>04 Router, handlers, sanitizer</td><td class="ok">shipped</td><td>New <code>LocalChannelRouter.swift</code>, <code>LocalChannelToolHandlers.swift</code> and <code>LocalChannelGuidance.swift</code>; <code>MacSessionGuard</code> strips the flag</td></tr>
+<tr><td>05 find_elements</td><td class="warn">deviated, logged</td><td>Breadth-first walk (71b074d, pre-approved lever), window choice (9743c40), guidance wording (fe994d7, 5f1c25d); all in impl-notes</td></tr>
+<tr><td>06 Relay and direct wiring, smoke suite</td><td class="ok">shipped</td><td>Router in all three entry files, FD_CLOEXEC, smoke suite covers both scripting paths</td></tr>
+<tr><td>07 Guidance and docs</td><td class="ok">shipped</td><td>ARCHITECTURE, SECURITY, SKILL.md, usage.md, new scripting.md, exec plan and history note</td></tr>
+<tr><td>08 Security review and red team</td><td class="ok">shipped</td><td>No Critical or High open; fixes logged in impl-notes</td></tr>
+<tr><td>09 Rebase onto PR A</td><td class="warn">deviated, logged</td><td>Option A (cascade guide in the decide_next_action description), your decision; intermediate commits do not build on their own (squash-merge only)</td></tr>
+<tr><td>10 Live measurement</td><td class="warn">partial, logged</td><td><code>live-measurement-260930-1725.md</code>: ratio 0.023 (PASS); run_script is Mail-bound (accepted, about 0ms channel overhead); the shortcut timeout test was skipped</td></tr>
+</table>
+<p>No item is <b>silently divergent</b> and none was dropped. Every deviation has an impl-notes entry or a recorded decision.</p>
+
+<h2>Open items carried into the PR as follow-ups</h2>
+<ul>
+<li>"System Events" by name resolves only while it is running, because CoreServices is not a fallback directory. This is pre-existing.</li>
+<li>The running-app list may go stale without a main run loop, in relay and plain stdio modes. This comes from Apple's docs and was not observed live.</li>
+<li><code>open_url</code> in the background is unit-tested but has not been checked live on a real app.</li>
+<li>R-L2: the copied window-list parsing should be deduplicated.</li>
+<li>The smoke suite should poll for the fixture app instead of waiting a fixed time.</li>
+</ul>
+</body></html>

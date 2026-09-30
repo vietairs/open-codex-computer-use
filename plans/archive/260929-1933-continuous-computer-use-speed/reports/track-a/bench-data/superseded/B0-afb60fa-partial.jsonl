@@ -1,0 +1,3 @@
+{"label": "B0", "cursor": "on", "mode": "cycle", "round": 0, "tool": "get_app_state", "shape": ["compact"], "seconds": 1.8103, "is_error": false, "text_chars": 15112, "parts": ["text"], "bytes": 16193, "warmup": true, "ts": "2026-09-29T23:35:51"}
+{"label": "B0", "cursor": "on", "mode": "cycle", "round": 0, "tool": "click", "shape": ["element_index"], "seconds": 3.5272, "is_error": false, "text_chars": 23121, "parts": ["text"], "bytes": 29864, "warmup": true, "ts": "2026-09-29T23:35:55"}
+{"label": "B0", "cursor": "on", "mode": "cycle", "round": 0, "tool": "press_key", "shape": ["key"], "seconds": 1.9781, "is_error": false, "text_chars": 23121, "parts": ["text"], "bytes": 29864, "warmup": true, "ts": "2026-09-29T23:35:57"}

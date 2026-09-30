@@ -1,0 +1,2 @@
+{"label": "P1-old-on", "cursor": "on", "include_screenshot": false, "mode": "render", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 2.8635, "is_error": false, "text_chars": 13950, "parts": ["text", "image"], "bytes": 48750, "warmup": true, "ts": "2026-09-30T08:56:22"}
+{"label": "P1-old-on", "cursor": "on", "include_screenshot": false, "mode": "render", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 0.1337, "is_error": false, "text_chars": 4944, "parts": ["text"], "bytes": 5604, "warmup": true, "ts": "2026-09-30T08:56:22"}

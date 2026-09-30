@@ -1,0 +1,1 @@
+{"label": "F-preflight-on", "cursor": "on", "include_screenshot": false, "mode": "preflight", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 2.3549, "is_error": false, "text_chars": 13950, "parts": ["text", "image"], "bytes": 366022, "warmup": true, "ts": "2026-09-30T02:01:46"}

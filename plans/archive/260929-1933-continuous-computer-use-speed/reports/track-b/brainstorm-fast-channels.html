@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fast Channels Brainstorm</title>
+<style>
+:root{
+  --bg:#f6f7f9; --surface:#ffffff; --text:#1b1f27; --muted:#5b6472; --border:#d9dde4;
+  --accent:#2457d6; --good:#137a4b; --good-bg:#e4f5ec; --warn:#a15c00; --warn-bg:#fdf1dc;
+  --bad:#b3261e; --bad-bg:#fbe7e5; --code-bg:#eef0f4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1218; --surface:#181c25; --text:#e6e9ef; --muted:#9aa3b2; --border:#2b3242;
+    --accent:#7fa2ff; --good:#5fd39a; --good-bg:#12291f; --warn:#f0b35a; --warn-bg:#2d2412;
+    --bad:#ff8a80; --bad-bg:#33181a; --code-bg:#222836;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1218; --surface:#181c25; --text:#e6e9ef; --muted:#9aa3b2; --border:#2b3242;
+  --accent:#7fa2ff; --good:#5fd39a; --good-bg:#12291f; --warn:#f0b35a; --warn-bg:#2d2412;
+  --bad:#ff8a80; --bad-bg:#33181a; --code-bg:#222836;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overflow-x:hidden}
+main{width:100%;padding:24px 16px 48px}
+h1{font-size:1.9rem;margin:0 0 4px}
+h2{font-size:1.3rem;margin:36px 0 12px}
+p,li{overflow-wrap:anywhere}
+.sub{color:var(--muted);margin:0 0 16px}
+code{background:var(--code-bg);padding:1px 5px;border-radius:4px;font-size:.88em;overflow-wrap:anywhere}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:0}
+.card h3{margin:0 0 8px;font-size:1.05rem}
+.card ul{margin:6px 0 10px;padding-left:20px}
+.card.rec{border:2px solid var(--good);box-shadow:0 0 0 3px var(--good-bg)}
+.badge{display:inline-block;font-size:.75rem;font-weight:600;padding:2px 8px;border-radius:99px;margin-bottom:8px}
+.b-rec{background:var(--good-bg);color:var(--good)}
+.b-warn{background:var(--warn-bg);color:var(--warn)}
+.b-bad{background:var(--bad-bg);color:var(--bad)}
+.tw{width:100%;overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--surface);font-size:.92rem}
+th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+th{background:var(--code-bg)}
+td.rec,th.rec{background:var(--good-bg)}
+.callout{background:var(--surface);border-left:4px solid var(--accent);padding:12px 16px;border-radius:6px;margin:12px 0}
+.callout.rec{border-color:var(--good)}
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px}
+svg{width:100%;height:auto;display:block}
+svg text{fill:var(--text);font:12px -apple-system,Segoe UI,sans-serif}
+svg .box{fill:var(--code-bg);stroke:var(--border)}
+svg .hot{fill:var(--good-bg);stroke:var(--good)}
+svg .ag{fill:var(--warn-bg);stroke:var(--warn)}
+svg .ln{stroke:var(--muted);fill:none;stroke-width:1.5}
+svg .dash{stroke-dasharray:5 4}
+ol.q li{margin-bottom:6px}
+</style>
+</head>
+<body>
+<main>
+<h1>Fast Channels Brainstorm</h1>
+<p class="sub">Track B, PR B: run_script, sdef lookup, find_elements, Shortcuts/URL launcher, plus script-first guidance (outcome-lock decisions 7&ndash;10). The proposals differ only in how they are built.</p>
+
+<h2>Key facts from source</h2>
+<div class="callout">
+  <ul>
+    <li>The default-install &ldquo;MCP server process&rdquo; is only a relay; the app agent runs the real <code>StdioMCPServer</code>. Adding run_script to the Kit dispatcher would run it in the agent and break decision 8.</li>
+    <li><code>call run_script</code> is a second route into the agent (<code>kind:"cli"</code>); the scripting flag would also leak via <code>sanitizePeerEnvironment</code>.</li>
+    <li>Apple Events from the relay or its children use the host&rsquo;s responsible app for Automation TCC (terminal, Claude.app, Codex.app), not OCU.app.</li>
+    <li>Signed builds use hardened runtime without entitlements; in-process Apple Events work only in ad-hoc dev builds.</li>
+    <li>Measured: <code>osascript</code> spawn 0.04&ndash;0.17s; <code>/usr/bin/sdef</code> 1.67s; reading the bundle .sdef about 0s.</li>
+  </ul>
+</div>
+
+<h2>Proposals</h2>
+<div class="grid">
+  <div class="card">
+    <span class="badge b-bad">Risk: high</span>
+    <h3>P1: In-process OSAKit in the relay</h3>
+    <ul>
+      <li>Router in relay answers script tools locally; NSAppleScript / OSAScript on main thread.</li>
+      <li>find_elements = predicate mode + early stop in existing <code>TreeRenderer</code>.</li>
+      <li>Needs apple-events entitlement, build-script and Info.plist changes.</li>
+    </ul>
+    <p><strong>Pros:</strong> exact wording of decision 8; no spawn; indices identical to get_app_state.</p>
+    <p><strong>Cons:</strong> no cancellation, a hung script wedges the relay; JXA ObjC bridge in the server; entitlement also lands on the agent; 15&ndash;25 AX reads per node stay; clashes with Track A in <code>AccessibilitySnapshot.swift</code>.</p>
+    <p>Effort ~3.5 days, ~1.1k LOC.</p>
+  </div>
+  <div class="card rec">
+    <span class="badge b-rec">Recommended</span> <span class="badge b-warn">Risk: high, lowest of three</span>
+    <h3>P2: Relay-local router, osascript child, lean walker</h3>
+    <ul>
+      <li>Same router topology; never linked into the agent server.</li>
+      <li><code>/usr/bin/osascript</code> child: stdin source, scrubbed env, 20s default / 60s max timeout, SIGTERM then SIGKILL, 64 KB caps.</li>
+      <li>sdef: read bundle .sdef file, XInclude resolved, summarised; no subprocess.</li>
+      <li>Launcher: <code>NSWorkspace.open</code> with scheme policy; <code>/usr/bin/shortcuts</code>.</li>
+      <li>find_elements: lean DFS with one multi-attribute AX read per node, early stop, indices &ge; 10000 merged into cached snapshot.</li>
+      <li>Audit log to stderr and 0600 <code>scripts.log</code>; normalising deny filter.</li>
+    </ul>
+    <p><strong>Pros:</strong> hung scripts are killed; no entitlement; dev and release behave the same; ~10&ndash;20x fewer AX calls per node; Track A action path untouched.</p>
+    <p><strong>Cons:</strong> 40&ndash;170 ms spawn; stretches decision 8 wording (Q1); second index range to document.</p>
+    <p>Effort ~2.5&ndash;3 days, ~1.0k LOC.</p>
+  </div>
+  <div class="card">
+    <span class="badge b-bad">Risk: high + release risk</span>
+    <h3>P3: Separate scripting MCP server</h3>
+    <ul>
+      <li>New <code>mcp-scripting</code> subcommand never proxied to the agent (structural guarantee).</li>
+      <li>Uses the P2 child runner; find_elements stays in the main server.</li>
+      <li>Second server registered via <code>--with-scripting</code>.</li>
+    </ul>
+    <p><strong>Pros:</strong> cleanest separation; human review by default (separate allow rule); independent uninstall.</p>
+    <p><strong>Cons:</strong> touches ~6 installers, npm packaging, plugin manifest; split guidance weakens decision 9; two relays per session; ~1.3s per-call review; shared <code>StdioMCPServer</code> refactor with Track A.</p>
+    <p>Effort ~4&ndash;5 days, ~1.3k LOC + installers.</p>
+  </div>
+</div>
+
+<h2>Comparison</h2>
+<div class="tw">
+<table>
+<thead><tr><th>Dimension</th><th>P1 in-process</th><th class="rec">P2 child runner (rec.)</th><th>P3 separate server</th></tr></thead>
+<tbody>
+<tr><td>New code (est.)</td><td>~1.1k LOC</td><td class="rec">~1.0k LOC</td><td>~1.3k LOC + 6 installers</td></tr>
+<tr><td>Entitlement / plist change</td><td>Yes (on the agent too)</td><td class="rec">No</td><td>No</td></tr>
+<tr><td>Hung-script containment</td><td>None (wedges the relay)</td><td class="rec">SIGKILL</td><td>SIGKILL</td></tr>
+<tr><td>JXA/ObjC blast radius</td><td>MCP server memory and environment</td><td class="rec">Throw-away child, scrubbed environment</td><td>Same as P2</td></tr>
+<tr><td>Per-script overhead</td><td>~0</td><td class="rec">40&ndash;170 ms (measured)</td><td>40&ndash;170 ms + review</td></tr>
+<tr><td>find_elements confidence on &le;50%</td><td>Medium-low</td><td class="rec">High</td><td>High</td></tr>
+<tr><td>Clash with Track A</td><td>AccessibilitySnapshot.swift (high)</td><td class="rec">ComputerUseService append only (low)</td><td>MCPServer.swift refactor (medium)</td></tr>
+<tr><td>Human review of scripts by default</td><td>No</td><td class="rec">No (see Q2)</td><td>Yes</td></tr>
+<tr><td>Fit with decision 8 wording</td><td>Exact</td><td class="rec">Intent exact, wording stretched</td><td>Intent exact, wording stretched</td></tr>
+<tr><td>Decision-9 guidance coherence</td><td>Strong</td><td class="rec">Strong</td><td>Weak (split)</td></tr>
+<tr><td>Effort</td><td>~3.5 days</td><td class="rec">~2.5&ndash;3 days</td><td>~4&ndash;5 days</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Recommendation</h2>
+<div class="callout rec">
+  <p><strong>P2.</strong> It meets every PR B acceptance criterion with the highest confidence, including find_elements at &le;50% of get_app_state. It is the only in-server option that contains hung or looping scripts, adds no entitlement to the TCC-holding agent, and touches Track A files only in append-only regions. It needs no signing or installer change.</p>
+  <p>If the main loop rules that an osascript child violates decision 8&rsquo;s wording (Q1), keep P2&rsquo;s topology and swap only the engine to P1&rsquo;s in-process OSAKit, accepting the entitlement and the no-cancellation gap. Do not take P1&rsquo;s predicate-renderer find_elements.</p>
+</div>
+
+<h2>Plan diagram (P2)</h2>
+<div class="diagram">
+<svg viewBox="0 0 900 700" role="img" aria-label="P2 topology and build plan">
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>
+  <rect class="box" x="300" y="10" width="300" height="40" rx="8"/><text x="450" y="35" text-anchor="middle">Host: Claude Code / Codex</text>
+  <line class="ln" x1="450" y1="50" x2="450" y2="80" marker-end="url(#a)"/>
+  <rect class="hot" x="300" y="80" width="300" height="44" rx="8"/><text x="450" y="107" text-anchor="middle">Relay process (open-computer-use mcp)</text>
+  <line class="ln" x1="450" y1="124" x2="450" y2="150" marker-end="url(#a)"/>
+  <rect class="hot" x="250" y="150" width="400" height="50" rx="8"/><text x="450" y="172" text-anchor="middle">LocalChannelRouter</text><text x="450" y="190" text-anchor="middle">flag read from relay's own launch env</text>
+
+  <line class="ln" x1="300" y1="200" x2="120" y2="250" marker-end="url(#a)"/>
+  <line class="ln" x1="400" y1="200" x2="340" y2="250" marker-end="url(#a)"/>
+  <line class="ln" x1="500" y1="200" x2="570" y2="250" marker-end="url(#a)"/>
+  <line class="ln" x1="600" y1="200" x2="790" y2="250" marker-end="url(#a)"/>
+  <rect class="box" x="10" y="250" width="220" height="60" rx="8"/><text x="120" y="273" text-anchor="middle">run_script: osascript child</text><text x="120" y="291" text-anchor="middle">stdin, scrubbed env, SIGKILL</text>
+  <rect class="box" x="240" y="250" width="200" height="60" rx="8"/><text x="340" y="273" text-anchor="middle">get_scripting_dictionary</text><text x="340" y="291" text-anchor="middle">bundle .sdef, summarised</text>
+  <rect class="box" x="460" y="250" width="220" height="60" rx="8"/><text x="570" y="273" text-anchor="middle">open_url / run_shortcut</text><text x="570" y="291" text-anchor="middle">scheme policy, /usr/bin/shortcuts</text>
+  <rect class="box" x="690" y="250" width="200" height="60" rx="8"/><text x="790" y="273" text-anchor="middle">initialize / tools/list</text><text x="790" y="291" text-anchor="middle">append tools + guide</text>
+
+  <line class="ln" x1="120" y1="310" x2="120" y2="350" marker-end="url(#a)"/>
+  <rect class="box" x="10" y="350" width="220" height="40" rx="8"/><text x="120" y="375" text-anchor="middle">stderr + 0600 scripts.log</text>
+  <line class="ln dash" x1="120" y1="390" x2="120" y2="420" marker-end="url(#a)"/>
+  <rect class="box" x="10" y="420" width="220" height="40" rx="8"/><text x="120" y="445" text-anchor="middle">TCC: host app x target app</text>
+
+  <path class="ln" d="M450 200 L450 350 L560 350" marker-end="url(#a)"/><text x="462" y="330" style="font-size:11px">all other lines</text>
+  <rect class="ag" x="560" y="330" width="330" height="40" rx="8"/><text x="725" y="355" text-anchor="middle">App-agent socket</text>
+  <line class="ln" x1="725" y1="370" x2="725" y2="400" marker-end="url(#a)"/>
+  <rect class="ag" x="560" y="400" width="330" height="50" rx="8"/><text x="725" y="422" text-anchor="middle">Agent: StdioMCPServer</text><text x="725" y="440" text-anchor="middle">no run_script case, flag stripped</text>
+  <line class="ln" x1="725" y1="450" x2="725" y2="480" marker-end="url(#a)"/>
+  <rect class="ag" x="560" y="480" width="330" height="50" rx="8"/><text x="725" y="502" text-anchor="middle">find_elements lean walker</text><text x="725" y="520" text-anchor="middle">multi-attr AX, early stop, idx&ge;10000 merged</text>
+
+  <text x="10" y="560" style="font-weight:700">Build plan</text>
+  <rect class="box" x="10" y="570" width="135" height="50" rx="6"/><text x="77" y="600" text-anchor="middle">rebase on PR A</text>
+  <rect class="box" x="155" y="570" width="135" height="50" rx="6"/><text x="222" y="592" text-anchor="middle">filter + runner</text><text x="222" y="608" text-anchor="middle">+ log + tests</text>
+  <rect class="box" x="300" y="570" width="150" height="50" rx="6"/><text x="375" y="588" text-anchor="middle">router, CLI local,</text><text x="375" y="604" text-anchor="middle">sanitizer + tests</text>
+  <rect class="box" x="460" y="570" width="130" height="50" rx="6"/><text x="525" y="592" text-anchor="middle">sdef + launcher</text><text x="525" y="608" text-anchor="middle">+ tests</text>
+  <rect class="box" x="600" y="570" width="140" height="50" rx="6"/><text x="670" y="588" text-anchor="middle">find_elements walker</text><text x="670" y="604" text-anchor="middle">+ cache merge</text>
+  <rect class="box" x="750" y="570" width="140" height="50" rx="6"/><text x="820" y="588" text-anchor="middle">guidance: MCPServer,</text><text x="820" y="604" text-anchor="middle">SKILL, scripting.md</text>
+  <rect class="hot" x="150" y="640" width="600" height="44" rx="6"/><text x="450" y="660" text-anchor="middle">red-team x3 + security audit</text><text x="450" y="676" text-anchor="middle">live Mail timing from main loop only</text>
+  <line class="ln" x1="145" y1="595" x2="155" y2="595" marker-end="url(#a)"/>
+  <line class="ln" x1="290" y1="595" x2="300" y2="595" marker-end="url(#a)"/>
+  <line class="ln" x1="450" y1="595" x2="460" y2="595" marker-end="url(#a)"/>
+  <line class="ln" x1="590" y1="595" x2="600" y2="595" marker-end="url(#a)"/>
+  <line class="ln" x1="740" y1="595" x2="750" y2="595" marker-end="url(#a)"/>
+  <line class="ln" x1="820" y1="620" x2="750" y2="645" marker-end="url(#a)"/>
+</svg>
+</div>
+
+<h2>Unresolved questions</h2>
+<ol class="q">
+<li>Does a short-lived osascript child of the MCP server process satisfy decision 8&rsquo;s &ldquo;runs in the MCP server process&rdquo;? Fallback: P1 engine with the entitlement.</li>
+<li>Decision 2 auto-allows all <code>mcp__open-computer-use</code> tools. Should the user add <code>permissions.ask</code> for run_script, open_url, run_shortcut? Verify ask beats allow.</li>
+<li>Launcher behind the same scripting flag (proposed) or its own?</li>
+<li>Which Mail button defines the find_elements &le;50% criterion; which Mail script and mailbox size define &le;1s?</li>
+<li>Do Codex CLI or Codex.app sandbox MCP children so as to block Apple Events; which app name shows in the TCC prompt per host?</li>
+<li>Script log location, retention and redaction policy.</li>
+<li>Track A cache-freshness rule vs a merged find_elements snapshot: agreement needed before PR B&rsquo;s rebase.</li>
+</ol>
+</main>
+</body>
+</html>
