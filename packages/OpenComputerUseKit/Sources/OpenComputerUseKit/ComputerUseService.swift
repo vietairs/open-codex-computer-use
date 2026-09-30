@@ -2669,8 +2669,9 @@ extension ComputerUseService {
             focusedElement: window.focusedElement,
             isOffStage: window.isOffStage
         )
-        let merged = mergeElementSearchHits(records, rows: rows, into: cached, window: windowInfo, app: app)
-        storeSnapshot(merged, query: query, app: app)
+        if let snapshot = elementSearchSnapshotToCache(records, rows: rows, into: cached, window: windowInfo, app: app) {
+            storeSnapshot(snapshot, query: query, app: app)
+        }
 
         let header = [
             "App=\(escapeElementSearchText(app.bundleIdentifier ?? app.name)) (pid \(app.pid))",

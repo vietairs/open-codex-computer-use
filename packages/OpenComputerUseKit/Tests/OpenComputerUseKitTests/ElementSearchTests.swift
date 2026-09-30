@@ -453,6 +453,30 @@ final class ElementSearchTests: XCTestCase {
         XCTAssertEqual(merged.elements.count, 2)
     }
 
+    /// A search with no hits must leave the cached snapshot alone, above all when the merge would be refused and the
+    /// empty hits-only snapshot would otherwise drop every index the caller still holds.
+    func testSearchWithoutHitsCachesNothing() throws {
+        let app = makeApp()
+        let cached = makeCachedSnapshot(windowID: 7, bounds: windowBounds, elements: [1: makeRecord(index: 1)])
+        let otherWindow = makeWindowInfo(windowID: 8, bounds: windowBounds)
+        let sameWindow = makeWindowInfo(windowID: 7, bounds: windowBounds)
+
+        XCTAssertNil(elementSearchSnapshotToCache([], rows: [], into: cached, window: otherWindow, app: app))
+        XCTAssertNil(elementSearchSnapshotToCache([], rows: [], into: cached, window: sameWindow, app: app))
+        XCTAssertNil(elementSearchSnapshotToCache([], rows: [], into: nil, window: sameWindow, app: app))
+
+        let hit = makeRecord(index: 1_000_000)
+        let rows = ["[1000000] AXButton \"Get Mail\""]
+        let merged = try XCTUnwrap(
+            elementSearchSnapshotToCache([hit], rows: rows, into: cached, window: sameWindow, app: app)
+        )
+        XCTAssertEqual(merged.elements.count, 2)
+        let hitsOnly = try XCTUnwrap(
+            elementSearchSnapshotToCache([hit], rows: rows, into: cached, window: otherWindow, app: app)
+        )
+        assertHitsOnly(hitsOnly, hit: hit, rows: rows, windowID: 8, bounds: windowBounds)
+    }
+
     /// A node costs exactly one multi-attribute round trip, served through the snapshot walk's read seam.
     func testSearchSourceReadsEachNodeInOneRoundTrip() {
         let tree = FakeAccessibilityTree()

@@ -115,6 +115,20 @@ func mergeElementSearchHits(
     )
 }
 
+/// The snapshot a search should cache, or nil when it found nothing: an empty hits-only snapshot would replace a
+/// cached `get_app_state` snapshot and break the element indices the caller still holds, and merging no hits changes
+/// nothing.
+func elementSearchSnapshotToCache(
+    _ hits: [ElementRecord],
+    rows: [String],
+    into cached: AppSnapshot?,
+    window: ElementSearchWindowInfo,
+    app: RunningAppDescriptor
+) -> AppSnapshot? {
+    guard !hits.isEmpty else { return nil }
+    return mergeElementSearchHits(hits, rows: rows, into: cached, window: window, app: app)
+}
+
 /// The keys a snapshot is cached under: the query, the app name and the bundle identifier, lowercased, empties
 /// dropped. Matches the keys a full refresh writes, so both paths resolve the same lookups.
 func snapshotCacheKeys(query: String, app: RunningAppDescriptor) -> Set<String> {
