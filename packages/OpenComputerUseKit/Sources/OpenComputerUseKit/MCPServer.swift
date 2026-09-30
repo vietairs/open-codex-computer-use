@@ -39,16 +39,10 @@ public final class StdioMCPServer {
         self.dispatcher = ComputerUseToolDispatcher(service: service, environment: environment)
     }
 
+    /// Serves standard input to standard output through `LocalChannelRouter`, the same path the `mcp` command takes,
+    /// so the opt-in local script tools behave the same for embedders as for the CLI.
     public func run() throws {
-        while let line = readLine(strippingNewline: true) {
-            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                continue
-            }
-
-            if let response = handle(line: line) {
-                FileHandle.standardOutput.write((response + "\n").data(using: .utf8)!)
-            }
-        }
+        try LocalChannelRouter().run { self.handle(line: $0) }
     }
 
     /// True when `line` is a request whose whole configuration comes from the environment dictionary passed to
