@@ -450,6 +450,48 @@ func excludingWindowTitleBarButtons(_ candidates: [ElementRecord]) -> [ElementRe
     }
 }
 
+/// Pure. True for a tab bar's close button, which apps keep in the tree even while it is hidden.
+func isTabCloseButton(_ candidate: ElementRecord, labels: [String]) -> Bool {
+    if candidate.subrole == "AXCloseButton" {
+        return true
+    }
+    return labels.contains { label in
+        label.localizedCaseInsensitiveContains("_closeButton") || label.caseInsensitiveCompare("Close tab") == .orderedSame
+    }
+}
+
+/// Pure. Drops descendants an `auto` click must not press on the target's behalf: tab close buttons, and controls
+/// that are not on screen inside the target (a zero-width or zero-height frame, or a frame outside the target's).
+/// `labels` reads a candidate's title, description and identifier; it is only asked for actionable candidates.
+func excludingHiddenAndTabCloseCandidates(
+    _ candidates: [ElementRecord],
+    targetFrame: CGRect?,
+    labels: (ElementRecord) -> [String]
+) -> [ElementRecord] {
+    candidates.filter { candidate in
+        if let frame = candidate.localFrame {
+            if frame.width <= 0 || frame.height <= 0 {
+                return false
+            }
+            if let targetFrame, !frame.intersects(targetFrame) {
+                return false
+            }
+        }
+        return !isTabCloseButton(candidate, labels: candidate.rawActions.isEmpty ? [] : labels(candidate))
+    }
+}
+
+/// Pure. The refusal text for an element_index click that targets a window itself, or nil when the click may go on.
+/// A window has no press of its own, so an `auto` or `accessibility` click would land on whichever control happens
+/// to sit inside it. Explicit posting methods are the caller's own choice and stay allowed.
+func windowElementClickRefusal(role: String?, method: ClickMethod, elementIndex: String) -> String? {
+    guard role == kAXWindowRole as String, method == .auto || method == .accessibility else {
+        return nil
+    }
+    return "element \(elementIndex) is the window itself; click a control inside it by element_index. "
+        + "Open Computer Use does not raise or select windows."
+}
+
 func isLikelySyntheticSideActionCandidate(
     parentFrame: CGRect?,
     candidateFrame: CGRect?,
@@ -814,6 +856,9 @@ public final class ComputerUseService {
 
         if let elementIndex {
             let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+            if let refusal = windowElementClickRefusal(role: record.role, method: clickMethod, elementIndex: elementIndex) {
+                throw ComputerUseError.invalidArguments(refusal)
+            }
             guard let windowPoint = clickPoint(for: record, snapshot: snapshot) else {
                 throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
             }
@@ -1409,12 +1454,19 @@ public final class ComputerUseService {
             return ToolCallResult(content: [])
         }
 
-        return snapshotResult(
-            for: try refreshSnapshot(
+        let refreshed: AppSnapshot
+        do {
+            refreshed = try refreshSnapshot(
                 for: query,
                 recoveryPolicy: recoveryPolicy,
                 capture: actionCapturePolicy(includeScreenshot: context.includeScreenshot)
-            ),
+            )
+        } catch {
+            throw errorAfterPerformedAction(error, appName: query)
+        }
+
+        return snapshotResult(
+            for: refreshed,
             style: .actionResult,
             includeScreenshot: context.includeScreenshot
         )
@@ -1787,7 +1839,11 @@ public final class ComputerUseService {
         }
 
         let sideActionParent = sideActionScope ?? record
-        return excludingWindowTitleBarButtons(descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds))
+        return excludingHiddenAndTabCloseCandidates(
+            excludingWindowTitleBarButtons(descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)),
+            targetFrame: record.localFrame,
+            labels: { accessibilityLabels(for: $0.element) }
+        )
             .filter { candidate in
                 !isLikelySyntheticSideAction(candidate, in: sideActionParent)
             }
