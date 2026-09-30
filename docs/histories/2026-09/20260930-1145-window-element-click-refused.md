@@ -20,16 +20,18 @@
   nothing had happened.
 - **Window refusal**: an `element_index` click whose element role is `AXWindow` now throws `invalidArguments` right
   after the element lookup, before the visual cursor moves and before any press or posted event, when the method is
-  `auto` or `accessibility`. Single clicks and `perform_actions` steps share that path. `app_post`, `sky_click`,
+  `auto` or `accessibility`. A `perform_actions` batch runs the same check for every step against its pinned snapshot before any step runs, so a refused window click never follows an applied step; the per-step check stays as a backstop. `app_post`, `sky_click`,
   `global` and x/y clicks are unchanged.
 - **Honest error**: the refresh at the end of an action rewrites the no-window error to say the action was
   performed and the window could not be read afterwards (closed, re-tabbed, or off stage), and to call
   `get_app_state`. It stays a thrown error, and every other refresh error passes through unchanged. The messages
   raised before an action are untouched.
 - **Descendant filter**: a second pure filter runs after the title-bar filter in the shared candidate list, so the
-  hit-record descendant scan gets it too. It drops tab close buttons (identifier `_closeButton` or description
-  `Close tab`) and candidates whose frame has zero width or height or does not intersect the target's frame. Labels
-  are read only for actionable candidates.
+  hit-record descendant scan gets it too. It drops tab close buttons (identifier containing `_closeButton`, or
+  description `Close tab`; the description match is English-only, the identifier is
+  locale-independent) and candidates whose frame has zero width or height or does not intersect the target's live
+  frame, read the same way as the candidates' frames. Identifier and description are read only
+  for actionable candidates.
 
 ### 🧠 Design Intent (Why)
 A click aimed at a window as a whole has no safe meaning without raising or selecting it, which this project never

@@ -53,7 +53,7 @@ final class WindowElementClickRefusalTests: XCTestCase {
         let kept = excludingHiddenAndTabCloseCandidates(
             [zeroWidth, visible, zeroHeight, outside],
             targetFrame: windowFrame,
-            labels: { _ in [] }
+            closeButtonLabels: { _ in (nil, nil) }
         )
 
         XCTAssertEqual(kept.count, 1)
@@ -70,10 +70,10 @@ final class WindowElementClickRefusalTests: XCTestCase {
         let kept = excludingHiddenAndTabCloseCandidates(
             [byIdentifier, byDescription, send],
             targetFrame: windowFrame,
-            labels: { record in
-                if record === byIdentifier { return ["_closeButton"] }
-                if record === byDescription { return ["Close tab"] }
-                return ["Send"]
+            closeButtonLabels: { record in
+                if record === byIdentifier { return ("_closeButton", nil) }
+                if record === byDescription { return (nil, "Close tab") }
+                return ("sendButton", "Send")
             }
         )
 
@@ -91,7 +91,7 @@ final class WindowElementClickRefusalTests: XCTestCase {
         let kept = excludingHiddenAndTabCloseCandidates(
             [first, noFrame, second],
             targetFrame: windowFrame,
-            labels: { _ in ["Compose"] }
+            closeButtonLabels: { _ in ("compose", "Compose") }
         )
 
         XCTAssertEqual(kept.count, 3)
@@ -105,8 +105,61 @@ final class WindowElementClickRefusalTests: XCTestCase {
     func testNonActionableCandidatesAreNeverAskedForLabels() {
         let inert = candidate(frame: CGRect(x: 10, y: 10, width: 30, height: 30), actions: [])
         var asked = 0
-        _ = excludingHiddenAndTabCloseCandidates([inert], targetFrame: nil, labels: { _ in asked += 1; return [] })
+        _ = excludingHiddenAndTabCloseCandidates([inert], targetFrame: nil, closeButtonLabels: { _ in asked += 1; return (nil, nil) })
         XCTAssertEqual(asked, 0)
+    }
+
+    func testTitleBarCloseSubroleIsNotATabCloseButton() {
+        XCTAssertFalse(isTabCloseButton(identifier: nil, description: "Close"))
+        XCTAssertTrue(isTabCloseButton(identifier: "x_closeButton", description: nil))
+        XCTAssertTrue(isTabCloseButton(identifier: nil, description: "close TAB"))
+    }
+
+    func testFrameFilterUsesTheTargetFrameItIsGiven() {
+        // The target's cached frame is far from its children, but the live frame contains them.
+        let staleTarget = CGRect(x: 0, y: 0, width: 200, height: 24)
+        let liveTarget = CGRect(x: 0, y: 300, width: 200, height: 24)
+        let child = candidate(frame: CGRect(x: 10, y: 302, width: 40, height: 20))
+        let empty = candidate(frame: CGRect(x: 10, y: 302, width: 0, height: 0))
+
+        let dropped = excludingHiddenAndTabCloseCandidates(
+            [child], targetFrame: staleTarget, closeButtonLabels: { _ in (nil, nil) }
+        )
+        XCTAssertTrue(dropped.isEmpty)
+
+        let kept = excludingHiddenAndTabCloseCandidates(
+            [child, empty], targetFrame: liveTarget, closeButtonLabels: { _ in (nil, nil) }
+        )
+        XCTAssertEqual(kept.count, 1)
+        if let first = kept.first {
+            XCTAssertTrue(first === child)
+        }
+    }
+
+    // MARK: batch pre-check
+
+    func testBatchRefusesWindowClickBeforeAnyStepRuns() throws {
+        let steps: [ActionStep] = [
+            .typeText(text: "foo"),
+            .click(elementIndex: "0", x: nil, y: nil, clickCount: 1, mouseButton: "left", clickMethod: .auto),
+        ]
+        let roles = ["0": "AXWindow"]
+
+        let message = try XCTUnwrap(batchWindowClickRefusal(steps: steps, roleForIndex: { roles[$0] }))
+
+        XCTAssertTrue(message.hasPrefix("step 2: "))
+        XCTAssertTrue(message.contains("element 0 is the window itself"))
+    }
+
+    func testBatchAllowsControlClicksAndExplicitPostingOnWindows() {
+        let steps: [ActionStep] = [
+            .click(elementIndex: "1", x: nil, y: nil, clickCount: 1, mouseButton: "left", clickMethod: .auto),
+            .click(elementIndex: "0", x: nil, y: nil, clickCount: 1, mouseButton: "left", clickMethod: .appPost),
+            .click(elementIndex: nil, x: 5, y: 5, clickCount: 1, mouseButton: "left", clickMethod: .auto),
+        ]
+        let roles = ["0": "AXWindow", "1": "AXButton"]
+
+        XCTAssertNil(batchWindowClickRefusal(steps: steps, roleForIndex: { roles[$0] }))
     }
 
     // MARK: honest post-action error

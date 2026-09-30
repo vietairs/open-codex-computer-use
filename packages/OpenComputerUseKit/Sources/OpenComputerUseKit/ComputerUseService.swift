@@ -450,23 +450,25 @@ func excludingWindowTitleBarButtons(_ candidates: [ElementRecord]) -> [ElementRe
     }
 }
 
-/// Pure. True for a tab bar's close button, which apps keep in the tree even while it is hidden.
-func isTabCloseButton(_ candidate: ElementRecord, labels: [String]) -> Bool {
-    if candidate.subrole == "AXCloseButton" {
+/// Pure. True for a tab bar's close button, which apps keep in the tree even while it is hidden: an identifier
+/// containing `_closeButton`, or the description `Close tab`.
+func isTabCloseButton(identifier: String?, description: String?) -> Bool {
+    if let identifier, identifier.localizedCaseInsensitiveContains("_closeButton") {
         return true
     }
-    return labels.contains { label in
-        label.localizedCaseInsensitiveContains("_closeButton") || label.caseInsensitiveCompare("Close tab") == .orderedSame
+    if let description, description.caseInsensitiveCompare("Close tab") == .orderedSame {
+        return true
     }
+    return false
 }
 
 /// Pure. Drops descendants an `auto` click must not press on the target's behalf: tab close buttons, and controls
 /// that are not on screen inside the target (a zero-width or zero-height frame, or a frame outside the target's).
-/// `labels` reads a candidate's title, description and identifier; it is only asked for actionable candidates.
+/// `closeButtonLabels` reads a candidate's identifier and description; it is only asked for actionable candidates.
 func excludingHiddenAndTabCloseCandidates(
     _ candidates: [ElementRecord],
     targetFrame: CGRect?,
-    labels: (ElementRecord) -> [String]
+    closeButtonLabels: (ElementRecord) -> (identifier: String?, description: String?)
 ) -> [ElementRecord] {
     candidates.filter { candidate in
         if let frame = candidate.localFrame {
@@ -477,7 +479,11 @@ func excludingHiddenAndTabCloseCandidates(
                 return false
             }
         }
-        return !isTabCloseButton(candidate, labels: candidate.rawActions.isEmpty ? [] : labels(candidate))
+        guard !candidate.rawActions.isEmpty else {
+            return true
+        }
+        let labels = closeButtonLabels(candidate)
+        return !isTabCloseButton(identifier: labels.identifier, description: labels.description)
     }
 }
 
@@ -490,6 +496,22 @@ func windowElementClickRefusal(role: String?, method: ClickMethod, elementIndex:
     }
     return "element \(elementIndex) is the window itself; click a control inside it by element_index. "
         + "Open Computer Use does not raise or select windows."
+}
+
+/// Pure. The first refusal among a batch's element_index clicks, as `step N: ...`, or nil when none applies.
+/// `roleForIndex` reads the role of an element in the batch's pinned snapshot.
+func batchWindowClickRefusal(steps: [ActionStep], roleForIndex: (String) -> String?) -> String? {
+    for (offset, step) in steps.enumerated() {
+        guard case let .click(elementIndex?, _, _, _, _, clickMethod) = step,
+              let refusal = windowElementClickRefusal(
+                  role: roleForIndex(elementIndex), method: clickMethod, elementIndex: elementIndex
+              )
+        else {
+            continue
+        }
+        return "step \(offset + 1): \(refusal)"
+    }
+    return nil
 }
 
 func isLikelySyntheticSideActionCandidate(
@@ -1247,6 +1269,10 @@ public final class ComputerUseService {
             )
         }
 
+        if let message = batchWindowClickRefusal(steps: steps, roleForIndex: { Int($0).flatMap { pinned.elements[$0]?.role } }) {
+            throw ComputerUseError.invalidArguments(message)
+        }
+
         let context = ActionContext.batchStep(pinned: pinned)
         let report = BatchActionRunner.run(
             steps: steps,
@@ -1841,8 +1867,9 @@ public final class ComputerUseService {
         let sideActionParent = sideActionScope ?? record
         return excludingHiddenAndTabCloseCandidates(
             excludingWindowTitleBarButtons(descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)),
-            targetFrame: record.localFrame,
-            labels: { accessibilityLabels(for: $0.element) }
+            targetFrame: record.element.flatMap { localFrame(of: $0, windowBounds: snapshot.windowBounds) }
+                ?? record.localFrame,
+            closeButtonLabels: { closeButtonLabels(for: $0.element) }
         )
             .filter { candidate in
                 !isLikelySyntheticSideAction(candidate, in: sideActionParent)
@@ -1991,6 +2018,17 @@ public final class ComputerUseService {
         }
 
         return false
+    }
+
+    private func closeButtonLabels(for element: AXUIElement?) -> (identifier: String?, description: String?) {
+        guard let element else {
+            return (nil, nil)
+        }
+
+        return (
+            stringValue(of: element, attribute: "AXIdentifier"),
+            stringValue(of: element, attribute: kAXDescriptionAttribute as String)
+        )
     }
 
     private func accessibilityLabels(for element: AXUIElement?) -> [String] {
