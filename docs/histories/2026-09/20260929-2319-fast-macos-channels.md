@@ -73,3 +73,45 @@ at 2048 characters, so the newest tools' guidance has to come first and the text
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ElementSearchTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/LocalChannelGuidanceTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ServerInstructionsGuidanceTests.swift`
+
+## [2026-09-30 18:10] | Round: review fixes
+
+### 🙋 User Request
+Fix the pull-request review findings: an entity-expansion bypass in the sdef parser, the audit log size cap, an empty
+`find_elements` search wiping cached indices, the unused `StdioMCPServer.run()` loop, two oversized files, and a stale
+tool count in the quality doc.
+
+### ✅ Changes
+- **sdef parser**: the document type declaration, internal subset included, is cut out byte-exactly (UTF-8 or
+  UTF-16 with a mark) before every parse, included files too. A parameter entity whose literal spelled general-entity
+  declarations with character references used to slip past the old text guard and expand without bound; now no
+  entity can be declared, and an entity reference in the body fails as malformed. The scan fails closed on an
+  unterminated declaration and on any DOCTYPE or ENTITY markup left over. A read-only sweep over the 46 sdef files
+  on the development Mac parsed all 46 before and after, and all 42 app summaries stayed byte-identical.
+- **Audit log**: each entry keeps at most 64 KiB of payload (the script size limit), cut at a whole character, and
+  adds `payload_bytes` with the full length; the SHA-256 still covers the full text.
+- **find_elements**: a search with no hits leaves the cached snapshot untouched.
+- **`StdioMCPServer.run()`** now delegates to `LocalChannelRouter`, like the `mcp` command; the signature is unchanged.
+- **Split**: tool definitions moved to `LocalChannelToolDefinitions.swift`, the running-app lookup to
+  `ScriptingDictionaryAppLocator.swift`, with no behavior change.
+
+### 🧠 Design Intent (Why)
+The summary never needs the DTD, so dropping it removes the whole entity attack surface instead of pattern-matching
+one spelling of it. The audit cap has to hold before the runner's own size check, because the request is logged
+first by design.
+
+### 📁 Files Modified
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/XMLDocumentTypeStripper.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ScriptingDictionaryLookup.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ScriptingDictionaryAppLocator.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ScriptAuditLog.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ElementSearchSnapshotMerge.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/LocalChannelToolHandlers.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/LocalChannelToolDefinitions.swift`
+- `skills/open-computer-use/references/scripting.md`
+- `docs/QUALITY_SCORE.md`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ScriptingDictionaryLookupTests.swift`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/LocalChannelRouterTests.swift`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ElementSearchTests.swift`
