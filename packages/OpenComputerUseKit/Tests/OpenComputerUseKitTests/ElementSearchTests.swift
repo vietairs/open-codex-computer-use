@@ -790,6 +790,13 @@ final class ElementSearchTests: XCTestCase {
         XCTAssertEqual(definition.inputSchema["required"] as? [String], ["app"])
     }
 
+    /// The tool description tells a host the walk is breadth-first and how to reach deep content.
+    func testFindElementsDescriptionStatesBreadthFirstOrder() throws {
+        let definition = try XCTUnwrap(ToolDefinitions.all.first { $0.name == "find_elements" })
+        XCTAssertTrue(definition.description.contains("breadth-first"), "description was: \(definition.description)")
+        XCTAssertTrue(definition.description.contains("get_app_state"), "description was: \(definition.description)")
+    }
+
     func testDispatcherValidatesFindElementsArgumentsBeforeAX() throws {
         let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: UnlockedSessionProvider()))
         let result = dispatcher.callToolAsResult(name: "find_elements", arguments: ["app": "Finder"])

@@ -51,6 +51,12 @@ is configured; see [references/decision-model.md](references/decision-model.md).
   `scroll` and `perform_secondary_action` until the next state refresh (any `get_app_state` or action result). Use it
   to reach one specific control, and after a script changed the UI. Full-mailbox search in Mail goes through Mail's
   search field: locate it with `find_elements`, then drive it with the action tools or `perform_actions`.
+- `find_elements` reads the window breadth-first: it visits every element at one depth before going a level deeper, and
+  stops at `max_nodes` (default about 1200). Shallow window chrome such as a toolbar button, the sidebar or a search
+  field sits a few levels down, so a role plus label lookup finds it after reading only a few nodes. Content deep in a
+  large tree, such as a message row or a cell far down a list, can be cut off before the walk reaches it; the result
+  then reports `truncated=true`. For deep content, pass `role` plus `label` so the match is specific, or read the
+  window with `get_app_state`. Do not raise `max_nodes` to reach it.
 - Setting `OPEN_COMPUTER_USE_ENABLE_SCRIPTING=1` in the MCP server's launch environment (never per call) adds
   `run_script`, `get_scripting_dictionary`, `open_url`, `run_shortcut` and `list_shortcuts`. It is off by default. The
   turn-start `get_app_state` applies to UI work; a turn that only uses `run_script` skips it. Keep script queries small

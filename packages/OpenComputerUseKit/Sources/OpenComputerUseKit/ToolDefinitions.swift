@@ -162,7 +162,7 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "find_elements",
-            description: "Search the app's window for elements by role, label or identifier without rendering the whole accessibility tree. At least one of role, label or identifier is required; every provided criterion must match. Label is compared with each element's title and description. Returns up to max_results rows; the returned element_index values work with click, set_value, scroll and perform_secondary_action until the next state refresh (any get_app_state or action result). Results are read from the accessibility tree only, with no screenshot. An element outside the window is listed without a frame and cannot be clicked. This tool is part of plugin `Computer Use`.",
+            description: "Search the app's window for elements by role, label or identifier without rendering the whole accessibility tree. At least one of role, label or identifier is required; every provided criterion must match. Label is compared with each element's title and description. Returns up to max_results rows; the returned element_index values work with click, set_value, scroll and perform_secondary_action until the next state refresh (any get_app_state or action result). Searches breadth-first, so shallow controls such as toolbar buttons are found fastest; for deep content in large trees, narrow by role plus label or use get_app_state. Results are read from the accessibility tree only, with no screenshot. An element outside the window is listed without a frame and cannot be clicked. This tool is part of plugin `Computer Use`.",
             annotations: readOnlyAnnotations(),
             inputSchema: objectSchema(
                 properties: [
