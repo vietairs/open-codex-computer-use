@@ -11,18 +11,20 @@ final class ElementSearchTests: XCTestCase {
 
     // MARK: - Fake node source
 
-    /// Value-type node ids over an in-memory tree. Counts every `read` so tests can prove the walker touches each
-    /// node at most once and stops early.
+    /// Value-type node ids over an in-memory tree. Counts and orders every `read` so tests can prove the walker
+    /// touches each node at most once, visits the tree level by level and stops early.
     private final class FakeElementNodeSource: ElementSearchNodeSource {
         typealias Node = Int
 
         var attributesByNode: [Int: ElementSearchNodeAttributes] = [:]
         var childrenByNode: [Int: [Int]] = [:]
         private(set) var readCounts: [Int: Int] = [:]
+        private(set) var readOrder: [Int] = []
         private(set) var totalReads = 0
 
         func read(_ node: Int) -> (attributes: ElementSearchNodeAttributes, children: [Int]) {
             readCounts[node, default: 0] += 1
+            readOrder.append(node)
             totalReads += 1
             return (attributesByNode[node] ?? ElementSearchNodeAttributes(), childrenByNode[node] ?? [])
         }
@@ -175,6 +177,113 @@ final class ElementSearchTests: XCTestCase {
         XCTAssertEqual(outcome.nodesVisited, 3)
         XCTAssertFalse(outcome.truncated)
         XCTAssertEqual(source.readCounts, [0: 1, 1: 1, 2: 1])
+    }
+
+    func testWalkIsBreadthFirst() throws {
+        let source = FakeElementNodeSource()
+        source.childrenByNode = [0: [1, 2], 1: [3, 4], 2: [5], 4: [6]]
+        _ = ElementSearchWalker.search(
+            root: 0, source: source, query: try makeQuery(label: "no such label")
+        )
+
+        // Every node of one level, in document order, before any node of the next.
+        XCTAssertEqual(source.readOrder, [0, 1, 2, 3, 4, 5, 6])
+    }
+
+    func testShallowHitBeatsDeepEarlierSubtree() throws {
+        let source = FakeElementNodeSource()
+        let content = 1
+        let toolbar = 2
+        let contentPane = 3
+        let deepChainStart = 4
+        let deepMatch = 5
+        let toolbarButton = 6
+        let fillers = Array(100..<150)
+        // The content pane comes first in document order and holds 50 fillers ahead of a matching button four
+        // levels down; the toolbar comes second and holds the same button two levels down.
+        source.childrenByNode = [
+            0: [content, toolbar],
+            content: [contentPane],
+            contentPane: fillers + [deepChainStart],
+            deepChainStart: [deepMatch],
+            toolbar: [toolbarButton],
+        ]
+        for node in [0, content, toolbar, contentPane, deepChainStart] + fillers {
+            source.attributesByNode[node] = ElementSearchNodeAttributes(role: "AXGroup")
+        }
+        let newMessage = ElementSearchNodeAttributes(role: "AXButton", title: "New Message")
+        source.attributesByNode[deepMatch] = newMessage
+        source.attributesByNode[toolbarButton] = newMessage
+
+        let outcome = ElementSearchWalker.search(
+            root: 0,
+            source: source,
+            query: try makeQuery(role: "AXButton", label: "New Message", maxResults: 1)
+        )
+
+        XCTAssertEqual(outcome.hits.map(\.node), [toolbarButton])
+        XCTAssertTrue(outcome.stoppedAtMaxResults)
+        // Root, the two depth-1 nodes and the two depth-2 nodes; none of the fillers.
+        XCTAssertLessThanOrEqual(outcome.nodesVisited, 5)
+        XCTAssertTrue(Set(source.readOrder).isDisjoint(with: fillers))
+    }
+
+    func testHitsReturnedShallowestFirstThenDocumentOrder() throws {
+        let source = FakeElementNodeSource()
+        source.childrenByNode = [0: [1, 2], 1: [3], 3: [7], 2: [4, 5], 5: [8]]
+        for node in 0...8 {
+            source.attributesByNode[node] = ElementSearchNodeAttributes(role: "AXGroup")
+        }
+        // Matches at depth 3 (first subtree), depth 1, depth 2 twice and depth 3 (second subtree).
+        for node in [7, 2, 4, 5, 8] {
+            source.attributesByNode[node] = ElementSearchNodeAttributes(role: "AXButton", title: "Target")
+        }
+
+        let outcome = ElementSearchWalker.search(
+            root: 0, source: source, query: try makeQuery(label: "Target", maxResults: 3)
+        )
+
+        XCTAssertEqual(outcome.hits.map(\.node), [2, 4, 5])
+        XCTAssertTrue(outcome.stoppedAtMaxResults)
+        XCTAssertFalse(source.readOrder.contains(7))
+    }
+
+    func testBudgetTruncatesDeepLevelsFirst() throws {
+        // A wide first level ahead of a match three levels down under its first node. Breadth-first spends the
+        // budget on the wide level and never reaches the match; this is the accepted cost of reading shallow
+        // chrome first.
+        let source = makeFlatTree(nodeCount: 21)
+        source.childrenByNode[1] = [100]
+        source.childrenByNode[100] = [101]
+        source.attributesByNode[100] = ElementSearchNodeAttributes(role: "AXGroup")
+        source.attributesByNode[101] = ElementSearchNodeAttributes(role: "AXButton", title: "Target")
+
+        let outcome = ElementSearchWalker.search(
+            root: 0, source: source, query: try makeQuery(label: "Target", maxNodes: 10)
+        )
+
+        XCTAssertTrue(outcome.truncated)
+        XCTAssertEqual(outcome.hits.count, 0)
+        XCTAssertEqual(outcome.nodesVisited, 10)
+        XCTAssertFalse(outcome.stoppedAtMaxResults)
+        XCTAssertEqual(source.readOrder, Array(0..<10))
+    }
+
+    func testDepthLimitStillAppliesBreadthFirst() throws {
+        let source = FakeElementNodeSource()
+        // A single chain 0 -> 1 -> ... -> 10 with a match at depth 5.
+        for node in 0..<10 {
+            source.childrenByNode[node] = [node + 1]
+        }
+        source.attributesByNode[5] = ElementSearchNodeAttributes(role: "AXButton", title: "Target")
+
+        let outcome = ElementSearchWalker.search(
+            root: 0, source: source, query: try makeQuery(label: "Target"), maxDepth: 3
+        )
+
+        XCTAssertEqual(source.readOrder, [0, 1, 2, 3])
+        XCTAssertEqual(outcome.hits.count, 0)
+        XCTAssertFalse(outcome.truncated)
     }
 
     // MARK: - Index allocation

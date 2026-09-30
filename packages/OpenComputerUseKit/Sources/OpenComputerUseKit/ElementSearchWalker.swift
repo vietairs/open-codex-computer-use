@@ -146,25 +146,33 @@ enum ElementSearchWalker {
         let ancestors: [Node]
     }
 
-    /// Iterative pre-order depth-first search. Reads each visited node exactly once and stops as soon as
-    /// `maxResults` hits are found or `maxNodes` nodes have been read.
+    /// Iterative breadth-first search: every node of one depth is read, in document order, before any node of
+    /// the next, so shallow window chrome (toolbars, sidebars) is reached before a deep content pane that happens
+    /// to come earlier in document order. Hits therefore come back shallowest first, then in document order.
+    /// Reads each visited node exactly once and stops as soon as `maxResults` hits are found or `maxNodes` nodes
+    /// have been read; when the budget runs out, the deepest levels are the ones left unread.
     static func search<Source: ElementSearchNodeSource>(
         root: Source.Node,
         source: Source,
         query: ElementSearchQuery,
         maxDepth: Int = AccessibilityTreeLimits.defaultMaxDepth
     ) -> ElementSearchOutcome<Source.Node> {
-        var stack = [Pending(node: root, ancestors: [])]
+        // FIFO queue consumed through a head index: popping from the front of an array is O(n) per call.
+        var queue = [Pending(node: root, ancestors: [])]
+        var head = 0
         var hits: [ElementSearchHit<Source.Node>] = []
         var nodesVisited = 0
         var truncated = false
         var stoppedAtMaxResults = false
 
-        while let pending = stack.popLast() {
+        while head < queue.count {
             if nodesVisited >= query.maxNodes {
                 truncated = true
                 break
             }
+
+            let pending = queue[head]
+            head += 1
 
             let (attributes, children) = source.read(pending.node)
             nodesVisited += 1
@@ -182,12 +190,11 @@ enum ElementSearchWalker {
             }
 
             let path = pending.ancestors + [pending.node]
-            // Pushed in reverse so the first child is read next.
-            for child in children.reversed() {
+            for child in children {
                 if path.contains(where: { source.isSameNode($0, child) }) {
                     continue
                 }
-                stack.append(Pending(node: child, ancestors: path))
+                queue.append(Pending(node: child, ancestors: path))
             }
         }
 
