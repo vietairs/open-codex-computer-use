@@ -1,0 +1,309 @@
+App=com.apple.mail (pid 76635)
+Window: "All Inboxes – Primary · 15,400 messages, 2 unread (Connection Logging Enabled)", App: Mail.
+0 standard window All Inboxes – Primary · 15,400 messages, 2 unread (Connection Logging Enabled) ID: Mail.messageViewer.window.1, Secondary Actions: Raise
+	1 split group ID: Main Window
+		2 scroll area Secondary Actions: Scroll Up, Scroll Down
+			3 outline MailboxesOutlineView (showing 0-19 of 86 items) Description: mailboxes
+				4 row Favourites
+				5 row (selected) All Inboxes
+					6 cell (selected) Description: All Inboxes
+						7 text ID: mailbox_title All Inboxes
+						8 disclosure triangle ID: NSOutlineViewDisclosureButtonKey, Value: 1
+				9 row LTU STAFF
+				10 row iCloud
+				11 row Google
+				12 row harveynguyen369@gmail.com
+				13 row vieteime@live.com
+				14 row Flagged
+				15 row All Drafts
+				16 row LTU STAFF
+				17 row iCloud
+				18 row Google
+				19 row harveynguyen369@gmail.com
+				20 row vieteime@live.com
+				21 row All Sent
+				22 row LTU STAFF
+				23 row iCloud
+				24 row Google
+				25 row harveynguyen369@gmail.com
+				26 row vieteime@live.com
+			27 scroll bar (settable, float) 0
+				28 value indicator (settable, float) 0
+				29 increment arrow button
+				30 decrement arrow button
+				31 increment page button
+				32 decrement page button
+		33 text
+		34 splitter (disabled, settable, float) Value: 213.5
+		35 split group ID: Main Window Preview Pane Vertical
+			36 scroll area Secondary Actions: Scroll Up, Scroll Down
+				37 table Description: messages ID: Mail.messageList
+					38 row (selected) Công ty CP Vinhomes, Secondary Actions: Unread, Remind Me, Delete
+						39 cell (selected) Secondary Actions: Unread, Remind Me, Delete
+							40 text ID: Mail.messageList.cell.view.addressLabel Công ty CP Vinhomes
+							41 text ID: Mail.messageList.cell.view.subjectLabel Thông báo Kết quả khảo sát và ban hành quy định Chế tài xử lý vi phạm Nội quy Khu Đô thị
+							42 text ID: Mail.messageList.cell.view.dateLabel 7:10 pm
+							43 image attachment ID: Mail.messageList.cell.view.attachment
+							44 text ID: Mail.messageList.cell.view.generatedSummaryLabel Kết quả khảo sát; quy định mới sẽ có hiệu lực từ ngày 15/10/2026
+							45 text ID: mailbox Inbox - Google
+							46 image forwarded
+							47 image Công ty CP Vinhomes
+					48 row SABE.Seminars, Secondary Actions: Unread, Remind Me, Delete
+2026 SABE Dean's Seminar
+4:38 pm
+Dear colleagues, You're warmly invited to the 2026 Dean's Seminar, hosted by Professor Robyn Murphy, Dean of the School of Agriculture, Biomedicine and Environment. This year's keynote speaker is Professor Garron Dodd, Head of the Metabolic Neuroscience Laboratory at the University of Melbourne and founder of Gallant Bio and OberX Bio. In his seminar, Beyond Ozempic: The Next Frontier in Metabolic Medicine, Garron will explain how drugs like Ozempic and Mounjaro work, why their effects vary so m...
+Inbox - LTU STAFF
+					49 row Christopher & ARDC Nectar Cloud Support, Secondary Actions: Unread, Remind Me, Delete
+Allocation request [Intersect][APPN-LTU PhenoHub Facility Booking System]
+3:15 pm
+Thanks Harvey. It will be reviewed by Intersect to determine whether it fits within our allocation and then sent to me for approval. Regards, Christopher Dr Christopher Adda Director, Research Infrastructure Office of the Deputy Vice-Chancellor (Research & Industry Engagement) | La Trobe University | VIC 3086 Australia | T: +61 3 9479 1157 | M: 0429 985 280 | E: C.Adda@latrobe.edu.au | W: www.latrobe.edu.au/research-infrastructure Warning to recipients: This email and any attachments are confide...
+Inbox - LTU STAFF
+					50 row Harvey Nguyen, Secondary Actions: Unread, Remind Me, Delete
+[vietairs/hvn-cli] Run failed: CI - docs-release-check-and-lock-sync (ce78299)
+3:07 pm
+[vietairs/hvn-cli] CI workflow run CI: All jobs have failed View workflow run Status Job Annotations CI / windows-no-python Failed in 3 seconds 1 CI / build Failed in 4 seconds 2 CI / test (windows-latest) Failed in 4 seconds 1 CI / test (ubuntu-latest) Failed in 4 seconds 2 CI / test (macos-latest) Failed in 6 seconds 2 — You are receiving this because you are subscribed to this thread. Manage your GitHub Actions notifications GitHub, Inc. ・88 Colin P Kelly Jr Street ・San Francisco, CA 94107
+Inbox - Google
+					51 row Sweety & Oliver, Secondary Actions: Unread, Remind Me, Delete
+Automatic reply: Allocation request [Intersect][APPN-LTU PhenoHub Facility Booking System]
+2:46 pm
+I am currently out of office and will respond to emails on my return (02/10). Thanks. Cheers, Sweety La Trobe University | TEQSA PRV12132 - Australian University | CRICOS Provider 00115M
+Inbox - LTU STAFF
+					52 row SABE-ADP, Secondary Actions: Unread, Remind Me, Delete
+SABE One-on-One Drop-In Session with Advancement & Alumni (Session 8 of 9)
+2:22 pm
+Monthly drop-in sessions March to November 2026; sessions on first Thursday at 2.00pm; accept calendar invitation
+Inbox - LTU STAFF
+					53 row Amanda Franklin, Secondary Actions: Unread, Remind Me, Delete
+EEB/ABH Seminar - Bastien Mourguiart
+12:43 pm
+Hi Everyone, I am very excited to welcome a La Trobe researcher – Bastien Mourguiart – for our next EEB/ABH seminar. Bastien will be coming down from Albury/Wodonga for this presentation, so please come along to meet him and learn more about a new member of our own community. Bastien is a statistical ecologist who joined La Trobe in January as part of the NESP PeatSense project, developing statistical tools to monitor peatland condition. In his talk, he'll share his experiences tackling the chal...
+Inbox - LTU STAFF
+					54 row Matt Felicetti (via My LMS subjects), Secondary Actions: Unread, Remind Me, Delete
+2026-EMS5AEI(BE-2/BU-2): Subject Feedback
+11:02 am
+Subject survey open for EMS5AEI; survey link sent; aim for 30% response rate
+Inbox - LTU STAFF
+					55 row Google, Secondary Actions: Unread, Remind Me, Delete
+You shared some Google Account data with Claude
+10:49 am
+Keep track of your Google Account data vietairs@gmail.com You're receiving this email because you used Sign in with Google to sign in to Claude on September 29 at 7:49 AM. This email summarizes the info you shared. There’s nothing you need to do right now. You're receiving this email because you used Sign in with Google to sign in to Claude on September 29 at 7:49 AM. This email summarizes the info you shared. There’s nothing you need to do right now. Claude received this profile info Viet Nguye...
+Inbox - Google
+					56 row LIMS Research, Secondary Actions: Unread, Remind Me, Delete
+LIMS affiliation on publications
+9:08 am
+Dear colleagues, Thank you for continuing to acknowledge LIMS in your publications. These publications are an important reflection of the excellent research being conducted across the Institute and our Schools. To support consistent recognition of LIMS in research outputs, we ask that your LIMS affiliation appear before your School affiliation. For SABE and SCEMS researchers, the affiliation will generally appear as follows: Please note that the example above is taken from the attached Word docu...
+Inbox - LTU STAFF
+					57 row Zoom, Secondary Actions: Unread, Remind Me, Delete
+Quynh Nguyen has joined your Personal Meeting Room
+Yesterday, 11:00 pm
+Hi Harvey Nguyen, Quynh Nguyen has joined your Personal Meeting Room. Start Meeting Thank you for choosing Zoom, The Zoom Team Zoom.com 55 Almaden Blvd San Jose, CA 95113 +1.888.799.9666 © 2026 Zoom Communications, Inc.
+Inbox - LTU STAFF
+					58 row Starbucks Australia, Secondary Actions: Unread, Remind Me, Delete
+Forgot Your Password?
+Yesterday, 5:37 pm
+Forgot your Password? We have you covered! Follow the link below to update your password. Need help with your order? Find the answers to all of your questions and more at the Starbucks Australia Support Hub at https://www.starbucks.com.au/starbucks-support-hub/ If you did not create a profile using this address, please ignore & delete this email.
+Inbox - Google
+					59 row Ricarda Jost, Secondary Actions: Unread, Remind Me, Delete
+Combio poster printing
+Yesterday, 5:35 pm
+Sounds like a good deal, Harvey 😜 Get Outlook for Android From: Harvey Nguyen <Harvey.Nguyen@latrobe.edu.au> Sent: Sunday, 27 September 2026 19:34:25 To: Ricarda Jost <R.Jost@latrobe.edu.au> Subject: Re: Combio poster printing Thank heaps Ricarda, I will own you a pint of beer in Sydney ^^ Best Regards, Harvey Dr Viet D (Harvey) Nguyen RESEARCH ASSOCIATE - PLANT PHENOTYPING Australian Plant Phenomics Network - LTU Node La Trobe Institute of Sustainable Agriculture and Food Dept. of Ecology, Plan...
+Inbox - LTU STAFF
+					60 row Ricarda & Sweety, Secondary Actions: Unread, Remind Me, Delete
+Combio - Node engagement
+Yesterday, 5:29 pm
+Opportunities being sought; digital pack prepared; feedback provided
+Inbox - LTU STAFF
+					61 row Ricarda & Anthony, Secondary Actions: Unread, Remind Me, Delete
+iPEMS info
+Yesterday, 5:20 pm
+iPEMSwebapp instructions provided; Ricarda Jost will try it next week
+Inbox - LTU STAFF
+					62 row ASK IS, Secondary Actions: Unread, Remind Me, Delete
+ASK IS INC0764381 Updated: Unblock a Website - https://phenohub.appnltu.com
+Yesterday, 1:56 pm
+Incident updated; privacy review low risk; Harvey Nguyen progresses Nectar setup
+Inbox - LTU STAFF
+					63 row Niamh Ritman, Secondary Actions: Unread, Remind Me, Delete
+Order ready for collection
+Yesterday, 9:54 am
+Hi, There is a package received (No. of Packages: 1) from Steelspan storage systems ready for collection at central stores. Cabinet 2000 (flat pack) blue 4 shelves Item stored at RT in loading dock on pellet A La Trobe University representative will be in the Central Stores between 9-11 a.m. (Monday 8 a.m. -10 a.m. and Thursday 11 a.m. -1 p.m.). Please try to collect your delivery within this time window or contact me to arrange a time to collect it. Kind Regards Niamh Ritman Central Stores, La ...
+Inbox - LTU STAFF
+					64 row Niamh Ritman, Secondary Actions: Unread, Remind Me, Delete
+Order ready for collection
+Yesterday, 9:22 am
+Hi, There is a package received (No. of Packages: 1 ) from Core electronics ready for collection at central stores. Item stored at RT A La Trobe University representative will be in the Central Stores between 9-11 a.m. (Monday 8 a.m. -10 a.m. and Thursday 11 a.m. -1 p.m.). Please try to collect your delivery within this time window or contact me to arrange a time to collect it. Kind Regards Niamh Ritman Central Stores, La Trobe University, AgriBio Building 5 Ring Road, Bundoora VIC 3086 email :N...
+Inbox - LTU STAFF
+					65 row Ricarda Jost, Secondary Actions: Unread, Remind Me, Delete
+Automatic reply: Combio poster printing
+27/9/2026, 7:34 pm
+﻿Thank you for your email. I am currently attending ComBio in Sydney. My reply to emails may be delayed. Best regards, Ricarda. La Trobe University | TEQSA PRV12132 - Australian University | CRICOS Provider 00115M
+Inbox - LTU STAFF
+					66 row Pascoe Vale Palace, Secondary Actions: Unread, Remind Me, Delete
+Sunday SUPER DUPR | Sunday the 27th of September
+27/9/2026, 10:12 am
+Super DUPR today 3:00pm-5:00pm; Royals $10.00, Members $20.00, Non-Members $25.00
+Inbox - Google
+				67 scroll bar (settable, float) 0
+					68 value indicator (settable, float) 0
+					69 increment arrow button
+					70 decrement arrow button
+					71 increment page button
+					72 decrement page button
+			73 container Mail Categories
+				74 button All Mail ID: Mail.categoryBucket.allMail
+				75 button (selected) Primary ID: Mail.categoryBucket.primary
+				76 button Transactions ID: Mail.categoryBucket.transactions
+				77 button Updates ID: Mail.categoryBucket.updates
+				78 button Promotions ID: Mail.categoryBucket.promotions
+			79 splitter (disabled, settable, float) Value: 561
+			80 scroll area Description: message content ID: _MAIL_MESSAGE_CONTENT, Secondary Actions: Scroll Up, Scroll Down
+				81 container Công ty CP Vinhomes , 4 hours ago, Message ID: message_view
+					82 container Công ty CP Vinhomes , 4 hours ago, Headers ID: message_header
+						83 text entry area ID: message.header.content ￼\nThông báo Kết quả khảo sát và ban hành quy định Chế tài xử lý vi phạm Nội quy Khu Đô thị\nTo: ￼￼, Secondary Actions: Show Writing Tools
+							84 attached text ID: _MAIL_TEXT_ATTACHMENT Công ty CP Vinhomes
+							85 attached text ID: _MAIL_TEXT_ATTACHMENT vietairs@gmail.com
+							86 attached text
+						87 text ID: message.timestamp 7:10 pm
+						88 image Vinhomes Riverside
+						89 image attachment ID: message.attachment
+					90 scroll area Secondary Actions: Scroll Up, Scroll Down
+						91 container ID: _MAIL_MESSAGE_BODY
+							92 scroll area
+								93 HTML content Email Marketing, URL: x-webdoc://FF5936F3-E931-4615-AD68-1E6AC43D5BC5
+									94 container THÔNG BÁO (V/v: Kết quả khảo sát và ban hành quy định Chế tài xử lý vi phạm Nội quy Khu Đô thị)
+									95 text
+									96 text Kính gửi: Quý Cư dân Khu Đô thị Vinhomes Riverside
+									97 text Ban Quản lý Khu Đô thị (“Ban Quản lý”) trân trọng gửi tới Quý Cư dân lời chào và lời cảm ơn vì sự đồng hành, đóng góp ý kiến trong quá trình xây dựng môi trường sống văn minh, an toàn tại Khu Đô thị.
+									98 text Từ ngày 20/08/2026 đến nay, Ban Quản lý đã tổ chức khảo sát ý kiến Cư dân về việc bổ sung quy định về Chế tài xử lý vi phạm Nội quy Khu Đô thị.
+									99 text Kết quả khảo sát ghi nhận tỷ lệ Cư dân đồng ý/không phản đối đạt 99,7%, đáp ứng điều kiện thông qua đã được thông báo tới Cư dân.
+									100 text Bên cạnh các phản hồi đồng thuận, Ban Quản lý cũng nhận được ý kiến góp ý của một số đại diện cư dân đối với các nội dung cụ thể. Trên tinh thần cầu thị, Ban Quản lý đã rà soát, tiếp thu các ý kiến phù hợp, đồng thời tham vấn các đơn vị chuyên môn để điều chỉnh, hoàn thiện Quy định trước khi ban hành.
+									101 text Ban Quản lý xin làm rõ một số vấn đề Cư dân quan tâm như sau:
+									102 text
+									103 content list
+										104 container Value: Sự cần thiết ban hành quy định về Chế tài xử lý vi phạm Nội quy Khu Đô thị:
+											105 list marker Value: 1
+											106 text Sự cần thiết ban hành quy định về Chế tài xử lý vi phạm Nội quy Khu Đô thị:
+									107 text Tại một dự án quy mô lớn như Vinhomes Riverside, vận hành hàng ngày có sự tham gia của rất nhiều bên gồm: chủ sở hữu, khách thuê ở, khách ghé thăm vãng lai, nhân viên của các gian hàng/doanh nghiệp… Do đó, để đảm bảo tính tuân thủ Nội quy của khu đô thị đòi hỏi sự hợp tác của nhiều thành phần. Trong thực tế, Ban Quản lý ghi nhận nhiều hành vi vi phạm Nội quy có tính chất tái diễn. Ban Quản lý đã áp dụng các biện pháp nhắc nhở, tuyên truyền và xử lý theo các chế tài hiện hành. Tuy nhiên, đối với ...
+									108 text
+									109 content list
+										110 container Value: Cơ sở triển khai và hiệu quả áp dụng Chế tài xử lý vi phạm Nội quy Khu Đô thị:
+											111 list marker Value: 2
+											112 text Cơ sở triển khai và hiệu quả áp dụng Chế tài xử lý vi phạm Nội quy Khu Đô thị:
+									113 text Quy định về chế tài tại Vinhomes Riverside được xây dựng trên cơ sở tham khảo kinh nghiệm thực tế nhưng đã được rà soát, điều chỉnh phù hợp với đặc điểm vận hành của Khu Đô thị. Các chế tài tương tự đã và đang được áp dụng tại một số Khu Đô thị lớn do Vinhomes quản lý như Ocean Park 1, Smart City, Times city… Thực tế triển khai cho thấy các biện pháp này đã góp phần nâng cao ý thức tuân thủ Nội quy của cư dân tại các Khu Đô thị. Việc Ban Quản lý xử lý một cách công bằng, minh bạch cũng giúp làm ...
+									114 text Quy định về Chế tài xử lý vi phạm Nội quy Khu Đô thị được xây dựng phù hợp với quy định pháp luật. Các chế tài được áp dụng căn cứ theo Nội quy Khu Đô thị, trên cơ sở thỏa thuận và sự thống nhất của đa số Cư dân theo nguyên tắc lấy ý kiến đã được công bố. Khi Nội quy được thông qua và ban hành, các bên có trách nhiệm tuân thủ, đồng thời thống nhất giao Ban Quản lý, với vai trò đơn vị quản lý vận hành Khu Đô thị, ghi nhận, thông báo và thực hiện các biện pháp xử lý theo đúng trình tự quy định.
+									115 text
+									116 content list
+										117 container Value: Trách nhiệm của Ban Quản lý trong công tác quản lý vận hành:
+											118 list marker Value: 3
+											119 text Trách nhiệm của Ban Quản lý trong công tác quản lý vận hành:
+									120 text Ban Quản lý khẳng định không ban hành quy định để thay thế trách nhiệm quản lý vận hành hoặc chuyển trách nhiệm của Ban Quản lý sang người vi phạm.
+									121 text Ban Quản lý vẫn có trách nhiệm tổ chức lực lượng, tuần tra, giám sát, tiếp nhận phản ánh và xử lý các vấn đề thuộc phạm vi vận hành. Tuy nhiên, chất lượng môi trường sống không thể chỉ được bảo đảm bằng lực lượng giám sát của Ban Quản lý mà cần có sự tuân thủ và phối hợp của toàn thể người tham gia hoạt động, sinh sống, làm việc trong dự án. Quy định được ban hành nhằm xác định rõ trách nhiệm, tạo cơ sở xử lý minh bạch đối với các hành vi cố tình vi phạm hoặc tái phạm, qua đó bảo vệ quyền lợi củ...
+									122 text
+									123 content list
+										124 container Value: Ban hành và tổ chức thực hiện:
+											125 list marker Value: 4
+											126 text Ban hành và tổ chức thực hiện:
+									127 text Căn cứ kết quả khảo sát và các ý kiến đã ghi nhận, Ban Quản lý xin thông báo tới Quý Cư dân Bản quy định về Chế tài xử lý vi phạm Nội quy Khu Đô thị đã được điều chỉnh, hoàn thiện trên cơ sở kết quả khảo sát và các ý kiến đóng góp của Cư dân. Quy định dự kiến được ban hành và có hiệu lực kể từ ngày 15/10/2026 (sau 15 ngày kể từ ngày phát hành Thông báo này).
+									128 text Ban Quản lý rất mong nhận được sự đồng hành, hợp tác của Quý Cư dân trong việc tuân thủ Nội quy, cùng xây dựng Khu Đô thị văn minh, an toàn và đáng sống.
+									129 text Trân trọng thông báo!
+									130 image Screenshot 2026-09-03 143715.png
+									131 attachment VHR QUY DINH XU LY VPNQ.pdf Value: 0
+						132 scroll bar (settable, float) 0
+							133 value indicator (settable, float) 0
+							134 increment arrow button
+							135 decrement arrow button
+							136 increment page button
+							137 decrement page button
+					138 button Delete ID: delete
+					139 button Reply ID: reply
+					140 button Reply all ID: reply_all
+					141 button Forward ID: forward
+					142 menu button 1 Description: Attachments
+				143 container Viet Nguyen , 42 minutes ago, Message ID: message_view
+					144 text Found in Sent - Google Mailbox
+					145 image send
+					146 container Viet Nguyen , 42 minutes ago, Headers ID: message_header
+						147 text entry area ID: message.header.content ￼\nFwd: Thông báo Kết quả khảo sát và ban hành quy định Chế tài xử lý vi phạm Nội quy Khu Đô thị\nTo: ￼￼, Secondary Actions: Show Writing Tools
+							148 attached text ID: _MAIL_TEXT_ATTACHMENT vietAirs
+							149 attached text ID: _MAIL_TEXT_ATTACHMENT Dad Family
+							150 attached text
+						151 text ID: message.timestamp 10:52 pm
+						152 image vietAirs
+						153 image attachment ID: message.attachment
+					154 scroll area Secondary Actions: Scroll Up, Scroll Down
+						155 container ID: _MAIL_MESSAGE_BODY
+							156 scroll area
+								157 HTML content message body, URL: x-webdoc://486A36BD-854B-48CE-B131-5629C9320B2E
+									158 table
+										159 row Dr Viet D (Harvey) Nguyen
+RESEARCH ASSOCIATE - PLANT PHENOTYPING
+Australian Plant Phenomics Network - LTU Node
+La Trobe Institute of Sustainable Agriculture and Food
+Dept. of Ecology, Plant and Animal Sciences
+La Trobe University · Melbourne, Australia
+EMAIL
+Harvey.nguyen@latrobe.edu.au
+WEB
+plantphenomics.org.au
+UNIVERSITY
+latrobe.edu.au
+									160 container
+										161 image LISAF
+										162 image Australian Plant Phenomics Network
+										163 image La Trobe University
+									164 text CRICOS 00115M
+									165 text This email (and any attachment) is confidential and may also be privileged or otherwise exempt from disclosure. It is intended only for the addressee. If you are not the intended recipient, please delete it and do not send it on, copy it or disclose its contents. No assurance is given about the security of information sent electronically. Think green and read on the screen.
+									166 link [See More from Vinhomes Riverside](x-redundant-cluster-toggle://0)
+					167 button Delete ID: delete
+					168 button Reply ID: reply
+					169 button Reply all ID: reply_all
+					170 button Forward ID: forward
+					171 menu button 1 Description: Attachments
+					172 text 2 Messages
+					173 button Summarise Description: Two-line text summary
+				174 scroll bar (settable, float) 0.4190031152647975
+					175 value indicator (settable, float) 0.4190031152647975
+					176 increment arrow button
+					177 decrement arrow button
+					178 increment page button
+					179 decrement page button
+	180 tab group tab bar Description: Tab bar, 1 tab.
+		181 tab All Inboxes Value: on
+			182 button Close tab Description: Close ID: _closeButton
+		183 button new tab
+	184 toolbar
+		185 button Sidebar Help: Hide Sidebar, Secondary Actions: Move next
+		186 tick box Description: Filter, Value: off
+		187 menu button Description: View Options
+		188 button New Message, Secondary Actions: Move previous, Move next, Remove from toolbar
+		189 container Secondary Actions: Move previous, Move next, Remove from toolbar
+			190 button Reply Help: Reply to sender of selected message, Secondary Actions: Move previous, Move next, Remove from toolbar
+			191 button Reply All Help: Reply to all recipients of the selected message, Secondary Actions: Move previous, Move next, Remove from toolbar
+			192 button Forward Help: Forward selected messages, Secondary Actions: Move previous, Move next, Remove from toolbar
+		193 container Secondary Actions: Move previous, Move next, Remove from toolbar
+			194 button Archive Help: Archive selected messages, Secondary Actions: Move previous, Move next, Remove from toolbar
+			195 button (disabled) Delete Help: Delete selected messages, Secondary Actions: Move previous, Move next, Remove from toolbar
+			196 button (disabled) Spam Help: Move selected messages to Spam, Secondary Actions: Move previous, Move next, Remove from toolbar
+		197 menu button Description: Move, Secondary Actions: Move previous, Move next, Remove from toolbar
+		198 container Secondary Actions: Move previous, Move next, Remove from toolbar
+			199 container Flag Help: Flag selected messages as Green
+				200 button Flag Green
+				201 menu button Description: Flag menu
+		202 container Help: Search mailbox, Secondary Actions: Move previous, Remove from toolbar
+			203 search text field (settable, string)
+				204 button Search
+	205 close button
+	206 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	207 minimise button
+	208 text All Inboxes
+	209 text Primary · 15,400 messages, 2 unread (Connection Logging Enabled)
+210 menu bar
+	211 Mail ID: Mail.menuBar.mailMenu
+	212 File ID: Mail.menuBar.fileMenu
+	213 Edit ID: Mail.menuBar.editMenu
+	214 View ID: Mail.menuBar.viewMenu
+	215 Mailbox ID: Mail.menuBar.mailboxMenu
+	216 Message ID: Mail.menuBar.messageMenu
+	217 Format ID: Mail.menuBar.formatMenu
+	218 Window ID: Mail.menuBar.windowMenu
+	219 Help ID: Mail.menuBar.helpMenu

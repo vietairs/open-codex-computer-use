@@ -1,0 +1,1 @@
+{"label": "B0f-stagecheck-on", "cursor": "on", "mode": "preflight", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 1.9122, "is_error": false, "text_chars": 23307, "parts": ["text"], "bytes": 30037, "warmup": true, "ts": "2026-09-30T00:57:10"}

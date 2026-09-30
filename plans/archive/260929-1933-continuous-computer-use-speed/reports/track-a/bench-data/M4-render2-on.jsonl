@@ -1,0 +1,2 @@
+{"label": "M4-render2-on", "cursor": "on", "include_screenshot": false, "mode": "render", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 0.1743, "is_error": false, "text_chars": 4795, "parts": ["text"], "bytes": 5454, "warmup": true, "ts": "2026-09-30T02:22:42"}
+{"label": "M4-render2-on", "cursor": "on", "include_screenshot": false, "mode": "render", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 2.0875, "is_error": false, "text_chars": 13950, "parts": ["text", "image"], "bytes": 365978, "warmup": true, "ts": "2026-09-30T02:22:44"}

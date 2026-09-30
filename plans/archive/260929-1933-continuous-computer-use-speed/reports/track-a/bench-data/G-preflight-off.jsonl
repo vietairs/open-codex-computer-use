@@ -1,0 +1,2 @@
+{"label": "G-preflight-off", "cursor": "on", "include_screenshot": false, "mode": "preflight", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 0.3102, "is_error": false, "text_chars": 7865, "parts": ["text", "image"], "bytes": 298169, "warmup": true, "ts": "2026-09-30T09:10:42"}
+{"label": "G-preflight-off", "cursor": "on", "include_screenshot": false, "mode": "preflight", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 0.7332, "is_error": false, "text_chars": 23459, "parts": ["text"], "bytes": 30190, "warmup": true, "ts": "2026-09-30T09:11:52"}

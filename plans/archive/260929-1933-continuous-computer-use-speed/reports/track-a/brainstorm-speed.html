@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speed Design Options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f7f8fa; --surface:#ffffff; --text:#1b1f27; --muted:#5b6472; --border:#d9dde4;
+  --accent:#2563eb; --good:#15803d; --good-bg:#e7f6ec; --warn:#b45309; --warn-bg:#fdf1de;
+  --bad:#b91c1c; --bad-bg:#fbe9e9; --rec-bg:#eaf1ff; --code-bg:#eef0f4;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1218; --surface:#171b23; --text:#e6e9ef; --muted:#9aa4b2; --border:#2a303b;
+    --accent:#6ea0ff; --good:#5fd08a; --good-bg:#12291c; --warn:#f0b35a; --warn-bg:#2d2213;
+    --bad:#ff7b7b; --bad-bg:#2e1616; --rec-bg:#16243f; --code-bg:#20252f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1218; --surface:#171b23; --text:#e6e9ef; --muted:#9aa4b2; --border:#2a303b;
+  --accent:#6ea0ff; --good:#5fd08a; --good-bg:#12291c; --warn:#f0b35a; --warn-bg:#2d2213;
+  --bad:#ff7b7b; --bad-bg:#2e1616; --rec-bg:#16243f; --code-bg:#20252f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:Inter,system-ui,sans-serif;line-height:1.55;font-size:16px;overflow-x:hidden}
+main{width:100%;padding:24px 16px 48px}
+h1{font-size:clamp(1.6rem,4vw,2.4rem);margin:0 0 8px}
+h2{font-size:1.25rem;margin:36px 0 12px}
+p,li{overflow-wrap:anywhere}
+.lede{color:var(--muted);max-width:110ch}
+code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.85em;background:var(--code-bg);padding:1px 5px;border-radius:4px}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;min-width:0}
+.card h3{margin:0 0 4px;font-size:1.05rem}
+.card .tag{display:inline-block;font-size:.75rem;font-weight:600;padding:2px 8px;border-radius:99px;margin-bottom:8px}
+.card ul{padding-left:18px;margin:8px 0}
+.card.rec{border:2px solid var(--accent);background:var(--rec-bg)}
+.tag.rec{background:var(--accent);color:#fff}
+.tag.med{background:var(--warn-bg);color:var(--warn)}
+.tag.hi{background:var(--bad-bg);color:var(--bad)}
+.tag.no{background:var(--bad-bg);color:var(--bad)}
+.risk{font-weight:600}
+.tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:.92rem}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+th{background:var(--code-bg)}
+th.rec,td.rec{background:var(--rec-bg);border-left:2px solid var(--accent);border-right:2px solid var(--accent)}
+.bad{color:var(--bad);font-weight:600}
+.good{color:var(--good);font-weight:600}
+.diagram{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px;overflow-x:auto}
+.diagram svg{width:100%;min-width:720px;height:auto;display:block}
+.diagram text{fill:var(--text);font-family:Inter,system-ui,sans-serif;font-size:12px}
+.diagram .n{fill:var(--surface);stroke:var(--border);stroke-width:1.5}
+.diagram .b{fill:var(--rec-bg);stroke:var(--accent);stroke-width:1.5}
+.diagram .t{fill:var(--good-bg);stroke:var(--good);stroke-width:1.5}
+.diagram .m{fill:var(--warn-bg);stroke:var(--warn);stroke-width:1.5}
+.diagram path{stroke:var(--muted);stroke-width:1.5;fill:none}
+.banner{background:var(--rec-bg);border:2px solid var(--accent);border-radius:10px;padding:16px}
+ol.q li{margin-bottom:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>Speed Design Options</h1>
+<p class="lede">Track A (PR A: speed). Scope is locked by outcome-lock decisions 1-6 and 11; options differ only in how each is built. Source read at HEAD <code>afb60fa</code>, read-only. Mail step: ~9s total, server share ~3-3.5s (cursor travel 1.43s, pulse 0.16s, settle 0.15s, post-action refresh 1.4-1.6s).</p>
+
+<h2>Challenged assumptions</h2>
+<div class="grid">
+  <div class="card"><h3>Pre-action snapshot is already free</h3><p>The cache has no freshness check; waste is the post-action refresh. No TTL, no code change, one confirming measurement.</p></div>
+  <div class="card"><h3>Cursor is the biggest server cost</h3><p>1.43s fixed travel per click. Capture is likely 0.1-0.5s (not measured); screenshot cost is mostly agent-side (290-356 KB).</p></div>
+  <div class="card"><h3>Skipping capture breaks x/y clicks</h3><p>No PNG means scale falls back to 1x1. Carry the coordinate frame forward or fail closed.</p></div>
+  <div class="card"><h3>jev disk cache may never fill</h3><p>22 of 27 sequential /tokenize calls hit the 12s deadline under GPU load. Open question 2.</p></div>
+</div>
+
+<h2>Proposals</h2>
+<div class="grid">
+  <div class="card rec">
+    <span class="tag rec">Recommended</span>
+    <h3>A: thin batch runner + observation policy</h3>
+    <ul>
+      <li>Validate every step first; pinned snapshot passed to each step; one final text state.</li>
+      <li>Capture policy <code>always | never | whenTreeEmpty</code>; text-only by default.</li>
+      <li>~450 LOC; closure seam for tests without live AX.</li>
+      <li>Cursor travel capped ~0.3s; settle sleeps into one constant.</li>
+    </ul>
+    <p class="risk">Risk: medium. Click ~1.9s (-40%); 3-step batch ~2.1s, 1 turn.</p>
+  </div>
+  <div class="card">
+    <span class="tag med">Medium-high risk</span>
+    <h3>B: perform/observe split</h3>
+    <ul>
+      <li>Move ~365 LOC of action bodies into <code>performStep</code>; each single action is a batch of one.</li>
+      <li>Strong DRY and test coverage; moves a 2074-line file toward modularity.</li>
+      <li>Turns a speed PR into a refactor PR; all-or-nothing rollback.</li>
+    </ul>
+    <p class="risk">~900 LOC. Same speed as A. Suggested as optional follow-up.</p>
+  </div>
+  <div class="card">
+    <span class="tag hi">High risk</span>
+    <h3>C: state on demand</h3>
+    <ul>
+      <li>Actions return an ack; full state only with <code>return_state</code>.</li>
+      <li>Largest win: single action ~0.5s (-85%).</li>
+      <li>Changes the action-result contract; extra get_app_state turns; stale indices; stretches decision 3.</li>
+    </ul>
+    <p class="risk">~550 LOC. Turns criterion at risk.</p>
+  </div>
+  <div class="card">
+    <span class="tag no">Rejected</span>
+    <h3>D: reuse --calls over MCP</h3>
+    <ul>
+      <li>~30 LOC, full reuse of the CLI runner.</li>
+      <li>Every step refreshes: 3 AX walks (~4.5s+).</li>
+      <li>Indices renumber between steps, so step 2+ can click the wrong element; returns N states.</li>
+    </ul>
+    <p class="risk">Fails index resolution and decision 1.</p>
+  </div>
+</div>
+
+<h2>Comparison</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Dimension</th><th class="rec">A (thin runner)</th><th>B (split)</th><th>C (state on demand)</th><th>D (reuse --calls)</th></tr></thead>
+<tbody>
+<tr><td>Diff (excl. tests/docs)</td><td class="rec">~450 LOC</td><td>~900 LOC (mostly moved)</td><td>~550 LOC</td><td>~120 LOC</td></tr>
+<tr><td>Single click on Mail, server</td><td class="rec">~1.9s (-40%)</td><td>~1.9s</td><td>~0.5s (-85%)</td><td>~1.9s</td></tr>
+<tr><td>3-step batch</td><td class="rec">~2.1s, 1 turn</td><td>~2.1s, 1 turn</td><td>~2.1s, 1 turn</td><td class="bad">~4.5s+, 1 turn</td></tr>
+<tr><td>Index resolution</td><td class="rec good">yes (pinned)</td><td>yes (explicit)</td><td>yes, stale across calls</td><td class="bad">no</td></tr>
+<tr><td>Single-action contract change</td><td class="rec">screenshot only</td><td>screenshot only</td><td>state becomes opt-in</td><td>screenshot only</td></tr>
+<tr><td>Testable without live AX</td><td class="rec">yes (closure seam)</td><td>yes (protocol seam)</td><td>yes</td><td>partly</td></tr>
+<tr><td>Regression risk</td><td class="rec">medium</td><td>medium-high</td><td>high (agent behaviour)</td><td class="bad">high (wrong clicks)</td></tr>
+<tr><td>Track B rebase friction</td><td class="rec">low (appends only)</td><td>medium</td><td>low</td><td>low</td></tr>
+<tr><td>Meets all acceptance criteria</td><td class="rec">likely; median depends on call mix</td><td>likely</td><td>turns at risk</td><td class="bad">no</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Recommendation</h2>
+<div class="banner">
+  <p><strong>Proposal A</strong>, borrowing two ideas from B: validate all steps before any runs, and pass the pinned snapshot explicitly to each step.</p>
+  <ul>
+    <li>Meets decisions 1-6 and 11 with the smallest blast radius in the most fragile file.</li>
+    <li>Keeps the single-action contract; tests batch semantics without the fixture app.</li>
+    <li>Leaves B's refactor as an optional follow-up after PR A's measurements.</li>
+    <li>C bends decision 3 and costs turns; D is incorrect.</li>
+  </ul>
+</div>
+
+<h2>Shared component choices</h2>
+<div class="grid">
+  <div class="card"><h3>Cursor travel</h3><p>Pick (a): cap blocking travel ~0.3s (spring already time-scaled), about -1.1s per click. Reject non-blocking travel (main thread still busy). Baseline via <code>OPEN_COMPUTER_USE_VISUAL_CURSOR=0</code>.</p></div>
+  <div class="card"><h3>Fixed sleeps</h3><p>Lowest-value lever (max 0.15s, ~5%). One <code>postActionSettleInterval</code> constant, measured alone. Keep settle between batch steps.</p></div>
+  <div class="card"><h3>jev letter disk cache</h3><p>Per-key file <code>sha256(base_url|model).json</code>, 0600 in a 0700 dir, atomic rename, no api_key, prompt-hash invalidation, any read failure is a miss.</p></div>
+  <div class="card"><h3>Guidance</h3><p>MCPServer lines 8 and 14 only (line 16 is Track B's); SKILL.md and usage.md updated; <code>perform_actions</code> documented as macOS-only.</p></div>
+</div>
+
+<h2>Plan</h2>
+<div class="diagram">
+<svg viewBox="0 0 900 470" role="img" aria-label="Track A plan flow">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--muted);stroke:none"/></marker></defs>
+  <g>
+    <rect class="m" x="10" y="10" width="880" height="40" rx="8"/><text x="450" y="35" text-anchor="middle">Main loop: baseline on Mail via direct stdio, n&gt;=10 per tool, cursor on/off</text>
+    <rect class="b" x="10" y="90" width="270" height="60" rx="8"/><text x="145" y="112" text-anchor="middle">P1 Capture policy + coordinate frame</text><text x="145" y="130" text-anchor="middle">+ include_screenshot; text-only default</text>
+    <rect class="b" x="315" y="90" width="270" height="60" rx="8"/><text x="450" y="112" text-anchor="middle">P2 BatchActionRunner + ActionContext</text><text x="450" y="130" text-anchor="middle">perform_actions; per-step guard; validate first</text>
+    <rect class="b" x="620" y="90" width="270" height="60" rx="8"/><text x="755" y="112" text-anchor="middle">P5 jev letter disk cache</text><text x="755" y="130" text-anchor="middle">owner-only reader, per-key 0600 file</text>
+    <rect class="t" x="10" y="190" width="270" height="44" rx="8"/><text x="145" y="216" text-anchor="middle">T1 no capture text-only; x/y scale kept</text>
+    <rect class="t" x="315" y="190" width="270" height="44" rx="8"/><text x="450" y="216" text-anchor="middle">T2 stop-on-fail, per-step, pinned index</text>
+    <rect class="t" x="620" y="190" width="270" height="44" rx="8"/><text x="755" y="216" text-anchor="middle">T5 0600, key miss, stale unlink, corrupt=miss</text>
+    <rect class="b" x="10" y="270" width="270" height="44" rx="8"/><text x="145" y="296" text-anchor="middle">P3 Cursor cap ~0.3s, update test</text>
+    <rect class="m" x="10" y="340" width="270" height="34" rx="8"/><text x="145" y="362" text-anchor="middle">M3 Measure cursor alone</text>
+    <rect class="b" x="315" y="270" width="270" height="44" rx="8"/><text x="450" y="296" text-anchor="middle">P4 postActionSettleInterval constant</text>
+    <rect class="m" x="315" y="340" width="270" height="34" rx="8"/><text x="450" y="362" text-anchor="middle">M4 Measure sleeps + fixture smoke</text>
+    <rect class="b" x="620" y="270" width="270" height="44" rx="8"/><text x="755" y="288" text-anchor="middle">P6 Guidance: MCPServer 8/14,</text><text x="755" y="304" text-anchor="middle">SKILL.md, usage.md, macOS-only</text>
+    <rect class="t" x="250" y="410" width="400" height="30" rx="8"/><text x="450" y="430" text-anchor="middle">G swift test in the Track A worktree</text>
+    <rect class="m" x="10" y="445" width="880" height="22" rx="6"/><text x="450" y="460" text-anchor="middle">L Main loop: live Mail turns + per-call median + jev warm/cold, one track at a time</text>
+  </g>
+  <g>
+    <path d="M145,50 V90" marker-end="url(#ar)"/><path d="M450,50 V90" marker-end="url(#ar)"/><path d="M755,50 V90" marker-end="url(#ar)"/>
+    <path d="M145,150 V190" marker-end="url(#ar)"/><path d="M450,150 V190" marker-end="url(#ar)"/><path d="M755,150 V190" marker-end="url(#ar)"/>
+    <path d="M145,234 V270" marker-end="url(#ar)"/><path d="M145,314 V340" marker-end="url(#ar)"/>
+    <path d="M450,234 V270" marker-end="url(#ar)"/><path d="M450,314 V340" marker-end="url(#ar)"/>
+    <path d="M755,234 V270" marker-end="url(#ar)"/>
+    <path d="M145,374 V392 H350 V410" marker-end="url(#ar)"/><path d="M450,374 V410" marker-end="url(#ar)"/><path d="M755,314 V392 H550 V410" marker-end="url(#ar)"/>
+  </g>
+</svg>
+</div>
+<p class="lede">Simplified from the mermaid plan in the markdown; P1 gates P2 and P3 (P3 runs after P1, P4 after P3), P5 is independent, and all tracks converge on swift test before the live measurement.</p>
+
+<h2>Unresolved questions</h2>
+<ol class="q">
+  <li><strong>Which server-time metric?</strong> Direct stdio vs in-session, and a fixed call mix (clicks ~-40%, type_text/press_key ~-10-20%).</li>
+  <li><strong>Can jev reach a first success?</strong> Options in the lock: bounded-concurrency /tokenize, keep partial letter progress, own budget for letters.</li>
+  <li><strong>Warm &lt;=3s</strong> includes ~1.3s AX walk in <code>decideNextAction</code>; run operation and target completions concurrently if over?</li>
+  <li><strong>Cursor cap default 0.3s?</strong> Env override for the slow travel?</li>
+  <li><strong>Batch maxItems</strong>: 10 proposed.</li>
+  <li><strong>Stale-frame fallback</strong>: re-read live AXFrame, or disable nearby hit-testing after the first step?</li>
+  <li><strong>Cross-track:</strong> Track B must not add conditionally listed tools via <code>listed()</code> without updating the <code>listed.count &gt; all.count</code> check at MCPServer.swift:26.</li>
+</ol>
+</main>
+</body>
+</html>

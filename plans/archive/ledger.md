@@ -7,3 +7,4 @@
 - 2026-09-30 — 260923-0024-fork-release-ready — COMPLETE — fork releasable under its own identity, PR #14 merged (e223946)
 - 2026-09-30 — 260923-0939-notarize-translate-decision-model — COMPLETE — notarization, docs translation, opt-in decision model, PRs #16/#17/#18 merged (51ce1d0/e64e2a7/350123b)
 - 2026-09-30 — 260928-1817-jev-remote-decision-backend — COMPLETE — opt-in remote jev backend for decide_next_action, PR #21 merged (755f49f)
+- 2026-09-30 — 260929-1933-continuous-computer-use-speed — COMPLETE — batched actions + lower latency (PR #23, 86b00bb) and fast macOS channels: find_elements, opt-in AppleScript/sdef/URL/Shortcuts (PR #25, 67f5d42)

@@ -1,0 +1,2 @@
+{"label": "B0f-render1-off", "cursor": "on", "mode": "render", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 0.169, "is_error": false, "text_chars": 4796, "parts": ["text"], "bytes": 5455, "warmup": true, "ts": "2026-09-30T00:50:13"}
+{"label": "B0f-render1-off", "cursor": "on", "mode": "render", "round": 0, "tool": "get_app_state", "shape": [], "seconds": 1.7461, "is_error": false, "text_chars": 23305, "parts": ["text"], "bytes": 30035, "warmup": true, "ts": "2026-09-30T00:50:15"}
