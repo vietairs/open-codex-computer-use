@@ -175,6 +175,11 @@ final class ShortcutAndUrlLauncherTests: XCTestCase {
 
     // MARK: - Opening URLs
 
+    /// The real opener must never activate the handler app: it would take focus from the app the user works in.
+    func testRealOpenerDoesNotActivateTheHandler() {
+        XCTAssertFalse(ShortcutAndUrlLauncher.backgroundOpenConfiguration().activates)
+    }
+
     func testOpenerIsCalledOnlyWhenAllowed() throws {
         let recorder = OpenerRecorder()
         let launcher = ShortcutAndUrlLauncher(

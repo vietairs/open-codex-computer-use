@@ -139,13 +139,21 @@ public struct ShortcutAndUrlLauncher {
         }
     }
 
+    /// The handler opens the URL in the background: it is never activated or raised, so it does not take focus from
+    /// the app the user is working in.
+    static func backgroundOpenConfiguration() -> NSWorkspace.OpenConfiguration {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        return configuration
+    }
+
     public static func openWithCheckedHandler(_ url: URL, handler: URL) -> Bool {
         let finished = DispatchSemaphore(value: 0)
         let outcome = OpenOutcome()
         NSWorkspace.shared.open(
             [url],
             withApplicationAt: handler,
-            configuration: NSWorkspace.OpenConfiguration()
+            configuration: backgroundOpenConfiguration()
         ) { _, error in
             outcome.succeeded = (error == nil)
             finished.signal()

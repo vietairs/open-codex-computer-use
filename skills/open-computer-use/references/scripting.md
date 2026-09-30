@@ -19,7 +19,7 @@ other four) is refused: scripts run only in the MCP server process.
 |---|---|---|
 | `run_script` | `app`, `source`, optional `language` (`applescript` default, or `javascript`), optional `timeout_s` (1 to 60) | Runs the script with `osascript`. |
 | `get_scripting_dictionary` | `app`, optional `term` | Reads the app's static `.sdef` file only and never launches the app. Apps with only legacy `aete` or dynamic terminology return no summary; `run_script` still works for them. |
-| `open_url` | `url` | Opens a URL under a scheme and handler policy. |
+| `open_url` | `url` | Opens a URL under a scheme and handler policy, in the background: the handler app is not activated. |
 | `run_shortcut` | `name`, optional `input`, optional `timeout_s` | Runs a Shortcuts shortcut. |
 | `list_shortcuts` | none | Lists shortcut names. |
 

@@ -73,7 +73,7 @@ public enum LocalChannelToolDefinitions {
         ),
         ToolDefinition(
             name: LocalChannelToolNames.openURL,
-            description: "Open a URL in the app registered for its scheme, without moving the cursor. Schemes and handlers that execute code or mount remote volumes are refused. \(pluginSuffix)",
+            description: "Open a URL in the app registered for its scheme, in the background: the app is not brought to the front and the cursor does not move. Schemes and handlers that execute code or mount remote volumes are refused. \(pluginSuffix)",
             annotations: sideEffectAnnotations(),
             inputSchema: schema(
                 properties: ["url": property("string", "URL to open")],
