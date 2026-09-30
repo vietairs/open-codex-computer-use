@@ -41,6 +41,10 @@ public final class StdioMCPServer {
 
     /// Serves standard input to standard output through `LocalChannelRouter`, the same path the `mcp` command takes,
     /// so the opt-in local script tools behave the same for embedders as for the CLI.
+    ///
+    /// The router reads the local-channel flag from this process's own environment, not from the `environment`
+    /// closure given to `init`. That is deliberate: the flag is a security opt-in, and injected state (a test double,
+    /// or a host's per-call overrides) must not be able to turn the local script tools on.
     public func run() throws {
         try LocalChannelRouter().run { self.handle(line: $0) }
     }
