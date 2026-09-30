@@ -50,7 +50,9 @@ that its filter is friction and not a security boundary.
 - **One snapshot cache writer**: `refreshSnapshot` and `find_elements` both store through `storeSnapshot`.
 - **Server instructions**: the base text leads with `perform_actions`, `find_elements` and the load-together hint,
   drops tool behavior that each tool's own description already states, and fits the 2048-character host limit again.
-  The script-first guide and the advisory cascade guide are tightened the same way; every rule is kept.
+  The script-first guide is tightened the same way; every rule is kept. The advisory tool's cascade guide moved
+  from the instructions into `decide_next_action`'s own description, so the host-visible instructions stay under
+  1900 characters in every configuration (1331 without scripting, 1795 with it).
 
 ### 🧠 Design Intent (Why)
 A merged snapshot must describe the same window, in the same place and stage state, as the snapshot it joins;
@@ -64,7 +66,10 @@ at 2048 characters, so the newest tools' guidance has to come first and the text
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/LocalChannelGuidance.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/DecisionAdvisor.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ToolDefinitions.swift`
+- `docs/ARCHITECTURE.md`
 - `skills/open-computer-use/references/decision-model.md`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/DecisionAdvisorTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ElementSearchTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/LocalChannelGuidanceTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ServerInstructionsGuidanceTests.swift`

@@ -1,9 +1,9 @@
 import Foundation
 
-/// Hosts such as Claude Code cut server instructions at 2048 characters, and this text is the shortest part of what a
-/// host receives: the relay may swap the AppleScript line for the longer script-first guide, and the advisory tool's
-/// cascade guide may follow. The newest tools lead so their guidance is read first. Tool behavior already in a tool's
-/// own description is not repeated here.
+/// Hosts such as Claude Code cut server instructions at 2048 characters, and the relay may swap the AppleScript line
+/// for the longer script-first guide, so this text keeps headroom below that. The advisory tool's cascade guide lives
+/// in that tool's own description instead. The newest tools lead so their guidance is read first. Tool behavior
+/// already in a tool's own description is not repeated here.
 let baseComputerUseServerInstructions = """
 Use `perform_actions` for any short sequence you can fully specify; put externally visible steps such as Send in their own call, after you confirm them.
 To act on one control without reading the whole tree, call `find_elements` with a role, label or identifier; its indices work in actions and `perform_actions` until the next refresh.
@@ -20,13 +20,10 @@ Ask the user before destructive or externally visible actions such as sending, d
 /// The base instructions under their original name, for existing callers that compare against the unmodified text.
 let computerUseServerInstructions = baseComputerUseServerInstructions
 
-/// The base instructions byte-for-byte when the advisory tool is not listed; otherwise the base plus the cascade
-/// guide, so the host only ever sees guidance for a tool it can actually call.
-func computerUseServerInstructions(environment: [String: String]) -> String {
-    guard ToolDefinitions.listed(environment: environment).count > ToolDefinitions.all.count else {
-        return baseComputerUseServerInstructions
-    }
-    return baseComputerUseServerInstructions + "\n\n" + DecisionAdvisor.cascadeGuide
+/// The same base instructions for every host: the advisory tool's guidance travels in its own description, so the
+/// per-call environment no longer changes this text.
+func computerUseServerInstructions(environment _: [String: String]) -> String {
+    baseComputerUseServerInstructions
 }
 
 public final class StdioMCPServer {
@@ -66,7 +63,7 @@ public final class StdioMCPServer {
     }
 
     /// `environment`, when given, is the calling host's per-call environment: it decides whether the advisory tool is
-    /// listed, whether `initialize` carries the cascade guide, and where `decide_next_action` sends its request. When
+    /// listed (with its cascade guide in the description) and where `decide_next_action` sends its request. When
     /// nil, the injected environment closure is read instead.
     public func handle(line: String, environment callEnvironment: [String: String]? = nil) -> String? {
         let environment = { callEnvironment ?? self.environment() }

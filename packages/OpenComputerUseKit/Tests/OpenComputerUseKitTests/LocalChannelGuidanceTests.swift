@@ -65,6 +65,43 @@ final class LocalChannelGuidanceTests: XCTestCase {
         )
     }
 
+    /// Hosts such as Claude Code cut server instructions at 2048 characters. The budget keeps headroom below that in
+    /// every configuration a host can launch, so no tool's guidance is ever cut. The script channels make the text
+    /// longest (the relay swaps the AppleScript line for the script-first guide); listing the advisory tool must not
+    /// add to it, because its cascade guide travels in that tool's own description.
+    private let instructionsCharacterBudget = 1900
+
+    func testInstructionsFitTheBudgetInEveryHostConfiguration() throws {
+        for advisor in [false, true] {
+            for scripts in [false, true] {
+                let label = "advisor \(advisor ? "set" : "unset"), scripts \(scripts ? "on" : "off")"
+                let instructions = try hostInstructions(advisor: advisor, scripts: scripts)
+
+                XCTAssertFalse(instructions.contains(DecisionAdvisor.cascadeGuide), "\(label): cascade guide")
+                XCTAssertEqual(instructions.contains(scriptFirstInstructionGuide), scripts, "\(label): script-first guide")
+                XCTAssertLessThanOrEqual(
+                    instructions.count, instructionsCharacterBudget, "\(label): \(instructions.count) characters"
+                )
+            }
+        }
+    }
+
+    private static let initializeLine =
+        #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0"},"capabilities":{}}}"#
+
+    /// What a host receives from `initialize`: the agent's server answers it under the host's environment, and the relay
+    /// patches the answer when the host turned the script channels on.
+    private func hostInstructions(advisor: Bool, scripts: Bool) throws -> String {
+        let agentEnvironment = advisor ? [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"] : [:]
+        let server = StdioMCPServer(service: ComputerUseService(), environment: { agentEnvironment })
+        let relay = LocalChannelRouter(environment: scripts ? [LocalChannelPolicy.environmentKey: "1"] : [:])
+
+        let response = try XCTUnwrap(try relay.route(line: Self.initializeLine) { server.handle(line: $0) })
+        let object = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any])
+        let result = try XCTUnwrap(object["result"] as? [String: Any])
+        return try XCTUnwrap(result["instructions"] as? String)
+    }
+
     func testNewestToolGuidanceComesBeforeTheOlderRules() throws {
         let instructions = baseComputerUseServerInstructions
         let appleScriptLine = try XCTUnwrap(instructions.range(of: appleScriptAvoidanceInstructionLine))

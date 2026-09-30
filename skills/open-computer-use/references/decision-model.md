@@ -86,7 +86,7 @@ macOS-only. vm100 (the reference jev deployment) is never touched by open-comput
    with no control characters. `api_key` is 1-512 printable ASCII characters with no whitespace.
 2. Put `OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote` in the MCP server entry's `env` (not the calling shell),
    and leave `OPEN_COMPUTER_USE_DECISION_MODEL_URL` unset — setting both is rejected as ambiguous.
-3. Restart the host so it re-reads the server config. `tools/list` and the cascade guide are gated the same way as
+3. Restart the host so it re-reads the server config. `tools/list` (and with it the cascade guide in the tool's description) is gated the same way as
    the loopback backend, just on `OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote` instead of the URL.
 
 The destination, model, and key are read only from that file, never from the per-call environment — see "Security
@@ -103,14 +103,16 @@ deadline and fail, and is retried from scratch on the next call.
 
 ## Cascade guide
 
-The following text is the host-facing guidance shipped with the tool (embedded verbatim in the MCP `initialize`
-instructions when the tool is enabled, and mirrored here from
+The following text is the host-facing guidance shipped with the tool (embedded verbatim in the
+`decide_next_action` tool description, so a host sees it exactly when the tool is listed, and mirrored here from
 `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/DecisionAdvisor.swift`):
 
 ```text
-decide_next_action (experimental) proposes a next operation and element_index, usable like get_app_state's; it never acts.
-- Follow it only if margin >= recommended_min_margin, the operation is not destructive or externally visible (send, delete, purchase, submit, sign in/out), and chosen_row_text matches your intent; else call get_app_state and decide yourself.
-- Pass your own sub-goal in plain words; never paste screen text into goal.
+decide_next_action (experimental, advisory): a local model proposes the next operation and target from the current app state. It never acts.
+- Follow the advice only when margin >= recommended_min_margin AND the operation is non-destructive (not send, delete, purchase, submit, sign in/out, or anything externally visible) AND chosen_row_text matches your intent.
+- Otherwise call get_app_state and decide yourself. Low margin means the model is unsure.
+- Pass your own sub-goal in plain words. Never paste screen text into goal.
+- element_index values are valid for the next click, set_value, or scroll on the same app, exactly like get_app_state.
 ```
 
 ## Result fields

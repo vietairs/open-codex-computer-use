@@ -480,7 +480,9 @@ final class DecisionAdvisorTests: XCTestCase {
         XCTAssertFalse(names.contains("decide_next_action"))
     }
 
-    func testStdioMCPServerListsToolAndAppendsCascadeGuideWhenURLIsValidLoopback() throws {
+    /// The cascade guide travels in the tool's own description, so a host sees it exactly when the tool is listed and
+    /// it never shares the server-instruction budget.
+    func testStdioMCPServerListsToolWithCascadeGuideInItsDescriptionWhenURLIsValidLoopback() throws {
         let server = StdioMCPServer(
             service: ComputerUseService(),
             environment: { [DecisionModelEndpoint.environmentKey: "http://127.0.0.1:39501"] }
@@ -488,11 +490,33 @@ final class DecisionAdvisorTests: XCTestCase {
 
         let initResult = try jsonRPCResult(server.handle(line: Self.initializeLine))
         let instructions = try XCTUnwrap(initResult["instructions"] as? String)
-        XCTAssertTrue(instructions.hasSuffix(DecisionAdvisor.cascadeGuide))
+        XCTAssertEqual(instructions, baseComputerUseServerInstructions)
+        XCTAssertFalse(instructions.contains(DecisionAdvisor.cascadeGuide))
 
         let listResult = try jsonRPCResult(server.handle(line: Self.toolsListLine))
-        let names = (listResult["tools"] as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
-        XCTAssertTrue(names.contains("decide_next_action"))
+        let tools = listResult["tools"] as? [[String: Any]] ?? []
+        let advisor = try XCTUnwrap(tools.first { $0["name"] as? String == "decide_next_action" })
+        let description = try XCTUnwrap(advisor["description"] as? String)
+        XCTAssertTrue(description.contains(DecisionAdvisor.cascadeGuide))
+        XCTAssertTrue(description.hasSuffix("This tool is part of plugin `Computer Use`."))
+    }
+
+    /// Every advisor rule stays in the host-visible description, and the description fits the hosts' 2048-character
+    /// cut, so none of the guide is lost.
+    func testCascadeGuideKeepsEveryAdvisorRuleAndFitsTheHostLimit() {
+        let description = ToolDefinitions.decideNextAction.description
+        for rule in [
+            "It never acts.",
+            "margin >= recommended_min_margin",
+            "non-destructive (not send, delete, purchase, submit, sign in/out, or anything externally visible)",
+            "chosen_row_text matches your intent",
+            "Otherwise call get_app_state and decide yourself.",
+            "Never paste screen text into goal.",
+            "element_index values are valid for the next click, set_value, or scroll",
+        ] {
+            XCTAssertTrue(description.contains(rule), "missing: \(rule)")
+        }
+        XCTAssertLessThanOrEqual(description.count, 2048)
     }
 
     /// In the app agent the process environment is shared by every host, and another host's overrides may be set on

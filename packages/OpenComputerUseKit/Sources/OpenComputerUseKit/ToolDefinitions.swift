@@ -225,7 +225,9 @@ public enum ToolDefinitions {
 public extension ToolDefinitions {
     static let decideNextAction = ToolDefinition(
         name: "decide_next_action",
-        description: "Experimental, read-only advisor. A decision model reads the app's current state and proposes the next operation and target for your sub-goal. Returns operation, element_index, margin and the full operation and target distributions. It never performs an action; you decide whether to act. Available only when OPEN_COMPUTER_USE_DECISION_MODEL_URL is set (loopback llama backend) or OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote is set (remote jev backend, configured via a local file). This tool is part of plugin `Computer Use`.",
+        description: "Experimental, read-only advisor. A decision model reads the app's current state and proposes the next operation and target for your sub-goal. Returns operation, element_index, margin and the full operation and target distributions. It never performs an action; you decide whether to act. Available only when OPEN_COMPUTER_USE_DECISION_MODEL_URL is set (loopback llama backend) or OPEN_COMPUTER_USE_DECISION_MODEL_BACKEND=remote is set (remote jev backend, configured via a local file).\n\n"
+            + DecisionAdvisor.cascadeGuide
+            + "\n\nThis tool is part of plugin `Computer Use`.",
         annotations: readOnlyAnnotations(),
         inputSchema: objectSchema(
             properties: [
