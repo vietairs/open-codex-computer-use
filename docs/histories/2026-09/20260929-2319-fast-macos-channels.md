@@ -94,6 +94,11 @@ tool count in the quality doc.
 - **`StdioMCPServer.run()`** now delegates to `LocalChannelRouter`, like the `mcp` command; the signature is unchanged.
 - **Split**: tool definitions moved to `LocalChannelToolDefinitions.swift`, the running-app lookup to
   `ScriptingDictionaryAppLocator.swift`, with no behavior change.
+- **sdef parser, second pass**: the parser follows the declared `encoding`, so a UTF-7 or EBCDIC document hid its
+  DTD from the byte scan and brought entity expansion back. The declared encoding is now allowlisted (none or UTF-8,
+  US-ASCII, ISO 8859, Windows-125x; UTF-16 only behind a byte-order mark), the first unit must be `<` or whitespace,
+  and an unreadable or misplaced XML declaration is refused; the same 46-file sweep still parses all 46 and keeps the
+  42 summaries byte-identical.
 
 ### 🧠 Design Intent (Why)
 The summary never needs the DTD, so dropping it removes the whole entity attack surface instead of pattern-matching
@@ -102,6 +107,7 @@ first by design.
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/XMLDocumentTypeStripper.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/XMLDeclaredEncodingCheck.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ScriptingDictionaryLookup.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ScriptingDictionaryAppLocator.swift`
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ScriptAuditLog.swift`
@@ -113,5 +119,6 @@ first by design.
 - `skills/open-computer-use/references/scripting.md`
 - `docs/QUALITY_SCORE.md`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ScriptingDictionaryLookupTests.swift`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/XMLDocumentTypeStripperEncodingTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/LocalChannelRouterTests.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ElementSearchTests.swift`

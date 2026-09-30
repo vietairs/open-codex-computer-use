@@ -6,26 +6,33 @@ import Foundation
 /// builds declarations out of character references (`&#60;!ENTITY …`) can expand: a reference to an undeclared
 /// entity is a well-formedness error. The removal is byte-exact, so the document keeps its encoding and declaration.
 ///
-/// The scan fails closed. A declaration that does not end, an encoding whose delimiters are not ASCII code units, or
-/// any `<!DOCTYPE` or `<!ENTITY` left anywhere after the removal refuses the whole document, so a scan that ended the
-/// declaration too early or too late can never hand the parser a declaration.
+/// The scan reads the document as code units in which every delimiter is its ASCII value, so it only accepts documents
+/// the parser reads the same way: bytes with no declared encoding or a declared UTF-8, US-ASCII, ISO 8859 or
+/// Windows-125x encoding (see `XMLDeclaredEncodingCheck`), or UTF-16 behind a byte-order mark. Any other declared
+/// encoding (UTF-7, EBCDIC, UTF-32, an unknown name), a first unit other than `<` or whitespace, NUL bytes up front
+/// without a UTF-16 mark, an XML declaration that cannot be read or does not start the document, a declaration that
+/// does not end, and any `<!DOCTYPE` or `<!ENTITY` left anywhere after the removal each refuse the whole document. A
+/// scan that ended the declaration too early or too late therefore never hands the parser a declaration.
 enum XMLDocumentTypeStripper {
     enum Failure: Error, Equatable {
         case unsupportedEncoding
         case unterminatedMarkup
         case strayDeclaration
+        case unreadableXMLDeclaration
 
         var message: String {
             switch self {
             case .unsupportedEncoding: return "unsupported text encoding"
             case .unterminatedMarkup: return "the document type declaration could not be read"
             case .strayDeclaration: return "entity or document type declarations are not supported here"
+            case .unreadableXMLDeclaration: return "the XML declaration is malformed or does not start the document"
             }
         }
     }
 
     static func strippingDocumentType(from data: Data) throws -> Data {
         let (units, offset, width) = try codeUnits(of: data)
+        try XMLDeclaredEncodingCheck.validate(units, isUTF16: width == 2)
         let scanner = Scanner(units: units)
         let declaration = try scanner.prologDocumentType()
 
@@ -46,9 +53,10 @@ enum XMLDocumentTypeStripper {
     }
 
     /// The document as code units in which every XML delimiter is its ASCII value: UTF-16 with a byte-order mark, or
-    /// any ASCII-compatible encoding byte by byte (a UTF-8 multi-byte sequence never contains an ASCII byte).
-    /// `offset` is the byte length of the skipped mark, `width` the bytes per unit. Any other encoding with NUL bytes
-    /// up front (UTF-32, UTF-16 without a mark) is refused.
+    /// any other document byte by byte, which is only a faithful view for the ASCII-compatible encodings that
+    /// `XMLDeclaredEncodingCheck` then enforces (a UTF-8 multi-byte sequence never contains an ASCII byte). `offset`
+    /// is the byte length of the skipped mark, `width` the bytes per unit. NUL bytes up front without a UTF-16 mark
+    /// (UTF-32, UTF-16 without a mark) are refused.
     private static func codeUnits(of data: Data) throws -> (units: [UInt16], offset: Int, width: Int) {
         let bytes = [UInt8](data)
         let head = Array(bytes.prefix(4))
@@ -96,9 +104,14 @@ enum XMLDocumentTypeStripper {
         func prologDocumentType() throws -> Range<Int>? {
             var index = 0
             while index < units.count {
-                if Self.isWhitespace(units[index]) {
+                if XMLDeclaredEncodingCheck.isWhitespace(units[index]) {
                     index += 1
                 } else if matches(Self.instructionOpen, at: index) {
+                    // The parser refuses an XML declaration anywhere but the start; refuse it here too, so its
+                    // encoding can never be read differently from how this scan read the document.
+                    if index > 0 && XMLDeclaredEncodingCheck.startsDeclaration(units, at: index) {
+                        throw Failure.unreadableXMLDeclaration
+                    }
                     index = try end(of: Self.instructionClose, from: index + Self.instructionOpen.count)
                 } else if matches(Self.commentOpen, at: index) {
                     index = try end(of: Self.commentClose, from: index + Self.commentOpen.count)
@@ -177,10 +190,6 @@ enum XMLDocumentTypeStripper {
                 if unit != expected { return false }
             }
             return true
-        }
-
-        private static func isWhitespace(_ unit: UInt16) -> Bool {
-            unit == 0x20 || unit == 0x09 || unit == 0x0A || unit == 0x0D
         }
     }
 }
