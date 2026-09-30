@@ -550,6 +550,17 @@ final class ScriptingDictionaryLookupTests: XCTestCase {
         )
     }
 
+    func testEqualRankCandidatesResolveToTheFirstInEnumerationOrder() {
+        let candidates = [
+            candidate("Twin", "test.twin.first", "/Applications/Twin First.app"),
+            candidate("Twin", "test.twin.second", "/Applications/Twin Second.app"),
+        ]
+        XCTAssertEqual(
+            ScriptingDictionaryLookup.bestRunningMatch("Twin", among: candidates)?.path,
+            "/Applications/Twin First.app"
+        )
+    }
+
     func testNoRunningCandidateReturnsNil() {
         let candidates = [
             candidate("Messages", "com.apple.messages.ext", "/System/Library/PlugIns/Ext.appex"),

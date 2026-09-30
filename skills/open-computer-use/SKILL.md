@@ -55,8 +55,10 @@ is configured; see [references/decision-model.md](references/decision-model.md).
   stops at `max_nodes` (default about 1200). Shallow window chrome such as a toolbar button, the sidebar or a search
   field sits a few levels down, so a role plus label lookup finds it after reading only a few nodes. Content deep in a
   large tree, such as a message row or a cell far down a list, can be cut off before the walk reaches it; the result
-  then reports `truncated=true`. For deep content, pass `role` plus `label` so the match is specific, or read the
-  window with `get_app_state`. Do not raise `max_nodes` to reach it.
+  then reports `truncated=true`, meaning the node budget ran out before the deeper levels were read. The walk reads the
+  same nodes in the same order whatever `role` or `label` you pass, so a narrower query does not reach them. For deep
+  content, raise `max_nodes` on that call (time grows roughly linearly with the nodes read) or read the window with
+  `get_app_state`.
 - Setting `OPEN_COMPUTER_USE_ENABLE_SCRIPTING=1` in the MCP server's launch environment (never per call) adds
   `run_script`, `get_scripting_dictionary`, `open_url`, `run_shortcut` and `list_shortcuts`. It is off by default. The
   turn-start `get_app_state` applies to UI work; a turn that only uses `run_script` skips it. Keep script queries small

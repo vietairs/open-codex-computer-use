@@ -486,7 +486,6 @@ final class ElementSearchTests: XCTestCase {
         }
 
         XCTAssertTrue(chosen.map { CFEqual($0, usable) } ?? false)
-        XCTAssertTrue(sameWindow(chosen, snapshotInitialWindow(tree: tree, app: app, systemWide: systemWide)))
     }
 
     /// When the app is frontmost the system-wide focused window wins over the app's own focused window.
@@ -508,7 +507,32 @@ final class ElementSearchTests: XCTestCase {
         }
 
         XCTAssertTrue(chosen.map { CFEqual($0, systemFocused) } ?? false)
-        XCTAssertTrue(sameWindow(chosen, snapshotInitialWindow(tree: tree, app: app, systemWide: systemWide)))
+    }
+
+    /// When another app is frontmost, its system-wide focused window is never searched; the target app's own focused
+    /// window is.
+    func testSearchWindowIgnoresAnotherFrontmostAppsFocusedWindow() {
+        let tree = FakeAccessibilityTree()
+        let ownWindow = tree.node(kAXWindowRole as String)
+        let app = tree.node(kAXApplicationRole as String, [
+            kAXFocusedWindowAttribute as String: ownWindow,
+            kAXWindowsAttribute as String: [ownWindow],
+        ])
+        let otherWindow = tree.node(kAXWindowRole as String)
+        let otherApp = tree.node(kAXApplicationRole as String, [
+            kAXFocusedWindowAttribute as String: otherWindow,
+            kAXWindowsAttribute as String: [otherWindow],
+        ])
+        let systemWide = tree.node("AXSystemWide", [
+            kAXFocusedApplicationAttribute as String: otherApp,
+            kAXFocusedWindowAttribute as String: otherWindow,
+        ])
+
+        let chosen = tree.serving {
+            elementSearchWindowRoot(appElement: app, appPID: pid(of: app), systemWide: systemWide)
+        }
+
+        XCTAssertTrue(chosen.map { CFEqual($0, ownWindow) } ?? false)
     }
 
     /// With only minimized windows the focused one is still searched, matching the snapshot's no-activation fallback.
@@ -539,22 +563,6 @@ final class ElementSearchTests: XCTestCase {
         }
 
         XCTAssertNil(chosen)
-    }
-
-    private func snapshotInitialWindow(tree: FakeAccessibilityTree, app: AXUIElement, systemWide: AXUIElement) -> AXUIElement? {
-        tree.serving {
-            SnapshotBuilder.initialWindow(
-                appElement: app,
-                appPID: pid(of: app),
-                focusedApplication: SnapshotBuilder.frontmostApplication(systemWide: systemWide),
-                systemWide: systemWide
-            )
-        }
-    }
-
-    private func sameWindow(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
-        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
-        return CFEqual(lhs, rhs)
     }
 
     private func pid(of element: AXUIElement) -> pid_t {
@@ -790,11 +798,17 @@ final class ElementSearchTests: XCTestCase {
         XCTAssertEqual(definition.inputSchema["required"] as? [String], ["app"])
     }
 
-    /// The tool description tells a host the walk is breadth-first and how to reach deep content.
+    /// The tool description tells a host the walk is breadth-first and that a truncated result is reached by a larger
+    /// node budget or a full read, not by a narrower query.
     func testFindElementsDescriptionStatesBreadthFirstOrder() throws {
         let definition = try XCTUnwrap(ToolDefinitions.all.first { $0.name == "find_elements" })
-        XCTAssertTrue(definition.description.contains("breadth-first"), "description was: \(definition.description)")
-        XCTAssertTrue(definition.description.contains("get_app_state"), "description was: \(definition.description)")
+        let description = definition.description
+        XCTAssertTrue(description.contains("Searches breadth-first"), "description was: \(description)")
+        XCTAssertTrue(
+            description.contains("if the result says truncated, deeper levels were not read: pass a larger max_nodes or use get_app_state"),
+            "description was: \(description)"
+        )
+        XCTAssertFalse(description.contains("narrow by role plus label"), "description was: \(description)")
     }
 
     func testDispatcherValidatesFindElementsArgumentsBeforeAX() throws {

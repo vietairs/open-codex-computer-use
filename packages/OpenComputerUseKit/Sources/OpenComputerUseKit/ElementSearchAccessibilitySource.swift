@@ -135,9 +135,11 @@ struct ElementSearchWindowContext {
     let isOffStage: Bool
 }
 
-/// The window `find_elements` searches, chosen exactly as a snapshot chooses its starting window
-/// (`SnapshotBuilder.initialWindow`), so hits describe the window `get_app_state` shows. `systemWide` is a parameter
-/// only so tests can serve it from a fake accessibility tree.
+/// The window `find_elements` searches, chosen by the same rule a snapshot uses for its starting window
+/// (`SnapshotBuilder.initialWindow`), so hits normally describe the window `get_app_state` shows. It is not an exact
+/// match: the snapshot first enables the best-effort accessibility modes (such as `AXManualAccessibility` for Electron
+/// apps), which can change which windows exist, and it can unhide a hidden app to find its window; this search does
+/// neither. `systemWide` is a parameter only so tests can serve it from a fake accessibility tree.
 func elementSearchWindowRoot(
     appElement: AXUIElement,
     appPID: pid_t,
