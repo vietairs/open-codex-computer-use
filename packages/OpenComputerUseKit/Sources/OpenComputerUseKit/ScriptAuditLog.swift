@@ -3,8 +3,9 @@ import Foundation
 
 /// One record of a script-channel call (`run_script`, `open_url`, `run_shortcut`).
 ///
-/// A request entry carries the full payload so the operator can reconstruct what ran; the matching result entry
-/// carries only the exit status, duration and a short outcome. `targetApp` is the app the agent *declared*, not the
+/// A request entry carries the payload so the operator can reconstruct what ran, capped at `maximumPayloadBytes`
+/// (the script size limit) with `payloadBytes` holding the full length; `payloadSHA256` always covers the full text.
+/// The matching result entry carries only the exit status, duration and a short outcome. `targetApp` is the app the agent *declared*, not the
 /// app the script actually tells, so treat it as advisory.
 public struct ScriptAuditEntry: Equatable, Sendable {
     public enum Kind: String, Sendable {
@@ -24,7 +25,12 @@ public struct ScriptAuditEntry: Equatable, Sendable {
     public let relayPID: Int32
     public let parentPID: Int32
     public let targetApp: String?
-    public let payload: String?          // full script text / URL / "name\ninput"; request phase only
+    /// Longest payload, in UTF-8 bytes, an entry keeps. An over-long script is refused by the runner, so its first
+    /// `maximumPayloadBytes` are enough to identify it and the log cannot grow by more per call.
+    public static let maximumPayloadBytes = OsascriptChildRunner.maximumSourceBytes
+
+    public let payload: String?          // script text / URL / "name\ninput", capped; request phase only
+    public let payloadBytes: Int?        // full UTF-8 length of the payload before the cap
     public let payloadSHA256: String
     public let exitStatus: Int32?
     public let durationMilliseconds: Int?
@@ -42,11 +48,28 @@ public struct ScriptAuditEntry: Equatable, Sendable {
         self.relayPID = relayPID
         self.parentPID = parentPID
         self.targetApp = targetApp
-        self.payload = payload
+        self.payload = payload.map(Self.cappedPayload)
+        self.payloadBytes = payload.map { $0.utf8.count }
         self.payloadSHA256 = payloadSHA256
         self.exitStatus = exitStatus
         self.durationMilliseconds = durationMilliseconds
         self.outcome = outcome
+    }
+}
+
+extension ScriptAuditEntry {
+    /// The longest prefix of whole Unicode scalars that fits in `maximumPayloadBytes` UTF-8 bytes.
+    static func cappedPayload(_ payload: String) -> String {
+        guard payload.utf8.count > maximumPayloadBytes else { return payload }
+        var kept = String.UnicodeScalarView()
+        var byteCount = 0
+        for scalar in payload.unicodeScalars {
+            let width = UTF8.width(scalar)
+            guard byteCount + width <= maximumPayloadBytes else { break }
+            byteCount += width
+            kept.append(scalar)
+        }
+        return String(kept)
     }
 }
 
@@ -163,6 +186,7 @@ public final class ScriptAuditLog: @unchecked Sendable {
         ]
         if let targetApp = entry.targetApp { object["target_app"] = targetApp }
         if let payload = entry.payload { object["payload"] = payload }
+        if let payloadBytes = entry.payloadBytes { object["payload_bytes"] = payloadBytes }
         if let exitStatus = entry.exitStatus { object["exit_status"] = Int(exitStatus) }
         if let duration = entry.durationMilliseconds { object["duration_ms"] = duration }
         if let outcome = entry.outcome { object["outcome"] = outcome }

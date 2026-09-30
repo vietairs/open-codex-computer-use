@@ -82,7 +82,9 @@ other four) is refused: scripts run only in the MCP server process.
 - Path: `~/Library/Application Support/OpenComputerUse/logs/scripts.log`. JSON lines, mode 0600 in a 0700 directory.
 - It holds script text, URLs and shortcut inputs, which may include email content. Every script text is logged,
   including scripts the filter rejects and scripts refused while the Mac is locked. The request entry is written
-  before any check, so a rejected attempt leaves a trace; the result entry records the outcome.
+  before any check, so a rejected attempt leaves a trace; the result entry records the outcome. Each payload is
+  stored up to 64 KiB (the script size limit), with `payload_bytes` giving its full length and `payload_sha256`
+  its hash over the full text.
 - The log is capped at 10 MB plus one rotated file (`scripts.log.1`).
 - If the log cannot be opened safely (symlink, wrong owner, wide permissions), the call is refused rather than run
   unlogged.

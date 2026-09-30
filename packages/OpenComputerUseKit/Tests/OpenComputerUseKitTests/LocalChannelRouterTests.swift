@@ -556,6 +556,50 @@ final class LocalChannelRouterTests: XCTestCase {
         XCTAssertNil(resultEntry["payload"])
     }
 
+    func testOversizedPayloadsAreCappedInTheAuditLog() throws {
+        let rig = try makeRig()
+        let limit = ScriptAuditEntry.maximumPayloadBytes
+        let script = "return \"" + String(repeating: "a", count: limit * 2) + "\""
+        let url = "https://example.com/?q=" + String(repeating: "b", count: limit * 2)
+        let input = String(repeating: "c", count: limit * 2)
+
+        _ = rig.handlers.call(name: "run_script", arguments: ["app": "Mail", "source": script])
+        _ = rig.handlers.call(name: "open_url", arguments: ["url": url])
+        _ = rig.handlers.call(name: "run_shortcut", arguments: ["name": "Demo", "input": input])
+
+        let requests = try auditEntries(in: rig.auditDirectory).filter { $0["phase"] as? String == "request" }
+        let expected = ["run_script": script, "open_url": url, "run_shortcut": "Demo\n" + input]
+        XCTAssertEqual(requests.count, expected.count)
+        for request in requests {
+            let kind = try XCTUnwrap(request["kind"] as? String)
+            let full = try XCTUnwrap(expected[kind], kind)
+            let stored = try XCTUnwrap(request["payload"] as? String, kind)
+            XCTAssertEqual(stored.utf8.count, limit, kind)
+            XCTAssertTrue(full.hasPrefix(stored), kind)
+            XCTAssertEqual(request["payload_bytes"] as? Int, full.utf8.count, kind)
+            XCTAssertEqual(request["payload_sha256"] as? String, ScriptAuditLog.sha256Hex(full), kind)
+        }
+    }
+
+    func testPayloadCapKeepsWholeCharacters() {
+        let limit = ScriptAuditEntry.maximumPayloadBytes
+        // A three-byte character straddles the limit, so it is dropped whole rather than split.
+        let payload = String(repeating: "a", count: limit - 1) + "\u{20AC}" + "tail"
+        let entry = ScriptAuditEntry(
+            kind: .runScript, phase: .request, targetApp: "Mail", payload: payload,
+            payloadSHA256: ScriptAuditLog.sha256Hex(payload)
+        )
+
+        XCTAssertEqual(entry.payload, String(repeating: "a", count: limit - 1))
+        XCTAssertEqual(entry.payloadBytes, payload.utf8.count)
+
+        let short = ScriptAuditEntry(
+            kind: .openURL, phase: .request, targetApp: nil, payload: "https://example.com", payloadSHA256: "0"
+        )
+        XCTAssertEqual(short.payload, "https://example.com")
+        XCTAssertEqual(short.payloadBytes, 19)
+    }
+
     func testAuditFailureRefusesScript() throws {
         let rig = try makeRig(symlinkedAuditDirectory: true)
 
