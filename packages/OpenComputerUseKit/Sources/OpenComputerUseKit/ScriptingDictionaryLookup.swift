@@ -17,9 +17,10 @@ public enum ScriptingDictionaryLookupError: Error, Equatable {
 /// This is a static, read-only lookup. It never asks the OS for the dictionary (which can send an Apple Event to the
 /// target or launch it), never shells out to `sdef`, and never lets the XML parser touch the network or the file
 /// system on its own:
-/// - the parser runs with external entities disabled and XInclude processing off, and a document that declares a
-///   general entity is refused before parsing, because libxml2 expands nested entities in attribute values for
-///   minutes before its length limit trips;
+/// - the parser runs with external entities disabled and XInclude processing off, and the document type declaration
+///   (internal subset included) is removed before parsing, so no entity is ever declared: libxml2 expands nested
+///   entities for minutes before its length limit trips, and a parameter entity can build general-entity
+///   declarations out of character references that no text search sees;
 /// - `xi:include` elements are resolved by hand, only for `file:` or relative targets whose real path lies inside
 ///   the app bundle or under `allowedIncludeRoots`, with depth, count and total-size limits;
 /// - files are opened `O_NOFOLLOW | O_NONBLOCK`, checked with `fstat` to be regular files of bounded size, and read
@@ -191,36 +192,21 @@ public struct ScriptingDictionaryLookup {
         return Data(buffer[0..<filled])
     }
 
-    /// Only the bytes are handed to the parser, never a URL, with external entities disabled. XInclude processing is
-    /// left off; includes are resolved by `expandIncludes`.
-    private static func parse(_ data: Data) throws -> XMLDocument {
-        guard let text = declarationScanText(data) else {
-            throw ScriptingDictionaryLookupError.malformedDefinition("unsupported text encoding")
-        }
-        if text.range(of: "<!ENTITY\\s+[^%\\s]", options: .regularExpression) != nil {
-            throw ScriptingDictionaryLookupError.malformedDefinition("general entity declarations are not supported")
+    /// Only the bytes are handed to the parser, never a URL, with external entities disabled and the document type
+    /// declaration removed, so no entity can be declared and none can expand. XInclude processing is left off;
+    /// includes are resolved by `expandIncludes`.
+    static func parse(_ data: Data) throws -> XMLDocument {
+        let stripped: Data
+        do {
+            stripped = try XMLDocumentTypeStripper.strippingDocumentType(from: data)
+        } catch let failure as XMLDocumentTypeStripper.Failure {
+            throw ScriptingDictionaryLookupError.malformedDefinition(failure.message)
         }
         do {
-            return try XMLDocument(data: data, options: [.nodeLoadExternalEntitiesNever])
+            return try XMLDocument(data: stripped, options: [.nodeLoadExternalEntitiesNever])
         } catch {
             throw ScriptingDictionaryLookupError.malformedDefinition("not a well-formed definition")
         }
-    }
-
-    /// The document as text, only to look for entity declarations. UTF-16 with a byte-order mark is decoded; any
-    /// other encoding with NUL bytes up front (UTF-32, UTF-16 without a mark) is refused. ASCII-compatible encodings
-    /// keep `<!ENTITY` byte-identical, so a lossy UTF-8 decode is enough for them.
-    private static func declarationScanText(_ data: Data) -> String? {
-        let head = [UInt8](data.prefix(4))
-        let hasUTF16Mark = head.count >= 2 && ((head[0] == 0xFF && head[1] == 0xFE) || (head[0] == 0xFE && head[1] == 0xFF))
-        let isUTF32LEMark = head.count == 4 && head[0] == 0xFF && head[1] == 0xFE && head[2] == 0 && head[3] == 0
-        if hasUTF16Mark && !isUTF32LEMark {
-            return String(data: data, encoding: .utf16)
-        }
-        if head.contains(0) {
-            return nil
-        }
-        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: - Include resolution

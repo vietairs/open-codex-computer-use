@@ -340,6 +340,77 @@ final class ScriptingDictionaryLookupTests: XCTestCase {
         XCTAssertTrue(try summary().contains("kept command"))
     }
 
+    /// A parameter entity whose literal spells its declarations with character references declares general entities
+    /// only when `%p;` is referenced, so no text search for `<!ENTITY` sees them. Dropping the whole document type
+    /// declaration leaves the body referring to an undeclared entity, which is refused before anything expands.
+    private func parameterEntityAmplificationDefinition(levels: Int, inDescription: Bool) -> String {
+        var declarations = "&#60;!ENTITY a0 'lol'>"
+        for level in 1...levels {
+            declarations += "&#60;!ENTITY a\(level) '" + String(repeating: "&#38;a\(level - 1);", count: 10) + "'>"
+        }
+        let body = inDescription
+            ? "        <command name=\"probe\" code=\"fakecmd0\" description=\"&a\(levels);\"/>"
+            : "        <command name=\"probe\" code=\"fakecmd0\" description=\"A probe.\">&a\(levels);</command>"
+        return sdef(suiteBody: body, prolog: " [<!ENTITY % p \"\(declarations)\"> %p;]")
+    }
+
+    func testParameterEntityBuiltDeclarationsNeverExpand() throws {
+        for inDescription in [false, true] {
+            try installMainDefinition(parameterEntityAmplificationDefinition(levels: 9, inDescription: inDescription))
+            let started = Date()
+            XCTAssertThrowsError(try summary()) { error in
+                guard case ScriptingDictionaryLookupError.malformedDefinition = error else {
+                    return XCTFail("expected malformedDefinition, got \(error)")
+                }
+            }
+            XCTAssertLessThan(Date().timeIntervalSince(started), 1, "the definition must be refused, not expanded")
+        }
+    }
+
+    func testDocumentTypeWithInternalSubsetAndNoEntityUseParses() throws {
+        // Quoted literals, a comment and a processing instruction in the subset hold `]`, `>` and quotes that must
+        // not end the declaration early.
+        let subset = """
+         [
+            <!-- a comment with ]> and 'quotes" inside -->
+            <?note keep ]> here?>
+            <!ATTLIST command hint CDATA "a ] and a > in a literal">
+            <!ATTLIST class note CDATA 'it"s ]>'>
+            <!ENTITY % common.attrib "name CDATA #IMPLIED">
+        ]
+        """
+        let text = sdef(suiteBody: commandXML("kept command"), prolog: subset)
+
+        try installMainDefinition(text)
+        XCTAssertTrue(try summary().contains("kept command"))
+
+        // The same document in UTF-16 with a byte-order mark: the declaration is cut at code-unit boundaries.
+        let utf16Text = text.replacingOccurrences(of: "encoding=\"UTF-8\"", with: "encoding=\"UTF-16\"")
+        try writeInfoPlist(definitionKey: "Fake.sdef")
+        try XCTUnwrap(utf16Text.data(using: .utf16)).write(to: resources.appendingPathComponent("Fake.sdef"))
+        XCTAssertTrue(try summary().contains("kept command"))
+    }
+
+    func testUnreadableOrRepeatedDocumentTypeIsRefused() throws {
+        let variants = [
+            // The internal subset never closes.
+            sdef(suiteBody: commandXML("probe"), prolog: " [<!ATTLIST command hint CDATA \"open"),
+            // A second declaration after the first would otherwise reach the parser.
+            sdef(
+                suiteBody: commandXML("probe"),
+                prolog: "><!DOCTYPE dictionary [<!ENTITY a \"lol\">]"
+            ),
+        ]
+        for variant in variants {
+            try installMainDefinition(variant)
+            XCTAssertThrowsError(try summary()) { error in
+                guard case ScriptingDictionaryLookupError.malformedDefinition = error else {
+                    return XCTFail("expected malformedDefinition, got \(error)")
+                }
+            }
+        }
+    }
+
     func testIncludeByteLimitIsTheRemainingExpansionBudget() {
         let perFile = ScriptingDictionaryLookup.maximumDefinitionBytes
         let total = ScriptingDictionaryLookup.maximumExpandedBytes
