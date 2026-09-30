@@ -37,7 +37,7 @@ final class MCPClient {
         let response = try request(method: "initialize", params: [
             "clientInfo": [
                 "name": "OpenComputerUseSmokeSuite",
-                "version": "0.3.9-vietairs.1",
+                "version": "0.3.10-vietairs.1",
             ],
             "capabilities": [:],
             "protocolVersion": "2025-03-26",
