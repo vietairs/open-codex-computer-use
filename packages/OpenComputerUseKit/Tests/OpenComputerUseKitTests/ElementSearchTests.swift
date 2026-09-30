@@ -358,6 +358,102 @@ final class ElementSearchTests: XCTestCase {
         XCTAssertEqual(tree.calls(on: child), [:])
     }
 
+    // MARK: - Window choice
+
+    /// A minimized focused window is skipped for the app's first usable window, as the snapshot path does, so hits
+    /// merge into the window `get_app_state` shows instead of replacing it.
+    func testSearchWindowSkipsMinimizedFocusedWindowLikeSnapshot() {
+        let tree = FakeAccessibilityTree()
+        let minimized = tree.node(kAXWindowRole as String, [kAXMinimizedAttribute as String: true])
+        let usable = tree.node(kAXWindowRole as String)
+        let app = tree.node(kAXApplicationRole as String, [
+            kAXFocusedWindowAttribute as String: minimized,
+            kAXWindowsAttribute as String: [minimized, usable],
+        ])
+        let systemWide = tree.node("AXSystemWide")
+
+        let chosen = tree.serving {
+            elementSearchWindowRoot(appElement: app, appPID: pid(of: app), systemWide: systemWide)
+        }
+
+        XCTAssertTrue(chosen.map { CFEqual($0, usable) } ?? false)
+        XCTAssertTrue(sameWindow(chosen, snapshotInitialWindow(tree: tree, app: app, systemWide: systemWide)))
+    }
+
+    /// When the app is frontmost the system-wide focused window wins over the app's own focused window.
+    func testSearchWindowPrefersSystemFocusedWindowWhenAppIsFrontmost() {
+        let tree = FakeAccessibilityTree()
+        let appFocused = tree.node(kAXWindowRole as String)
+        let systemFocused = tree.node(kAXWindowRole as String)
+        let app = tree.node(kAXApplicationRole as String, [
+            kAXFocusedWindowAttribute as String: appFocused,
+            kAXWindowsAttribute as String: [appFocused, systemFocused],
+        ])
+        let systemWide = tree.node("AXSystemWide", [
+            kAXFocusedApplicationAttribute as String: app,
+            kAXFocusedWindowAttribute as String: systemFocused,
+        ])
+
+        let chosen = tree.serving {
+            elementSearchWindowRoot(appElement: app, appPID: pid(of: app), systemWide: systemWide)
+        }
+
+        XCTAssertTrue(chosen.map { CFEqual($0, systemFocused) } ?? false)
+        XCTAssertTrue(sameWindow(chosen, snapshotInitialWindow(tree: tree, app: app, systemWide: systemWide)))
+    }
+
+    /// With only minimized windows the focused one is still searched, matching the snapshot's no-activation fallback.
+    func testSearchWindowFallsBackToMinimizedFocusedWindowWhenNoneIsUsable() {
+        let tree = FakeAccessibilityTree()
+        let minimized = tree.node(kAXWindowRole as String, [kAXMinimizedAttribute as String: true])
+        let app = tree.node(kAXApplicationRole as String, [
+            kAXFocusedWindowAttribute as String: minimized,
+            kAXWindowsAttribute as String: [minimized],
+        ])
+        let systemWide = tree.node("AXSystemWide")
+
+        let chosen = tree.serving {
+            elementSearchWindowRoot(appElement: app, appPID: pid(of: app), systemWide: systemWide)
+        }
+
+        XCTAssertTrue(chosen.map { CFEqual($0, minimized) } ?? false)
+    }
+
+    /// An app with no window yields nothing, which `find_elements` reports as no window found.
+    func testSearchWindowIsNilWhenAppHasNoWindow() {
+        let tree = FakeAccessibilityTree()
+        let app = tree.node(kAXApplicationRole as String)
+        let systemWide = tree.node("AXSystemWide")
+
+        let chosen = tree.serving {
+            elementSearchWindowRoot(appElement: app, appPID: pid(of: app), systemWide: systemWide)
+        }
+
+        XCTAssertNil(chosen)
+    }
+
+    private func snapshotInitialWindow(tree: FakeAccessibilityTree, app: AXUIElement, systemWide: AXUIElement) -> AXUIElement? {
+        tree.serving {
+            SnapshotBuilder.initialWindow(
+                appElement: app,
+                appPID: pid(of: app),
+                focusedApplication: SnapshotBuilder.frontmostApplication(systemWide: systemWide),
+                systemWide: systemWide
+            )
+        }
+    }
+
+    private func sameWindow(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+        guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+        return CFEqual(lhs, rhs)
+    }
+
+    private func pid(of element: AXUIElement) -> pid_t {
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        return pid
+    }
+
     // MARK: - perform_actions interplay
 
     /// find_elements and the relay-local tools are never batch steps: a batch can only run the element actions.

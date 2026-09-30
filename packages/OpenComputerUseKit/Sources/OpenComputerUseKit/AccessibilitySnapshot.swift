@@ -395,17 +395,12 @@ enum SnapshotBuilder {
         let appElement = AXUIElementCreateApplication(app.pid)
         enableBestEffortAccessibilityModes(appElement)
         let systemWide = AXUIElementCreateSystemWide()
-        var focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
-        var focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
-        // AX tree is accessible for Stage Manager background apps without focus steal,
-        // so this fallback runs regardless of the recovery policy.
-        if focusedWindow == nil {
-            focusedWindow = firstAnyWindow(for: appElement)
-        }
+        var focusedApplication = frontmostApplication(systemWide: systemWide)
+        var focusedWindow = initialWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         if focusedWindow == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app) {
-            focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
+            focusedApplication = frontmostApplication(systemWide: systemWide)
             focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         }
 
@@ -428,7 +423,7 @@ enum SnapshotBuilder {
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app) {
-            focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
+            focusedApplication = frontmostApplication(systemWide: systemWide)
             if let recoveredWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) {
                 rootWindow = recoveredWindow
                 windowTitle = stringValue(of: recoveredWindow, attribute: kAXTitleAttribute)
@@ -548,6 +543,20 @@ enum SnapshotBuilder {
 
         Thread.sleep(forTimeInterval: windowVisibilityRecoveryDelay)
         return true
+    }
+
+    /// The window a snapshot starts from, before any recovery: the usable focused window (see
+    /// `preferredFocusedWindow`), else the app's focused or first window even when it is minimized. The AX tree is
+    /// readable for Stage Manager background apps without stealing focus, so that fallback needs no activation.
+    /// `find_elements` chooses its window through this too, so its hits describe the window a snapshot shows.
+    static func initialWindow(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {
+        preferredFocusedWindow(appElement: appElement, appPID: appPID, focusedApplication: focusedApplication, systemWide: systemWide)
+            ?? firstAnyWindow(for: appElement)
+    }
+
+    /// The application that holds keyboard focus system-wide, as `initialWindow` expects it.
+    static func frontmostApplication(systemWide: AXUIElement) -> AXUIElement? {
+        copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
     }
 
     private static func firstWindow(for appElement: AXUIElement) -> AXUIElement? {

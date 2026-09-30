@@ -135,32 +135,31 @@ struct ElementSearchWindowContext {
     let isOffStage: Bool
 }
 
-/// The window `find_elements` searches: the focused window, else the first window. It never activates the app,
-/// recovers a hidden window or captures the screen. Window identity and bounds follow the same rules as a full
-/// snapshot: an off-stage window is located by its own id and accessibility frame, and otherwise the window-server
-/// entry of the AX window's own id is preferred, so hits merge into the snapshot of the same window.
+/// The window `find_elements` searches, chosen exactly as a snapshot chooses its starting window
+/// (`SnapshotBuilder.initialWindow`), so hits describe the window `get_app_state` shows. `systemWide` is a parameter
+/// only so tests can serve it from a fake accessibility tree.
+func elementSearchWindowRoot(
+    appElement: AXUIElement,
+    appPID: pid_t,
+    systemWide: AXUIElement = AXUIElementCreateSystemWide()
+) -> AXUIElement? {
+    SnapshotBuilder.initialWindow(
+        appElement: appElement,
+        appPID: appPID,
+        focusedApplication: SnapshotBuilder.frontmostApplication(systemWide: systemWide),
+        systemWide: systemWide
+    )
+}
+
+/// The window `find_elements` searches (see `elementSearchWindowRoot`). It never activates the app, recovers a hidden
+/// window or captures the screen. Window identity and bounds follow the same rules as a full snapshot: an off-stage
+/// window is located by its own id and accessibility frame, and otherwise the window-server entry of the AX window's
+/// own id is preferred, so hits merge into the snapshot of the same window.
 func resolveElementSearchWindow(for app: RunningAppDescriptor) throws -> ElementSearchWindowContext {
     let appElement = AXUIElementCreateApplication(app.pid)
 
-    let windowRoot: AXUIElement
-    if let focused = elementSearchCopyElement(appElement, attribute: kAXFocusedWindowAttribute as String) {
-        windowRoot = focused
-    } else {
-        var value: CFTypeRef?
-        let windows: [AXUIElement]
-        if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value) == .success {
-            windows = elementSearchElements(value)
-        } else {
-            windows = []
-        }
-        let first = windows.first { window in
-            let role = elementSearchCopyBatchedValues(of: window, attributes: [kAXRoleAttribute as String])[0]
-            return elementSearchString(role) == kAXWindowRole as String
-        }
-        guard let first else {
-            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
-        }
-        windowRoot = first
+    guard let windowRoot = elementSearchWindowRoot(appElement: appElement, appPID: app.pid) else {
+        throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
     }
 
     let title = elementSearchString(
