@@ -2667,7 +2667,8 @@ extension ComputerUseService {
             layer: window.layer,
             bounds: window.bounds,
             title: window.title,
-            focusedElement: window.focusedElement
+            focusedElement: window.focusedElement,
+            isOffStage: window.isOffStage
         )
         let merged = mergeElementSearchHits(records, rows: rows, into: cached, window: windowInfo, app: app)
         for key in snapshotCacheKeys(query: query, app: app) {

@@ -43,11 +43,13 @@ final class ElementSearchIndexAllocator: @unchecked Sendable {
 // MARK: - Snapshot merge
 
 typealias ElementSearchWindowInfo = (
-    windowID: CGWindowID?, layer: Int?, bounds: CGRect?, title: String?, focusedElement: AXUIElement?
+    windowID: CGWindowID?, layer: Int?, bounds: CGRect?, title: String?, focusedElement: AXUIElement?,
+    isOffStage: Bool
 )
 
-/// Hits can join a cached snapshot only when it describes the same window in the same place: their frames are
-/// converted with the cached snapshot's window bounds.
+/// Hits can join a cached snapshot only when it describes the same window in the same place and in the same Stage
+/// Manager state: their frames are converted with the cached snapshot's window bounds, and the merged snapshot keeps
+/// the cached off-stage flag that gates pointer input.
 func canMergeElementSearchHits(into cached: AppSnapshot?, window: ElementSearchWindowInfo) -> Bool {
     guard let cached,
           cached.mode == .accessibility,
@@ -58,7 +60,7 @@ func canMergeElementSearchHits(into cached: AppSnapshot?, window: ElementSearchW
         return false
     }
 
-    return cachedWindowID == window.windowID && cachedBounds == windowBounds
+    return cachedWindowID == window.windowID && cachedBounds == windowBounds && cached.isOffStage == window.isOffStage
 }
 
 /// The snapshot to cache after a search: the cached one plus the hits when that is safe, else a snapshot holding
@@ -86,7 +88,9 @@ func mergeElementSearchHits(
             focusedSummary: cached.focusedSummary,
             focusedElement: cached.focusedElement,
             selectedText: cached.selectedText,
-            elements: cached.elements.merging(hitsByIndex, uniquingKeysWith: { _, hit in hit })
+            elements: cached.elements.merging(hitsByIndex, uniquingKeysWith: { _, hit in hit }),
+            windowContentIsEmpty: cached.windowContentIsEmpty,
+            isOffStage: cached.isOffStage
         )
     }
 
@@ -103,7 +107,11 @@ func mergeElementSearchHits(
         focusedSummary: nil,
         focusedElement: window.focusedElement,
         selectedText: nil,
-        elements: hitsByIndex
+        elements: hitsByIndex,
+        // The search reads only matching rows, so it cannot tell whether the window is empty. Nothing renders this
+        // snapshot: every state or action result comes from a fresh snapshot, which measures emptiness itself.
+        windowContentIsEmpty: false,
+        isOffStage: window.isOffStage
     )
 }
 

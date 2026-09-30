@@ -231,7 +231,8 @@ final class ElementSearchTests: XCTestCase {
         mode: SnapshotMode = .accessibility,
         elements: [Int: ElementRecord],
         treeLines: [String] = ["\t1 button Send"],
-        treeLineOffsets: [Int: Int] = [1: 0]
+        treeLineOffsets: [Int: Int] = [1: 0],
+        isOffStage: Bool = false
     ) -> AppSnapshot {
         AppSnapshot(
             app: makeApp(),
@@ -246,16 +247,22 @@ final class ElementSearchTests: XCTestCase {
             focusedSummary: "a text field",
             focusedElement: nil,
             selectedText: nil,
-            elements: elements
+            elements: elements,
+            windowContentIsEmpty: false,
+            isOffStage: isOffStage
         )
     }
 
     private func makeWindowInfo(
         windowID: CGWindowID?,
         bounds: CGRect?,
-        focusedElement: AXUIElement? = nil
+        focusedElement: AXUIElement? = nil,
+        isOffStage: Bool = false
     ) -> ElementSearchWindowInfo {
-        (windowID: windowID, layer: 0, bounds: bounds, title: "Inbox", focusedElement: focusedElement)
+        (
+            windowID: windowID, layer: 0, bounds: bounds, title: "Inbox", focusedElement: focusedElement,
+            isOffStage: isOffStage
+        )
     }
 
     func testMergeRequiresMatchingWindow() throws {
@@ -306,6 +313,90 @@ final class ElementSearchTests: XCTestCase {
         // A cached snapshot with no window id is never merged.
         let noWindowID = makeCachedSnapshot(windowID: nil, bounds: windowBounds, elements: [1: cachedRecord])
         XCTAssertFalse(canMergeElementSearchHits(into: noWindowID, window: makeWindowInfo(windowID: nil, bounds: windowBounds)))
+    }
+
+    /// The off-stage flag gates every pointer input, so a merge must never carry a stale one: a window that went off
+    /// stage (or came back) since the cached snapshot gets a hits-only snapshot with the live flag.
+    func testMergeRequiresMatchingStageState() throws {
+        let hit = makeRecord(index: 1_000_000)
+        let rows = ["[1000000] AXButton \"Get Mail\""]
+        let app = makeApp()
+        let onStageCached = makeCachedSnapshot(windowID: 7, bounds: windowBounds, elements: [1: makeRecord(index: 1)])
+        let offStageCached = makeCachedSnapshot(
+            windowID: 7, bounds: windowBounds, elements: [1: makeRecord(index: 1)], isOffStage: true
+        )
+        let offStageWindow = makeWindowInfo(windowID: 7, bounds: windowBounds, isOffStage: true)
+        let onStageWindow = makeWindowInfo(windowID: 7, bounds: windowBounds)
+
+        XCTAssertFalse(canMergeElementSearchHits(into: onStageCached, window: offStageWindow))
+        let wentOffStage = mergeElementSearchHits([hit], rows: rows, into: onStageCached, window: offStageWindow, app: app)
+        assertHitsOnly(wentOffStage, hit: hit, rows: rows, windowID: 7, bounds: windowBounds)
+        XCTAssertTrue(wentOffStage.isOffStage)
+        XCTAssertFalse(wentOffStage.windowContentIsEmpty)
+
+        XCTAssertFalse(canMergeElementSearchHits(into: offStageCached, window: onStageWindow))
+        let cameBack = mergeElementSearchHits([hit], rows: rows, into: offStageCached, window: onStageWindow, app: app)
+        XCTAssertFalse(cameBack.isOffStage)
+
+        XCTAssertTrue(canMergeElementSearchHits(into: offStageCached, window: offStageWindow))
+        let merged = mergeElementSearchHits([hit], rows: rows, into: offStageCached, window: offStageWindow, app: app)
+        XCTAssertTrue(merged.isOffStage)
+        XCTAssertEqual(merged.elements.count, 2)
+    }
+
+    /// A node costs exactly one multi-attribute round trip, served through the snapshot walk's read seam.
+    func testSearchSourceReadsEachNodeInOneRoundTrip() {
+        let tree = FakeAccessibilityTree()
+        let child = tree.node(kAXButtonRole as String, [kAXTitleAttribute as String: "Get Mail"])
+        let parent = tree.node(kAXGroupRole as String, children: [child])
+
+        let (attributes, children) = tree.serving { AccessibilityElementSearchSource().read(parent) }
+
+        XCTAssertEqual(attributes.role, kAXGroupRole as String)
+        XCTAssertEqual(children.count, 1)
+        XCTAssertEqual(tree.calls(on: parent), [.multiple: 1])
+        XCTAssertEqual(tree.calls(on: child), [:])
+    }
+
+    // MARK: - perform_actions interplay
+
+    /// find_elements and the relay-local tools are never batch steps: a batch can only run the element actions.
+    func testPerformActionsRejectsLocalAndSearchToolsAtValidation() {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: UnlockedSessionProvider()))
+        for tool in LocalChannelToolNames.all.sorted() + ["find_elements"] {
+            do {
+                _ = try dispatcher.parseBatchSteps([["tool": tool, "args": ["source": "return 1"]]])
+                XCTFail("\(tool) must not be accepted as a perform_actions step")
+            } catch ComputerUseError.invalidArguments(let message) {
+                XCTAssertTrue(message.contains("step 1"), message)
+                XCTAssertTrue(message.contains("'\(tool)' is not allowed"), message)
+            } catch {
+                XCTFail("unexpected error for \(tool): \(error)")
+            }
+        }
+    }
+
+    /// perform_actions pins the cached snapshot and checks every step's index against its keys before running any
+    /// step. A hit merged by find_elements is in those keys; a hit dropped by a later refresh is not.
+    func testMergedHitIndexResolvesThroughBatchIndexCheck() throws {
+        let cached = makeCachedSnapshot(windowID: 7, bounds: windowBounds, elements: [1: makeRecord(index: 1)])
+        let hit = makeRecord(index: 1_000_000)
+        let merged = mergeElementSearchHits(
+            [hit], rows: [], into: cached, window: makeWindowInfo(windowID: 7, bounds: windowBounds), app: makeApp()
+        )
+        let steps = try ComputerUseToolDispatcher(guard: MacSessionGuard(provider: UnlockedSessionProvider()))
+            .parseBatchSteps([
+                ["tool": "click", "args": ["element_index": "1000000"]],
+                ["tool": "set_value", "args": ["element_index": "1", "value": "x"]],
+            ])
+
+        XCTAssertEqual(BatchActionRunner.unknownElementIndices(in: steps, knownIndices: Set(merged.elements.keys)), [])
+
+        let refreshed = makeCachedSnapshot(windowID: 7, bounds: windowBounds, elements: [1: makeRecord(index: 1)])
+        XCTAssertEqual(
+            BatchActionRunner.unknownElementIndices(in: steps, knownIndices: Set(refreshed.elements.keys)),
+            ["1000000"]
+        )
     }
 
     private func assertHitsOnly(

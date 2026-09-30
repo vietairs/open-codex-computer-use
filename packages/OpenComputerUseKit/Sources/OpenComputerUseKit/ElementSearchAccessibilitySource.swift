@@ -85,32 +85,12 @@ struct AccessibilityElementSearchSource: ElementSearchNodeSource {
 
 // MARK: - Batched attribute decoding
 
-/// One `AXUIElementCopyMultipleAttributeValues` call. The result has one entry per requested attribute, in order;
-/// an attribute that could not be read (and any call-level failure) is `nil`.
+/// One `AXUIElementCopyMultipleAttributeValues` call, through the snapshot walk's `AXAttributePrefetch`. The result
+/// has one entry per requested attribute, in order; an attribute that could not be read (and any call-level failure)
+/// is `nil`.
 private func elementSearchCopyBatchedValues(of element: AXUIElement, attributes: [String]) -> [CFTypeRef?] {
-    var raw: CFArray?
-    let error = AXUIElementCopyMultipleAttributeValues(
-        element,
-        attributes as CFArray,
-        AXCopyMultipleAttributeOptions(rawValue: 0),
-        &raw
-    )
-    guard error == .success, let raw else {
-        return Array(repeating: nil, count: attributes.count)
-    }
-
-    let count = CFArrayGetCount(raw)
-    return (0..<attributes.count).map { index -> CFTypeRef? in
-        guard index < count, let pointer = CFArrayGetValueAtIndex(raw, index) else {
-            return nil
-        }
-        let value = unsafeBitCast(pointer, to: CFTypeRef.self)
-        // Attribute errors come back as an AXValue of the error type.
-        if CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetType(value as! AXValue) == .axError {
-            return nil
-        }
-        return value
-    }
+    let prefetch = AXAttributePrefetch.fetch(element, attributes: attributes)
+    return attributes.map { prefetch?.value($0) }
 }
 
 private func elementSearchString(_ value: CFTypeRef?) -> String? {
@@ -151,10 +131,14 @@ struct ElementSearchWindowContext {
     let bounds: CGRect
     let title: String?
     let focusedElement: AXUIElement?
+    /// Stage Manager holds the window off stage: `bounds` is its accessibility frame and pointer input is refused.
+    let isOffStage: Bool
 }
 
 /// The window `find_elements` searches: the focused window, else the first window. It never activates the app,
-/// recovers a hidden window or captures the screen.
+/// recovers a hidden window or captures the screen. Window identity and bounds follow the same rules as a full
+/// snapshot: an off-stage window is located by its own id and accessibility frame, and otherwise the window-server
+/// entry of the AX window's own id is preferred, so hits merge into the snapshot of the same window.
 func resolveElementSearchWindow(for app: RunningAppDescriptor) throws -> ElementSearchWindowContext {
     let appElement = AXUIElementCreateApplication(app.pid)
 
@@ -182,7 +166,25 @@ func resolveElementSearchWindow(for app: RunningAppDescriptor) throws -> Element
     let title = elementSearchString(
         elementSearchCopyBatchedValues(of: windowRoot, attributes: [kAXTitleAttribute as String])[0]
     )
-    guard let candidate = elementSearchWindowCandidate(pid: app.pid, titleHint: title) else {
+    let focusedElement = elementSearchCopyElement(appElement, attribute: kAXFocusedUIElementAttribute as String)
+
+    if let offStage = liveOffStageWindow(for: windowRoot) {
+        return ElementSearchWindowContext(
+            root: windowRoot,
+            windowID: offStage.windowID,
+            layer: 0,
+            bounds: offStage.accessibilityFrame,
+            title: title,
+            focusedElement: focusedElement,
+            isOffStage: true
+        )
+    }
+
+    guard let candidate = elementSearchWindowCandidate(
+        pid: app.pid,
+        titleHint: title,
+        accessibilityWindowID: accessibilityWindowID(of: windowRoot)
+    ) else {
         throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
     }
 
@@ -192,12 +194,17 @@ func resolveElementSearchWindow(for app: RunningAppDescriptor) throws -> Element
         layer: candidate.layer,
         bounds: candidate.bounds,
         title: title,
-        focusedElement: elementSearchCopyElement(appElement, attribute: kAXFocusedUIElementAttribute as String)
+        focusedElement: focusedElement,
+        isOffStage: false
     )
 }
 
 /// Window id, layer and bounds from the window list, without capturing an image.
-private func elementSearchWindowCandidate(pid: pid_t, titleHint: String?) -> WindowCaptureCandidate? {
+private func elementSearchWindowCandidate(
+    pid: pid_t,
+    titleHint: String?,
+    accessibilityWindowID: CGWindowID?
+) -> WindowCaptureCandidate? {
     guard let infoList = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
         return nil
     }
@@ -225,7 +232,33 @@ private func elementSearchWindowCandidate(pid: pid_t, titleHint: String?) -> Win
         )
     }
 
-    return preferredWindowCaptureCandidate(candidates, titleHint: titleHint)
+    // Read lazily, as the snapshot path does: only a window in front of the chosen one needs its modal flag.
+    var nonModalWindowIDs: Set<CGWindowID>?
+    return preferredWindowCaptureCandidate(
+        candidates,
+        titleHint: titleHint,
+        preferredWindowID: accessibilityWindowID,
+        isNonModalAccessibilityWindow: { windowID in
+            if nonModalWindowIDs == nil {
+                nonModalWindowIDs = elementSearchNonModalWindowIDs(pid: pid)
+            }
+            return nonModalWindowIDs?.contains(windowID) ?? false
+        }
+    )
+}
+
+/// The app's accessibility windows that report `AXModal == false`, by window-server id; the same input the snapshot
+/// path gives `preferredWindowCaptureCandidate`, so a non-modal overlay such as Mail's search suggestions does not
+/// replace the searched window.
+private func elementSearchNonModalWindowIDs(pid: pid_t) -> Set<CGWindowID> {
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value) == .success else {
+        return []
+    }
+    return nonModalAccessibilityWindowIDs(elementSearchElements(value).map { window in
+        let modal = elementSearchCopyBatchedValues(of: window, attributes: [kAXModalAttribute as String])[0]
+        return (windowID: accessibilityWindowID(of: window), isModal: modal.flatMap { $0 as? Bool })
+    })
 }
 
 // MARK: - Hit details
