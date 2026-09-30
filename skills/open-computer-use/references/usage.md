@@ -85,6 +85,10 @@ The same `text_limit` tool argument and `--text-limit` snapshot flag apply on ma
 
 Action tools return refreshed app state with the default 500 character text limit. If longer text is still needed after an action, run `get_app_state` again with `text_limit: 1000` or `text_limit: "max"`.
 
+On macOS, action results are text-only by default; add `include_screenshot: true` to any action (or to `perform_actions`) to attach the window screenshot. A screenshot is attached automatically when the window exposes no accessibility elements (menu-bar items do not count). The Linux and Windows runtimes still attach the screenshot to every action result and reject `include_screenshot` as an unknown argument, so do not send it there.
+
+Under Stage Manager, a macOS window that is off stage (shown in the left strip) has no screenshot: `get_app_state` and action results return the full accessibility tree plus a note saying so, `element_index` actions still work, and x/y `click` / `drag` fail with an error. The server never switches stages or activates the app to fix this; bring the window on stage yourself if you need a screenshot or coordinates.
+
 ## Larger Tree Budgets
 
 Accessibility tree rendering defaults to 1200 nodes and 64 levels on macOS, Linux, and Windows. This keeps normal snapshots bounded while preserving most interactive UI.
@@ -101,9 +105,11 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 ## Choosing Targets
 
 - Prefer app names or bundle identifiers returned by `list_apps`.
-- Run `get_app_state` immediately before element-targeted actions.
+- Run `get_app_state` at the start of a turn before using `element_index`; within a turn, use indices from the latest `get_app_state` or action result. Do not guess indexes across sessions or after large UI changes.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
+- Mail search: click the toolbar search field by `element_index`, then `type_text` and `press_key Return`; this works while Mail stays in the background. A keyboard shortcut such as `cmd+option+f` does not move focus in a background app, and `set_value` fills the field but does not run the search. `press_key Escape` clears the search.
+- `type_text` never brings the app to the front. It needs a focused text field: check that the focus line of the latest state names the field. When no text field holds focus, `type_text` fails instead of typing into whatever else has focus. Click the field by `element_index` first: clicking a text field (text field, text area, combo box, search or secure field) also writes its accessibility focus, so the field takes keyboard focus without the app coming to the front. Or use `set_value`; `set_value` with `""` clears a field.
 
 ## Choosing a Click Method
 
@@ -150,9 +156,40 @@ Every non-fixture `drag` result includes a text item that begins `Drag delivered
 
 When the gate is not enabled, treat window-server drags as unavailable and reach the same outcome another way: copy or move files with a shell command instead of a Finder drag, use `set_value` or keyboard selection instead of drag-selecting text, and use the app's own window controls instead of dragging a title bar.
 
+## Batching Actions (macOS)
+
+`perform_actions` runs a short, fully specified sequence on one app in a single call. Each step is a `{tool, args}` object, the same shape as the CLI `--calls` entries, with `args` holding the single tool's arguments minus `app`. Allowed step tools are `click`, `type_text`, `press_key`, `set_value`, `scroll`, and `perform_secondary_action`; a batch holds 1 to 10 steps.
+
+- Steps run in order and stop at the first failure. The result has one line per step, then one final app state.
+- Every `element_index` refers to the state you last received, so a step cannot target an element that an earlier step in the same batch reveals.
+- A batch with any `element_index` step is refused before any step runs when this session holds no state for the app; call `get_app_state` first. Coordinate-only and key-only batches still run.
+- Live focus and window geometry are read per step, and nearby hit-testing is off inside a batch.
+- The batch holds the per-call environment lock for its whole duration.
+- Keep externally visible steps such as Send in their own call, after you confirm them.
+
+Mail search as a batch: click the toolbar search field by `element_index`, type, then press Return. Clicking the field gives it keyboard focus while Mail stays in the background; a shortcut such as `cmd+option+f` would not, so `type_text` would fail. Every CLI `call` is a new process with no cached state, so run `get_app_state` in the same `--calls` array as `perform_actions`. Read the search field's index from a `get_app_state` result first (`"12"` below stands for it); it stays valid while Mail's window does not change:
+
+```sh
+open-computer-use call --calls '[
+  {"tool":"get_app_state","args":{"app":"Mail"}},
+  {"tool":"perform_actions","args":{
+    "app":"Mail",
+    "actions":[
+      {"tool":"click","args":{"element_index":"12"}},
+      {"tool":"type_text","args":{"text":"invoice"}},
+      {"tool":"press_key","args":{"key":"Return"}}
+    ]
+  }}
+]'
+```
+
+Over MCP the session keeps the state, so call `get_app_state` for Mail, then `perform_actions` with the same `actions` array, using the search field's index from that state.
+
 ## Platform Notes
 
 ### macOS
+
+`perform_actions` is macOS-only; the Windows and Linux runtimes do not have it.
 
 The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and an explicit private-SkyLight `sky_click` route. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
 

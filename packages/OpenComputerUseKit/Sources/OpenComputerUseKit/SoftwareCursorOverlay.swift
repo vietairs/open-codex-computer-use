@@ -24,6 +24,15 @@ public enum VisualCursorSupport {
     }
 }
 
+/// Upper bound on the blocking cursor travel before a click or set_value. The recovered official timing (1.43s) is
+/// kept in CursorMotionModel for parity; only the overlay's wall-clock duration is capped.
+let visualCursorTravelDurationCap: CGFloat = 0.3
+
+func visualCursorTravelDuration(calibrated: CGFloat, cap: CGFloat = visualCursorTravelDurationCap) -> CGFloat {
+    guard calibrated.isFinite, calibrated > 0 else { return calibrated }
+    return min(calibrated, cap)
+}
+
 func visualCursorEnabled(environment: [String: String]) -> Bool {
     guard let rawValue = environment["OPEN_COMPUTER_USE_VISUAL_CURSOR"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
         return true
@@ -351,10 +360,10 @@ enum SoftwareCursorOverlay {
         // Use the recovered official progress spring timing instead of the older
         // distance-compressed local duration, otherwise medium and long moves feel
         // noticeably faster than the bundled app.
-        let duration = OfficialCursorMotionModel.calibratedTravelDuration(
+        let duration = visualCursorTravelDuration(calibrated: OfficialCursorMotionModel.calibratedTravelDuration(
             distance: distanceBetween(start, end),
             measurement: candidate.measurement
-        )
+        ))
         let springTargetDuration = OfficialCursorMotionModel.closeEnoughTime
         let startTime = CACurrentMediaTime()
         var progress: CGFloat = 0

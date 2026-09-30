@@ -120,64 +120,8 @@ public enum DecisionRemoteBackendConfigLoader {
         return DecisionRemoteBackendConfig(baseURL: baseURL, model: model, apiKey: apiKey)
     }
 
-    /// Opens the file by path exactly once and validates the *opened descriptor*, not a separate `lstat`/`stat` of
-    /// the path: `O_NOFOLLOW` refuses a symlink at `open(2)` itself (no TOCTOU window where the path could be
-    /// swapped between a check and a later open), `O_NONBLOCK` keeps a FIFO from blocking this call forever if the
-    /// path were ever swapped for one, and every check below (`fstat`, size, the read loop) runs against that same
-    /// fd — so nothing here re-resolves the path a second time.
     private static func readValidated(path: String) throws -> Data {
-        let fd = path.withCString { open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) }
-        guard fd >= 0 else {
-            // Distinguish "nothing there" from every other `open` failure (permission denied, too many open files,
-            // a path component that is not a directory, …), so an error message never claims a config file is
-            // simply missing when the real cause was something else. `strerror` text is a fixed, safe libc string —
-            // never file contents or a config value.
-            switch errno {
-            case ELOOP:
-                throw DecisionModelError.remoteConfig("\(path) must be a regular file, not a symlink")
-            case ENOENT:
-                throw DecisionModelError.remoteConfig("no remote-backend config file at \(path)")
-            default:
-                throw DecisionModelError.remoteConfig("\(path) could not be opened (\(String(cString: strerror(errno))))")
-            }
-        }
-        defer { close(fd) }
-
-        var status = stat()
-        guard fstat(fd, &status) == 0 else {
-            throw DecisionModelError.remoteConfig("\(path) could not be inspected")
-        }
-        // A symlink cannot reach here (O_NOFOLLOW above); this refuses a FIFO, device, directory, or any other
-        // non-regular file opened without blocking, before ever reading it.
-        guard status.st_mode & S_IFMT == S_IFREG else {
-            throw DecisionModelError.remoteConfig("\(path) must be a regular file")
-        }
-        guard status.st_uid == getuid() else {
-            throw DecisionModelError.remoteConfig("\(path) must be owned by the current user")
-        }
-        guard status.st_mode & 0o077 == 0 else {
-            throw DecisionModelError.remoteConfig("\(path) must not be readable or writable by group or other")
-        }
-        guard status.st_size <= maxFileSizeBytes else {
-            throw DecisionModelError.remoteConfig("\(path) exceeds the \(maxFileSizeBytes)-byte size cap")
-        }
-
-        var data = Data()
-        var buffer = [UInt8](repeating: 0, count: 4096)
-        while true {
-            let bytesRead = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-            if bytesRead < 0 {
-                throw DecisionModelError.remoteConfig("\(path) is unreadable")
-            }
-            if bytesRead == 0 { break }
-            data.append(buffer, count: bytesRead)
-            // Defence in depth beyond the fstat size check above: never buffer more than the cap even if the file
-            // grows between fstat and this read.
-            guard data.count <= maxFileSizeBytes else {
-                throw DecisionModelError.remoteConfig("\(path) exceeds the \(maxFileSizeBytes)-byte size cap")
-            }
-        }
-        return data
+        try readOwnerOnlyRegularFile(path: path, maxBytes: maxFileSizeBytes, fileDescription: "remote-backend config file")
     }
 
     /// https only, non-empty host, optional port 1-65535, no userinfo/query/fragment, path empty or "/". Stored
@@ -219,4 +163,64 @@ public enum DecisionRemoteBackendConfigLoader {
         guard (1...maxAPIKeyCharacters).contains(value.count) else { return false }
         return value.unicodeScalars.allSatisfy { (0x21...0x7E).contains($0.value) }
     }
+}
+
+/// Opens the file by path exactly once and validates the *opened descriptor*, not a separate `lstat`/`stat` of
+/// the path: `O_NOFOLLOW` refuses a symlink at `open(2)` itself (no TOCTOU window where the path could be
+/// swapped between a check and a later open), `O_NONBLOCK` keeps a FIFO from blocking this call forever if the
+/// path were ever swapped for one, and every check below (`fstat`, size, the read loop) runs against that same
+/// fd — so nothing here re-resolves the path a second time.
+func readOwnerOnlyRegularFile(path: String, maxBytes: Int, fileDescription: String) throws -> Data {
+    let fd = path.withCString { open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) }
+    guard fd >= 0 else {
+        // Distinguish "nothing there" from every other `open` failure (permission denied, too many open files,
+        // a path component that is not a directory, …), so an error message never claims the file is
+        // simply missing when the real cause was something else. `strerror` text is a fixed, safe libc string —
+        // never file contents or a config value.
+        switch errno {
+        case ELOOP:
+            throw DecisionModelError.remoteConfig("\(path) must be a regular file, not a symlink")
+        case ENOENT:
+            throw DecisionModelError.remoteConfig("no \(fileDescription) at \(path)")
+        default:
+            throw DecisionModelError.remoteConfig("\(path) could not be opened (\(String(cString: strerror(errno))))")
+        }
+    }
+    defer { close(fd) }
+
+    var status = stat()
+    guard fstat(fd, &status) == 0 else {
+        throw DecisionModelError.remoteConfig("\(path) could not be inspected")
+    }
+    // A symlink cannot reach here (O_NOFOLLOW above); this refuses a FIFO, device, directory, or any other
+    // non-regular file opened without blocking, before ever reading it.
+    guard status.st_mode & S_IFMT == S_IFREG else {
+        throw DecisionModelError.remoteConfig("\(path) must be a regular file")
+    }
+    guard status.st_uid == getuid() else {
+        throw DecisionModelError.remoteConfig("\(path) must be owned by the current user")
+    }
+    guard status.st_mode & 0o077 == 0 else {
+        throw DecisionModelError.remoteConfig("\(path) must not be readable or writable by group or other")
+    }
+    guard status.st_size <= maxBytes else {
+        throw DecisionModelError.remoteConfig("\(path) exceeds the \(maxBytes)-byte size cap")
+    }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    while true {
+        let bytesRead = buffer.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
+        if bytesRead < 0 {
+            throw DecisionModelError.remoteConfig("\(path) is unreadable")
+        }
+        if bytesRead == 0 { break }
+        data.append(buffer, count: bytesRead)
+        // Defence in depth beyond the fstat size check above: never buffer more than the cap even if the file
+        // grows between fstat and this read.
+        guard data.count <= maxBytes else {
+            throw DecisionModelError.remoteConfig("\(path) exceeds the \(maxBytes)-byte size cap")
+        }
+    }
+    return data
 }

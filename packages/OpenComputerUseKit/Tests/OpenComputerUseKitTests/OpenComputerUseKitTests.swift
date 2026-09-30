@@ -253,7 +253,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 9)
+        XCTAssertEqual(ToolDefinitions.all.count, 10)
     }
 
     func testReadToolArgumentsAcceptsJSONObject() throws {
@@ -749,6 +749,59 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(result.primaryText, "pages must be > 0")
     }
 
+    func testClickRejectsClickCountOutsideOneToThreeWithoutTrapping() {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+        let invalid: [Any] = [1e20, Double.infinity, Double.nan, 9_223_372_036_854_775_808.0, 0, -1, 4, 100_000, 1.5, true, "2"]
+
+        for value in invalid {
+            let result = dispatcher.callToolAsResult(
+                name: "click",
+                arguments: ["app": "Sublime Text", "element_index": "1", "click_count": value]
+            )
+            XCTAssertTrue(result.isError, "click_count \(value) was accepted")
+            XCTAssertTrue((result.primaryText ?? "").contains("click_count"), "click_count \(value): \(result.primaryText ?? "")")
+        }
+    }
+
+    /// Real MCP and CLI input reaches the dispatcher through `JSONSerialization`, where JSON `true` is an
+    /// NSNumber that bridges to `Int` 1. Build the arguments the same way so the boolean case is not a false pass.
+    func testClickCountFromDecodedJSONRejectsBooleansStringsAndOutOfRangeNumbers() throws {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+
+        func decodedArguments(clickCountJSON: String) throws -> [String: Any] {
+            let json = #"{"app": "Sublime Text", "element_index": "1", "click_count": \#(clickCountJSON)}"#
+            return try XCTUnwrap(
+                JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any],
+                "could not decode \(json)"
+            )
+        }
+
+        for literal in ["true", "false", #""2""#, "0", "4", "1.5", "1e20", "9223372036854775808"] {
+            let result = dispatcher.callToolAsResult(name: "click", arguments: try decodedArguments(clickCountJSON: literal))
+            XCTAssertTrue(result.isError, "click_count \(literal) was accepted")
+            XCTAssertTrue((result.primaryText ?? "").contains("click_count"), "click_count \(literal): \(result.primaryText ?? "")")
+        }
+
+        for literal in ["1", "2", "2.0", "3"] {
+            let result = dispatcher.callToolAsResult(name: "click", arguments: try decodedArguments(clickCountJSON: literal))
+            // The app does not exist here, so the call still fails, but never on click_count.
+            XCTAssertFalse((result.primaryText ?? "").contains("click_count"), "click_count \(literal) was refused")
+        }
+    }
+
+    func testClickAcceptsSingleDoubleAndTripleClickCounts() {
+        let dispatcher = ComputerUseToolDispatcher(guard: MacSessionGuard(provider: FakeUnlockedSessionProvider()))
+
+        for value in [1, 2, 3, 2.0] as [Any] {
+            let result = dispatcher.callToolAsResult(
+                name: "click",
+                arguments: ["app": "Sublime Text", "element_index": "1", "click_count": value]
+            )
+            // The app does not exist here, so the call still fails, but never on click_count.
+            XCTAssertFalse((result.primaryText ?? "").contains("click_count"), "click_count \(value) was refused")
+        }
+    }
+
     func testGetAppStateRejectsUnparseableCompactFlag() {
         // Silently ignoring it would return the full tree plus a screenshot — the most expensive
         // possible answer to a request that explicitly asked for the cheapest.
@@ -928,20 +981,12 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
-    func testActivationOnlyClickFallbackRejectsPlainStaticText() {
-        XCTAssertFalse(canUseActivationOnlyClickFallback(role: kAXStaticTextRole as String))
-    }
-
-    func testActivationOnlyClickFallbackKeepsWindowRaisePath() {
-        XCTAssertTrue(canUseActivationOnlyClickFallback(role: kAXWindowRole as String))
-    }
-
     func testKeyboardTextFallbackRejectsPlainWebArea() {
         XCTAssertFalse(
             canUseKeyboardTextFallback(
                 role: "AXWebArea",
-                roleDescription: "HTML content",
-                isValueSettable: false
+                subrole: nil,
+                roleDescription: "HTML content"
             )
         )
     }
@@ -950,20 +995,38 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(
             canUseKeyboardTextFallback(
                 role: kAXTextFieldRole as String,
-                roleDescription: "text field",
-                isValueSettable: false
+                subrole: nil,
+                roleDescription: "text field"
             )
         )
     }
 
-    func testKeyboardTextFallbackAcceptsSettableValueElement() {
+    func testKeyboardTextFallbackAcceptsWebTextEntryByRoleDescription() {
         XCTAssertTrue(
             canUseKeyboardTextFallback(
                 role: kAXGroupRole as String,
-                roleDescription: "text entry area",
-                isValueSettable: true
+                subrole: nil,
+                roleDescription: "text entry area"
             )
         )
+    }
+
+    func testKeyboardTextFallbackAcceptsTextEntryRolesAndSubroles() {
+        for role in ["AXTextField", "AXTextArea", "AXTextView", "AXComboBox", "AXSecureTextField"] {
+            XCTAssertTrue(canUseKeyboardTextFallback(role: role, subrole: nil, roleDescription: nil), role)
+        }
+        for subrole in ["AXSearchField", "AXSecureTextField"] {
+            XCTAssertTrue(
+                canUseKeyboardTextFallback(role: "AXTextField", subrole: subrole, roleDescription: nil),
+                subrole
+            )
+        }
+    }
+
+    func testKeyboardTextFallbackRejectsNonTextControls() {
+        for (role, description) in [("AXSlider", "slider"), ("AXList", "list"), ("AXIncrementor", "stepper")] {
+            XCTAssertFalse(canUseKeyboardTextFallback(role: role, subrole: nil, roleDescription: description), role)
+        }
     }
 
     func testSnapshotRenderedTextStartsDirectlyWithAppHeader() {
@@ -2411,6 +2474,77 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(selected?.windowID, main.windowID)
     }
 
+    private func captureCandidate(
+        _ windowID: CGWindowID,
+        bounds: CGRect,
+        title: String? = nil,
+        frontToBackIndex: Int,
+        isOnscreen: Bool
+    ) -> WindowCaptureCandidate {
+        WindowCaptureCandidate(
+            windowID: windowID,
+            layer: 0,
+            bounds: bounds,
+            title: title,
+            area: Int(bounds.width * bounds.height),
+            frontToBackIndex: frontToBackIndex,
+            isOnscreen: isOnscreen
+        )
+    }
+
+    func testWindowCapturePrefersAccessibilityRootOverEarlierOffscreenWindow() {
+        let phantom = captureCandidate(4352, bounds: CGRect(x: 0, y: 0, width: 420, height: 632), title: "Message", frontToBackIndex: 0, isOnscreen: false)
+        let hidden = captureCandidate(4346, bounds: CGRect(x: 0, y: 0, width: 500, height: 500), frontToBackIndex: 1, isOnscreen: false)
+        let viewer = captureCandidate(4344, bounds: CGRect(x: 0, y: 25, width: 1_458, height: 1_021), title: "Inbox", frontToBackIndex: 2, isOnscreen: true)
+
+        let selected = preferredWindowCaptureCandidate([phantom, hidden, viewer], titleHint: "Message", preferredWindowID: 4344)
+
+        XCTAssertEqual(selected?.windowID, viewer.windowID)
+    }
+
+    func testWindowCapturePrefersOffscreenAccessibilityRootOverOnscreenWindow() {
+        let onscreen = captureCandidate(1, bounds: CGRect(x: 0, y: 0, width: 800, height: 600), frontToBackIndex: 0, isOnscreen: true)
+        let root = captureCandidate(2, bounds: CGRect(x: 0, y: 0, width: 800, height: 600), frontToBackIndex: 1, isOnscreen: false)
+
+        let selected = preferredWindowCaptureCandidate([onscreen, root], titleHint: nil, preferredWindowID: 2)
+
+        XCTAssertEqual(selected?.windowID, root.windowID)
+    }
+
+    func testWindowCaptureKeepsOverlappingModalInFrontOfAccessibilityRoot() {
+        let panel = captureCandidate(2, bounds: CGRect(x: 120, y: 180, width: 880, height: 448), title: "Open", frontToBackIndex: 0, isOnscreen: true)
+        let main = captureCandidate(1, bounds: CGRect(x: 100, y: 100, width: 800, height: 600), title: "Nomi", frontToBackIndex: 1, isOnscreen: true)
+
+        let selected = preferredWindowCaptureCandidate([panel, main], titleHint: "Nomi", preferredWindowID: 1)
+
+        XCTAssertEqual(selected?.windowID, panel.windowID)
+    }
+
+    func testWindowCaptureWithoutAccessibilityIDPrefersOnscreenOverEarlierOffscreenWindow() {
+        let phantom = captureCandidate(4352, bounds: CGRect(x: 0, y: 0, width: 420, height: 632), title: "Inbox", frontToBackIndex: 0, isOnscreen: false)
+        let viewer = captureCandidate(4344, bounds: CGRect(x: 0, y: 25, width: 1_458, height: 1_021), title: "Inbox", frontToBackIndex: 1, isOnscreen: true)
+
+        XCTAssertEqual(preferredWindowCaptureCandidate([phantom, viewer], titleHint: nil)?.windowID, viewer.windowID)
+        XCTAssertEqual(preferredWindowCaptureCandidate([phantom, viewer], titleHint: "Inbox")?.windowID, viewer.windowID)
+    }
+
+    func testWindowCaptureUnknownAccessibilityIDFallsBackToOnscreenWindow() {
+        let phantom = captureCandidate(10, bounds: CGRect(x: 0, y: 0, width: 420, height: 632), frontToBackIndex: 0, isOnscreen: false)
+        let viewer = captureCandidate(11, bounds: CGRect(x: 0, y: 25, width: 1_458, height: 1_021), frontToBackIndex: 1, isOnscreen: true)
+
+        let selected = preferredWindowCaptureCandidate([phantom, viewer], titleHint: nil, preferredWindowID: 99)
+
+        XCTAssertEqual(selected?.windowID, viewer.windowID)
+    }
+
+    func testWindowCaptureAllOffscreenKeepsZOrderAndTitleHint() {
+        let front = captureCandidate(1, bounds: CGRect(x: 0, y: 0, width: 400, height: 300), title: "Front", frontToBackIndex: 0, isOnscreen: false)
+        let back = captureCandidate(2, bounds: CGRect(x: 1_000, y: 0, width: 800, height: 600), title: "Back", frontToBackIndex: 1, isOnscreen: false)
+
+        XCTAssertEqual(preferredWindowCaptureCandidate([back, front], titleHint: nil)?.windowID, front.windowID)
+        XCTAssertEqual(preferredWindowCaptureCandidate([back, front], titleHint: "Back")?.windowID, back.windowID)
+    }
+
     func testListTraversalPrefersVisibleChildrenAndReadsContents() {
         let attributes = childTraversalAttributes(
             role: kAXListRole as String,
@@ -2962,8 +3096,8 @@ final class OpenComputerUseKitTests: XCTestCase {
         let lockedGuard = MacSessionGuard(provider: FakeLockedSessionProvider())
         let dispatcher = ComputerUseToolDispatcher(service: ComputerUseService(), guard: lockedGuard)
         let guiTools = ["list_apps", "get_app_state", "click", "perform_secondary_action",
-                        "scroll", "drag", "type_text", "press_key", "set_value"]
-        XCTAssertEqual(guiTools.count, 9)
+                        "scroll", "drag", "type_text", "press_key", "set_value", "perform_actions"]
+        XCTAssertEqual(guiTools.count, 10)
         for tool in guiTools {
             let result = dispatcher.callToolAsResult(name: tool, arguments: ["app": "Finder"])
             XCTAssertTrue(result.isError, "Expected error for tool: \(tool)")
@@ -3192,7 +3326,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: focusedSummary,
             focusedElement: focusedElement,
             selectedText: selectedText,
-            elements: elements
+            elements: elements,
+            windowContentIsEmpty: elements.isEmpty
         )
     }
 
@@ -3465,7 +3600,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 
@@ -3488,7 +3624,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 
@@ -3511,7 +3648,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             focusedSummary: nil,
             focusedElement: nil,
             selectedText: nil,
-            elements: [:]
+            elements: [:],
+            windowContentIsEmpty: true
         )
     }
 

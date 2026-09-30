@@ -32,7 +32,7 @@ public enum ToolDefinitions {
     public static let all: [ToolDefinition] = [
         ToolDefinition(
             name: "click",
-            description: "Click an element by index or pixel coordinates from screenshot. This tool is part of plugin `Computer Use`.",
+            description: "Click an element by index or pixel coordinates from screenshot. Clicking a text field by element_index gives it keyboard focus without bringing the app to the front, so type_text can follow. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
@@ -40,7 +40,7 @@ public enum ToolDefinitions {
                     "element_index": stringProperty(description: "Element index to click"),
                     "x": numberProperty(description: "X coordinate in screenshot pixel coordinates"),
                     "y": numberProperty(description: "Y coordinate in screenshot pixel coordinates"),
-                    "click_count": integerProperty(description: "Number of clicks. Defaults to 1"),
+                    "click_count": integerProperty(description: "Number of clicks, 1 to 3. Defaults to 1."),
                     "mouse_button": stringProperty(
                         description: "Mouse button to click. Defaults to left.",
                         enumValues: ["left", "right", "middle"]
@@ -49,6 +49,7 @@ public enum ToolDefinitions {
                         description: "Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. app_post sends a public event directly to the target app. sky_click uses the macOS SkyLight background window path. Global may move the system pointer and requires OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1.",
                         enumValues: ClickMethod.allCases.map(\.rawValue)
                     ),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app"]
             )
@@ -64,6 +65,7 @@ public enum ToolDefinitions {
                     "from_y": numberProperty(description: "Start Y coordinate"),
                     "to_x": numberProperty(description: "End X coordinate"),
                     "to_y": numberProperty(description: "End Y coordinate"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "from_x", "from_y", "to_x", "to_y"]
             )
@@ -98,6 +100,7 @@ public enum ToolDefinitions {
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "action": stringProperty(description: "Secondary accessibility action name"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "element_index", "action"]
             )
@@ -110,6 +113,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "key": stringProperty(description: "Key or key combination to press"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "key"]
             )
@@ -124,33 +128,68 @@ public enum ToolDefinitions {
                     "direction": stringProperty(description: "Scroll direction: up, down, left, or right"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "pages": numberProperty(description: "Number of pages to scroll. Fractional values are supported. Defaults to 1"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "element_index", "direction"]
             )
         ),
         ToolDefinition(
             name: "set_value",
-            description: "Set the value of a settable accessibility element. This tool is part of plugin `Computer Use`.",
+            description: "Set the value of a settable accessibility element. An empty string clears the field. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "value": stringProperty(description: "Value to assign"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "element_index", "value"]
             )
         ),
         ToolDefinition(
             name: "type_text",
-            description: "Type literal text using keyboard input. This tool is part of plugin `Computer Use`.",
+            description: "Type literal text using keyboard input. Types into the app's focused text field without bringing the app to the front, and fails when no text field holds focus: click the field by element_index first (this focuses it in the background), or use set_value. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "text": stringProperty(description: "Literal text to type"),
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "text"]
+            )
+        ),
+        ToolDefinition(
+            name: "perform_actions",
+            description: "Run a short, fully specified sequence of Computer Use actions on one app in a single call. Steps run in order and stop at the first failure; the result has one line per step followed by one final app state. Every element_index refers to the state you last received for this app. Allowed step tools: click, type_text, press_key, set_value, scroll, perform_secondary_action. This tool is part of plugin `Computer Use`.",
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "app": stringProperty(description: "App name or bundle identifier"),
+                    "actions": [
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": BatchActionRunner.maxSteps,
+                        "items": [
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["tool", "args"],
+                            "properties": [
+                                "tool": stringProperty(
+                                    description: "The single tool to run for this step",
+                                    enumValues: ActionStep.allowedToolNames
+                                ),
+                                "args": [
+                                    "type": "object",
+                                    "description": "The same arguments as the single tool, without app",
+                                ],
+                            ],
+                        ],
+                    ],
+                    "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
+                ],
+                required: ["app", "actions"]
             )
         ),
     ]
@@ -225,6 +264,8 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
 
     return property
 }
+
+private let includeScreenshotPropertyDescription = "Attach a window screenshot to the result. Defaults to false: action results are text-only unless the window exposes no accessibility elements."
 
 private func booleanProperty(description: String) -> [String: Any] {
     [

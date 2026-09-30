@@ -30,6 +30,66 @@ func clickActionSnapshotRecoveryPolicy(for method: ClickMethod) -> SnapshotRecov
     method == .skyClick ? .readOnly : .allowActivation
 }
 
+/// What a core action needs to know about the call it runs in. A single action carries only the screenshot
+/// choice. A batch step also carries the snapshot pinned at batch start, which resolves `element_index` only.
+struct ActionContext {
+    let includeScreenshot: Bool
+    let pinnedSnapshot: AppSnapshot?
+
+    var isBatchStep: Bool { pinnedSnapshot != nil }
+
+    static func single(includeScreenshot: Bool) -> ActionContext {
+        ActionContext(includeScreenshot: includeScreenshot, pinnedSnapshot: nil)
+    }
+
+    static func batchStep(pinned: AppSnapshot) -> ActionContext {
+        ActionContext(includeScreenshot: false, pinnedSnapshot: pinned)
+    }
+}
+
+/// The element `type_text` writes to. A batch reads focus live because an earlier step may have moved it; a single
+/// action keeps using the focus its snapshot recorded (`liveFocus` is not called).
+func typingTargetElement(
+    context: ActionContext,
+    snapshotFocus: AXUIElement?,
+    liveFocus: () -> AXUIElement?
+) -> AXUIElement? {
+    context.isBatchStep ? liveFocus() : snapshotFocus
+}
+
+/// Geometry for one batch step, taken from the live window and the live element frame and never from the pinned
+/// snapshot: the pinned values may be stale after an earlier step, and a stale frame would click the wrong place.
+/// When x/y coordinates are scaled by the screenshot pinned at batch start, that image only describes the window
+/// at its pinned size; after a resize the step fails closed with the same error a single x/y click gives.
+func batchStepGeometry(
+    pinnedWindowBounds: CGRect?,
+    liveWindowBounds: CGRect?,
+    liveLocalFrame: CGRect?,
+    needsElementFrame: Bool,
+    elementIndex: String?,
+    scalesByPinnedScreenshot: Bool = false
+) throws -> (windowBounds: CGRect?, localFrame: CGRect?) {
+    if liveWindowBounds == nil, pinnedWindowBounds != nil {
+        throw ComputerUseError.stateUnavailable("the target window is no longer on screen; call get_app_state")
+    }
+
+    if scalesByPinnedScreenshot, liveWindowBounds?.size != pinnedWindowBounds?.size {
+        throw ComputerUseError.stateUnavailable(screenshotFrameMismatchMessage)
+    }
+
+    guard needsElementFrame else {
+        return (liveWindowBounds, nil)
+    }
+
+    guard let liveLocalFrame else {
+        throw ComputerUseError.stateUnavailable(
+            "element_index \(elementIndex ?? "") is no longer on screen; call get_app_state"
+        )
+    }
+
+    return (liveWindowBounds, liveLocalFrame)
+}
+
 func parseClickMethod(_ rawValue: String?) throws -> ClickMethod {
     let normalized = rawValue?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -229,6 +289,79 @@ func appendingDragDeliveryNote(to result: ToolCallResult, path: DragDeliveryPath
     return ToolCallResult(content: content, isError: result.isError)
 }
 
+/// The screenshot most recently returned to the caller for an app. Text-only action results carry no
+/// image, so x/y coordinates keep referring to this frame until a new screenshot is returned.
+struct ReturnedScreenshotFrame: Equatable {
+    let windowID: CGWindowID?
+    let windowSize: CGSize
+    let pixelSize: CGSize
+}
+
+/// Settle time after an action before its result is read, and between steps of a perform_actions batch.
+let postActionSettleInterval: TimeInterval = 0.15
+
+let screenshotFrameMismatchMessage =
+    "x/y coordinates refer to a screenshot of a different window or window size. Call get_app_state, or repeat the action with include_screenshot=true, and read coordinates from the new screenshot."
+
+/// Picks the pixel size that x/y coordinates are scaled by.
+/// 1. The snapshot's own screenshot wins.
+/// 2. With no screenshot ever returned for the app, there is nothing to scale by (nil, scale 1).
+/// 3. A previously returned screenshot still applies while its window identity and size are unchanged.
+/// 4. Otherwise the coordinates would be read from a stale frame, so fail closed.
+func resolveScreenshotPixelSize(
+    snapshotPixelSize: CGSize?,
+    windowID: CGWindowID?,
+    windowBounds: CGRect?,
+    lastReturned: ReturnedScreenshotFrame?
+) throws -> CGSize? {
+    if let snapshotPixelSize {
+        return snapshotPixelSize
+    }
+
+    guard let lastReturned else {
+        return nil
+    }
+
+    if lastReturned.windowID == windowID, lastReturned.windowSize == windowBounds?.size {
+        return lastReturned.pixelSize
+    }
+
+    throw ComputerUseError.stateUnavailable(screenshotFrameMismatchMessage)
+}
+
+func actionCapturePolicy(includeScreenshot: Bool) -> SnapshotCapturePolicy {
+    includeScreenshot ? .always : .whenTreeEmpty
+}
+
+/// The full state always carries its screenshot, the compact view never does, and an action result
+/// carries one only on request or when the window has no content elements (menu-bar items do not count).
+func shouldAttachScreenshot(style: SnapshotTextStyle, includeScreenshot: Bool, treeIsEmpty: Bool) -> Bool {
+    switch style {
+    case .compactActionable:
+        return false
+    case .fullState:
+        return true
+    case .actionResult:
+        return includeScreenshot || treeIsEmpty
+    }
+}
+
+/// Pixel dimensions from a PNG header, without decoding the image.
+func pngPixelSize(of data: Data) -> CGSize? {
+    guard
+        let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
+        let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+        let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+        let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+        pixelWidth > 0,
+        pixelHeight > 0
+    else {
+        return nil
+    }
+
+    return CGSize(width: pixelWidth, height: pixelHeight)
+}
+
 func screenshotPixelScale(
     screenshotPixelSize: CGSize?,
     windowBounds: CGRect?
@@ -295,6 +428,90 @@ func localClickActionPoints(frame: CGRect, isSyntheticText: Bool) -> [CGPoint] {
     }
 
     return [center, leading]
+}
+
+/// Subroles of a window's title-bar buttons. Pressing one closes, minimizes, zooms or full-screens the window.
+private let windowTitleBarButtonSubroles: Set<String> = [
+    "AXCloseButton",
+    "AXMinimizeButton",
+    "AXZoomButton",
+    "AXFullScreenButton",
+]
+
+/// Pure. Drops window title-bar buttons from the descendants an `auto` click may press on the target's behalf.
+/// On a window target they are often the smallest pressable children, so they would otherwise win the ranking.
+/// A click aimed at such a button by its own element_index never goes through this filter and still works.
+func excludingWindowTitleBarButtons(_ candidates: [ElementRecord]) -> [ElementRecord] {
+    candidates.filter { candidate in
+        guard let subrole = candidate.subrole else {
+            return true
+        }
+        return !windowTitleBarButtonSubroles.contains(subrole)
+    }
+}
+
+/// Pure. True for a tab bar's close button, which apps keep in the tree even while it is hidden: an identifier
+/// containing `_closeButton`, or the description `Close tab`.
+func isTabCloseButton(identifier: String?, description: String?) -> Bool {
+    if let identifier, identifier.localizedCaseInsensitiveContains("_closeButton") {
+        return true
+    }
+    if let description, description.caseInsensitiveCompare("Close tab") == .orderedSame {
+        return true
+    }
+    return false
+}
+
+/// Pure. Drops descendants an `auto` click must not press on the target's behalf: tab close buttons, and controls
+/// that are not on screen inside the target (a zero-width or zero-height frame, or a frame outside the target's).
+/// `closeButtonLabels` reads a candidate's identifier and description; it is only asked for actionable candidates.
+func excludingHiddenAndTabCloseCandidates(
+    _ candidates: [ElementRecord],
+    targetFrame: CGRect?,
+    closeButtonLabels: (ElementRecord) -> (identifier: String?, description: String?)
+) -> [ElementRecord] {
+    candidates.filter { candidate in
+        if let frame = candidate.localFrame {
+            if frame.width <= 0 || frame.height <= 0 {
+                return false
+            }
+            if let targetFrame, !frame.intersects(targetFrame) {
+                return false
+            }
+        }
+        guard !candidate.rawActions.isEmpty else {
+            return true
+        }
+        let labels = closeButtonLabels(candidate)
+        return !isTabCloseButton(identifier: labels.identifier, description: labels.description)
+    }
+}
+
+/// Pure. The refusal text for an element_index click that targets a window itself, or nil when the click may go on.
+/// A window has no press of its own, so an `auto` or `accessibility` click would land on whichever control happens
+/// to sit inside it. Explicit posting methods are the caller's own choice and stay allowed.
+func windowElementClickRefusal(role: String?, method: ClickMethod, elementIndex: String) -> String? {
+    guard role == kAXWindowRole as String, method == .auto || method == .accessibility else {
+        return nil
+    }
+    return "element \(elementIndex) is the window itself; click a control inside it by element_index. "
+        + "Open Computer Use does not raise or select windows."
+}
+
+/// Pure. The first refusal among a batch's element_index clicks, as `step N: ...`, or nil when none applies.
+/// `roleForIndex` reads the role of an element in the batch's pinned snapshot.
+func batchWindowClickRefusal(steps: [ActionStep], roleForIndex: (String) -> String?) -> String? {
+    for (offset, step) in steps.enumerated() {
+        guard case let .click(elementIndex?, _, _, _, _, clickMethod) = step,
+              let refusal = windowElementClickRefusal(
+                  role: roleForIndex(elementIndex), method: clickMethod, elementIndex: elementIndex
+              )
+        else {
+            continue
+        }
+        return "step \(offset + 1): \(refusal)"
+    }
+    return nil
 }
 
 func isLikelySyntheticSideActionCandidate(
@@ -383,28 +600,16 @@ func isLikelyContainingRowActionFrame(
     return true
 }
 
-func canUseActivationOnlyClickFallback(role: String?) -> Bool {
-    guard let role else {
-        return false
-    }
-
-    return role == kAXWindowRole as String
-}
-
-func canUseKeyboardTextFallback(role: String?, roleDescription: String?, isValueSettable: Bool) -> Bool {
-    if isValueSettable {
+/// Pure. Whether the element is a text-entry control, judged by role, subrole and role description only.
+///
+/// Value settability is deliberately not a signal: sliders, steppers and some lists and tables expose a settable
+/// AXValue, and typing into them would move a selection or a setting instead of entering text.
+func canUseKeyboardTextFallback(role: String?, subrole: String?, roleDescription: String?) -> Bool {
+    if isClickFocusTextEntry(role: role, subrole: subrole) {
         return true
     }
 
-    guard let role else {
-        return false
-    }
-
-    if role == kAXTextFieldRole as String || role == "AXTextArea" || role == "AXTextView" {
-        return true
-    }
-
-    guard let roleDescription = roleDescription?.lowercased() else {
+    guard role != nil, let roleDescription = roleDescription?.lowercased() else {
         return false
     }
 
@@ -458,6 +663,7 @@ func shouldPreferContainingWebRowAXClickCandidate(
 
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
+    private var lastReturnedScreenshotFrames: [pid_t: ReturnedScreenshotFrame] = [:]
 
     public init() {}
 
@@ -504,7 +710,7 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("goal must not be empty")
         }
 
-        let snapshot = try refreshSnapshot(for: query)
+        let snapshot = try refreshSnapshot(for: query, capture: .never)
         let appName = snapshot.app.name
         let renderedFull = snapshot.renderedText(style: .fullState)
         let renderedCompact = snapshot.renderedText(style: .compactActionable)
@@ -586,7 +792,10 @@ public final class ComputerUseService {
             )
         case .remote(let config):
             return (
-                DecisionJevClient(config: config, transport: transport, deadline: deadline),
+                DecisionJevClient(
+                    config: config, transport: transport, deadline: deadline, now: Date.init,
+                    diskCache: DecisionJevLetterDiskCache(directory: DecisionJevLetterDiskCache.productionDirectory)
+                ),
                 DecisionJevClient.pageSize, DecisionJevClient.maxPages, nil
             )
         }
@@ -599,7 +808,30 @@ public final class ComputerUseService {
         y: Double?,
         clickCount: Int,
         mouseButton: String,
-        clickMethod: ClickMethod = .auto
+        clickMethod: ClickMethod = .auto,
+        includeScreenshot: Bool = false
+    ) throws -> ToolCallResult {
+        try click(
+            app: query,
+            elementIndex: elementIndex,
+            x: x,
+            y: y,
+            clickCount: clickCount,
+            mouseButton: mouseButton,
+            clickMethod: clickMethod,
+            context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func click(
+        app query: String,
+        elementIndex: String?,
+        x: Double?,
+        y: Double?,
+        clickCount: Int,
+        mouseButton: String,
+        clickMethod: ClickMethod,
+        context: ActionContext
     ) throws -> ToolCallResult {
         try validateClickMethod(
             clickMethod,
@@ -612,7 +844,7 @@ public final class ComputerUseService {
             clickCount: clickCount
         )
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
             guard clickMethod == .auto else {
@@ -639,18 +871,22 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
             }
 
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, context: context)
         }
 
         if let elementIndex {
             let record = try lookupElement(snapshot: snapshot, index: elementIndex)
+            if let refusal = windowElementClickRefusal(role: record.role, method: clickMethod, elementIndex: elementIndex) {
+                throw ComputerUseError.invalidArguments(refusal)
+            }
             guard let windowPoint = clickPoint(for: record, snapshot: snapshot) else {
                 throw ComputerUseError.stateUnavailable("element \(elementIndex) has no clickable frame")
             }
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: windowPoint)
-            let cursorTarget = makeVisualCursorTarget(
+            // An off-stage window is not where its AX frame says, so the software cursor would point at empty space.
+            let cursorTarget: VisualCursorTarget? = snapshot.isOffStage ? nil : makeVisualCursorTarget(
                 at: targetPoint,
                 targetWindowID: snapshot.targetWindowID,
                 targetWindowLayer: snapshot.targetWindowLayer
@@ -666,8 +902,7 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: true,
-                        allowActivationFallback: true
+                        includeNearbyHitTesting: !context.isBatchStep
                     )) {
                         try performNonAXClickFallback(
                             at: targetPoint,
@@ -683,8 +918,7 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: true,
-                        allowActivationFallback: true
+                        includeNearbyHitTesting: !context.isBatchStep
                     ) else {
                         throw ComputerUseError.message(
                             "click_method 'accessibility' could not click element_index=\(elementIndex)"
@@ -706,10 +940,22 @@ public final class ComputerUseService {
                 throw error
             }
 
+            // A click on a background app's text field does not move its keyboard focus; an accessibility focus
+            // write does, without activating the app. Only a primary click means "put the caret here".
+            if button == .left, let element = record.element {
+                focusTextEntryAfterClick(
+                    role: record.role,
+                    readSubrole: { stringValue(of: element, attribute: kAXSubroleAttribute) },
+                    isFocusSettable: { isSettable(element: element, attribute: kAXFocusedAttribute) },
+                    setFocused: { writeClickedTextEntryFocus(element) }
+                )
+            }
+
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
         } else if let x, let y {
+            try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
             let screenshotPoint = CGPoint(x: x, y: y)
-            let point = screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
+            let point = try screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
             let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
@@ -730,8 +976,7 @@ public final class ComputerUseService {
                             snapshot: snapshot,
                             button: button,
                             clickCount: clickCount,
-                            includeNearbyHitTesting: false,
-                            allowActivationFallback: false
+                            includeNearbyHitTesting: false
                         ) {
                             handled = true
                             break
@@ -770,17 +1015,21 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
         }
 
-        return snapshotResult(
-            for: try refreshSnapshot(
-                for: query,
-                recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
-            ),
-            style: .actionResult
+        return try finishAction(
+            query: query,
+            context: context,
+            recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
         )
     }
 
-    public func performSecondaryAction(app query: String, elementIndex: String, action: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    public func performSecondaryAction(app query: String, elementIndex: String, action: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
+        try performSecondaryAction(
+            app: query, elementIndex: elementIndex, action: action, context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func performSecondaryAction(app query: String, elementIndex: String, action: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -788,7 +1037,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.message(invalidSecondaryActionMessage(action: action, record: record))
             }
 
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, context: context)
         }
 
         guard let rawAction = matchingAction(requested: action, record: record) else {
@@ -804,11 +1053,18 @@ public final class ComputerUseService {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
         }
 
-        Thread.sleep(forTimeInterval: 0.15)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        Thread.sleep(forTimeInterval: postActionSettleInterval)
+        return try finishAction(query: query, context: context)
     }
 
-    public func scroll(app query: String, direction: String, elementIndex: String, pages: Double) throws -> ToolCallResult {
+    public func scroll(app query: String, direction: String, elementIndex: String, pages: Double, includeScreenshot: Bool = false) throws -> ToolCallResult {
+        try scroll(
+            app: query, direction: direction, elementIndex: elementIndex, pages: pages,
+            context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func scroll(app query: String, direction: String, elementIndex: String, pages: Double, context: ActionContext) throws -> ToolCallResult {
         let normalized = direction.lowercased()
         guard ["up", "down", "left", "right"].contains(normalized) else {
             throw ComputerUseError.message("Invalid scroll direction: \(direction)")
@@ -817,7 +1073,7 @@ public final class ComputerUseService {
             throw ComputerUseError.message("pages must be > 0")
         }
 
-        let snapshot = try currentSnapshot(for: query)
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -825,8 +1081,8 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("fixture scroll requires an identifier-backed element")
             }
             try FixtureBridge.post(FixtureCommand(kind: "scroll", identifier: identifier, direction: normalized, pages: pages))
-            Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            return try finishAction(query: query, context: context)
         }
 
         if let repeatCount = integralScrollPageCount(pages),
@@ -848,17 +1104,18 @@ public final class ComputerUseService {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no scrollable frame")
         }
 
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, context: context)
     }
 
-    public func drag(app query: String, fromX: Double, fromY: Double, toX: Double, toY: Double) throws -> ToolCallResult {
+    public func drag(app query: String, fromX: Double, fromY: Double, toX: Double, toY: Double, includeScreenshot: Bool = false) throws -> ToolCallResult {
         let snapshot = try currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "drag", identifier: "fixture-drag-pad", x: fromX, y: fromY, toX: toX, toY: toY))
-            Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            return try finishAction(query: query, context: .single(includeScreenshot: includeScreenshot))
         }
 
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
         let end = try screenshotToGlobalPoint(snapshot: snapshot, x: toX, y: toY)
         let path = try performDragEvent(
@@ -868,54 +1125,67 @@ public final class ComputerUseService {
             snapshot: snapshot
         )
         return appendingDragDeliveryNote(
-            to: snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult),
+            to: try finishAction(query: query, context: .single(includeScreenshot: includeScreenshot)),
             path: path
         )
     }
 
-    public func typeText(app query: String, text: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
-        if snapshot.mode == .fixture {
-            try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
-            Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
-        }
-
-        if try typeTextBySettingFocusedValueIfAvailable(text, in: snapshot) {
-            Thread.sleep(forTimeInterval: 0.1)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
-        }
-
-        if !(try canTypeTextUsingKeyboardFallback(in: snapshot)) {
-            // Stage Manager background app has no focused element; briefly activate to accept input, then restore.
-            let originalPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-            NSRunningApplication(processIdentifier: snapshot.app.pid)?.activate(options: [])
-            Thread.sleep(forTimeInterval: 0.08)
-            try InputSimulation.typeText(text, pid: snapshot.app.pid)
-            if let orig = originalPID {
-                NSRunningApplication(processIdentifier: orig)?.activate(options: [])
-            }
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
-        }
-
-        try InputSimulation.typeText(text, pid: snapshot.app.pid)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+    public func typeText(app query: String, text: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
+        try typeText(app: query, text: text, context: .single(includeScreenshot: includeScreenshot))
     }
 
-    public func pressKey(app query: String, key: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    func typeText(app query: String, text: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
+        if snapshot.mode == .fixture {
+            try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            return try finishAction(query: query, context: context)
+        }
+
+        // A batch reads focus live: an earlier step may have moved it since the pinned snapshot was built.
+        let focusedElement = typingTargetElement(
+            context: context,
+            snapshotFocus: snapshot.focusedElement,
+            liveFocus: { liveFocusedElement(pinned: snapshot) }
+        )
+
+        // Never activates the target: without a confirmed text focus the call fails instead of guessing.
+        let route = try deliverTypedText(
+            focus: try typeTextFocus(of: focusedElement),
+            appName: snapshot.app.name,
+            setValue: { try typeTextBySettingFocusedValueIfAvailable(text, focusedElement: focusedElement) },
+            postKeys: { try InputSimulation.typeText(text, pid: snapshot.app.pid) }
+        )
+        if route == .setFocusedValue {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        return try finishAction(query: query, context: context)
+    }
+
+    public func pressKey(app query: String, key: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
+        try pressKey(app: query, key: key, context: .single(includeScreenshot: includeScreenshot))
+    }
+
+    func pressKey(app query: String, key: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
-            Thread.sleep(forTimeInterval: 0.15)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            return try finishAction(query: query, context: context)
         }
 
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, context: context)
     }
 
-    public func setValue(app query: String, elementIndex: String, value: String) throws -> ToolCallResult {
-        let snapshot = try currentSnapshot(for: query)
+    public func setValue(app query: String, elementIndex: String, value: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
+        try setValue(
+            app: query, elementIndex: elementIndex, value: value, context: .single(includeScreenshot: includeScreenshot)
+        )
+    }
+
+    func setValue(app query: String, elementIndex: String, value: String, context: ActionContext) throws -> ToolCallResult {
+        let snapshot = try actionSnapshot(for: query, context: context, elementIndex: elementIndex)
         let record = try lookupElement(snapshot: snapshot, index: elementIndex)
 
         if snapshot.mode == .fixture {
@@ -926,9 +1196,9 @@ public final class ComputerUseService {
             let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
             moveVisualCursor(to: cursorTarget)
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
-            Thread.sleep(forTimeInterval: 0.15)
+            Thread.sleep(forTimeInterval: postActionSettleInterval)
             settleVisualCursor(at: cursorTarget)
-            return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+            return try finishAction(query: query, context: context)
         }
 
         guard let element = record.element else {
@@ -955,7 +1225,239 @@ public final class ComputerUseService {
         }
 
         settleVisualCursor(at: cursorTarget)
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return try finishAction(query: query, context: context)
+    }
+
+    /// Runs a short, fully specified sequence of actions against the snapshot pinned at batch start, then
+    /// returns the step lines plus one final state. Nothing is observed between steps.
+    func performActions(
+        app query: String,
+        steps: [ActionStep],
+        includeScreenshot: Bool,
+        checkLock: () throws -> Void
+    ) throws -> ToolCallResult {
+        if let message = BatchActionRunner.missingReceivedStateMessage(
+            app: query, steps: steps, hasReceivedState: snapshotsByApp[query.lowercased()] != nil
+        ) {
+            throw ComputerUseError.invalidArguments(message)
+        }
+
+        let pinned = try currentSnapshot(for: query)
+
+        // Validate every step before any of them runs, so a bad step never leaves a half-applied batch.
+        for (offset, step) in steps.enumerated() {
+            guard case let .click(elementIndex, _, _, clickCount, mouseButton, clickMethod) = step else {
+                continue
+            }
+
+            do {
+                try validateClickMethod(
+                    clickMethod,
+                    hasElementIndex: elementIndex != nil,
+                    environment: ProcessInfo.processInfo.environment
+                )
+                try validateSkyClickArguments(method: clickMethod, mouseButton: mouseButton, clickCount: clickCount)
+            } catch {
+                throw ComputerUseError.invalidArguments("step \(offset + 1): \(BatchActionRunner.errorText(error))")
+            }
+        }
+
+        let unknown = BatchActionRunner.unknownElementIndices(in: steps, knownIndices: Set(pinned.elements.keys))
+        if let first = unknown.first, let offset = steps.firstIndex(where: { $0.elementIndex == first }) {
+            throw ComputerUseError.invalidArguments(
+                "step \(offset + 1): element_index \(first) is not in the state you last received for this app; call get_app_state"
+            )
+        }
+
+        if let message = batchWindowClickRefusal(steps: steps, roleForIndex: { Int($0).flatMap { pinned.elements[$0]?.role } }) {
+            throw ComputerUseError.invalidArguments(message)
+        }
+
+        let context = ActionContext.batchStep(pinned: pinned)
+        let report = BatchActionRunner.run(
+            steps: steps,
+            beforeEachStep: { index in
+                try checkLock()
+                if index > 0 {
+                    Thread.sleep(forTimeInterval: postActionSettleInterval)
+                }
+            },
+            perform: { _, step in
+                _ = try performBatchStep(step, query: query, context: context)
+            }
+        )
+
+        do {
+            try checkLock()
+        } catch {
+            return BatchActionRunner.result(
+                report: report, finalState: nil, notReadReason: BatchActionRunner.errorText(error)
+            )
+        }
+
+        let finalState = Result {
+            try finishAction(
+                query: query,
+                context: .single(includeScreenshot: includeScreenshot),
+                recoveryPolicy: BatchActionRunner.mostRestrictiveRecoveryPolicy(for: steps)
+            )
+        }
+        return BatchActionRunner.result(report: report, finalState: finalState, notReadReason: nil)
+    }
+
+    private func performBatchStep(_ step: ActionStep, query: String, context: ActionContext) throws -> ToolCallResult {
+        switch step {
+        case let .click(elementIndex, x, y, clickCount, mouseButton, clickMethod):
+            return try click(
+                app: query, elementIndex: elementIndex, x: x, y: y, clickCount: clickCount,
+                mouseButton: mouseButton, clickMethod: clickMethod, context: context
+            )
+        case let .typeText(text):
+            return try typeText(app: query, text: text, context: context)
+        case let .pressKey(key):
+            return try pressKey(app: query, key: key, context: context)
+        case let .setValue(elementIndex, value):
+            return try setValue(app: query, elementIndex: elementIndex, value: value, context: context)
+        case let .scroll(direction, elementIndex, pages):
+            return try scroll(
+                app: query, direction: direction, elementIndex: elementIndex, pages: pages, context: context
+            )
+        case let .performSecondaryAction(elementIndex, action):
+            return try performSecondaryAction(
+                app: query, elementIndex: elementIndex, action: action, context: context
+            )
+        }
+    }
+
+    /// The pinned snapshot with the window bounds and the target element's frame re-read live. Fixture snapshots
+    /// come from the fixture bridge and carry no live geometry, so they are returned unchanged.
+    private func liveGeometrySnapshot(from pinned: AppSnapshot, elementIndex: String?) throws -> AppSnapshot {
+        if pinned.mode == .fixture {
+            return pinned
+        }
+
+        // An off-stage window's window-server frame is its strip thumbnail, so its pinned AX frame stays the bounds.
+        let liveBounds = pinned.isOffStage
+            ? pinned.windowBounds
+            : pinned.targetWindowID.flatMap { liveWindowBounds(forWindowID: $0) }
+        let record = try elementIndex.map { try lookupElement(snapshot: pinned, index: $0) }
+        let liveFrame = record.flatMap { liveLocalFrame(of: $0, windowBounds: liveBounds) }
+        let geometry = try batchStepGeometry(
+            pinnedWindowBounds: pinned.windowBounds,
+            liveWindowBounds: liveBounds,
+            liveLocalFrame: liveFrame,
+            needsElementFrame: elementIndex != nil,
+            elementIndex: elementIndex,
+            // Only an x/y click reaches here without an index; it scales by the pinned image when there is one.
+            scalesByPinnedScreenshot: elementIndex == nil && pinned.screenshotPNGData != nil
+        )
+
+        var elements = pinned.elements
+        if let record, let localFrame = geometry.localFrame {
+            elements[record.index] = ElementRecord(
+                index: record.index,
+                identifier: record.identifier,
+                element: record.element,
+                localFrame: localFrame,
+                role: record.role,
+                rawActions: record.rawActions,
+                prettyActions: record.prettyActions,
+                isSyntheticText: record.isSyntheticText
+            )
+        }
+
+        return AppSnapshot(
+            app: pinned.app,
+            windowTitle: pinned.windowTitle,
+            windowBounds: geometry.windowBounds,
+            targetWindowID: pinned.targetWindowID,
+            targetWindowLayer: pinned.targetWindowLayer,
+            screenshotPNGData: pinned.screenshotPNGData,
+            mode: pinned.mode,
+            treeLines: pinned.treeLines,
+            treeLineOffsets: pinned.treeLineOffsets,
+            focusedSummary: pinned.focusedSummary,
+            focusedElement: pinned.focusedElement,
+            selectedText: pinned.selectedText,
+            elements: elements,
+            windowContentIsEmpty: pinned.windowContentIsEmpty,
+            isOffStage: pinned.isOffStage
+        )
+    }
+
+    private func liveWindowBounds(forWindowID windowID: CGWindowID) -> CGRect? {
+        guard
+            let windowInfo = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+            let entry = windowInfo.first(where: { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID }),
+            let boundsDictionary = entry[kCGWindowBounds as String] as? NSDictionary
+        else {
+            return nil
+        }
+
+        return CGRect(dictionaryRepresentation: boundsDictionary)
+    }
+
+    /// The element's frame relative to the live window, or in screen space when there is no window.
+    private func liveLocalFrame(of record: ElementRecord, windowBounds: CGRect?) -> CGRect? {
+        guard
+            let element = record.element,
+            let positionValue = liveAXValue(of: element, attribute: kAXPositionAttribute),
+            let sizeValue = liveAXValue(of: element, attribute: kAXSizeAttribute)
+        else {
+            return nil
+        }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue, .cgPoint, &position), AXValueGetValue(sizeValue, .cgSize, &size) else {
+            return nil
+        }
+
+        let frame = CGRect(origin: position, size: size)
+        guard let windowBounds else {
+            return frame
+        }
+
+        return windowRelativeFrame(elementFrame: frame, windowBounds: windowBounds)
+    }
+
+    private func liveAXValue(of element: AXUIElement, attribute: String) -> AXValue? {
+        var raw: CFTypeRef?
+        guard
+            AXUIElementCopyAttributeValue(element, attribute as CFString, &raw) == .success,
+            let raw,
+            CFGetTypeID(raw) == AXValueGetTypeID()
+        else {
+            return nil
+        }
+
+        return (raw as! AXValue)
+    }
+
+    /// The app's focused element, read live. A background app usually answers nil for its app-level focus, so the
+    /// fallback re-reads AXFocused live on the elements the pinned snapshot already holds (see
+    /// `backgroundFocusProbeOrder`), which costs one AX read per text-entry element instead of a new tree walk.
+    private func liveFocusedElement(pinned: AppSnapshot) -> AXUIElement? {
+        var raw: CFTypeRef?
+        if AXUIElementCopyAttributeValue(
+            AXUIElementCreateApplication(pinned.app.pid), kAXFocusedUIElementAttribute as CFString, &raw
+        ) == .success,
+            let raw,
+            CFGetTypeID(raw) == AXUIElementGetTypeID()
+        {
+            return (raw as! AXUIElement)
+        }
+
+        return backgroundFocusProbeOrder(pinnedFocus: pinned.focusedElement, records: Array(pinned.elements.values))
+            .first(where: liveIsFocused(_:))
+    }
+
+    private func liveIsFocused(_ element: AXUIElement) -> Bool {
+        var raw: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedAttribute as CFString, &raw) == .success else {
+            return false
+        }
+        return (raw as? Bool) == true
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
@@ -966,19 +1468,61 @@ public final class ComputerUseService {
         return try refreshSnapshot(for: query)
     }
 
+    /// The single tail of every action: rebuild the snapshot and return it as a text-only action
+    /// result, capturing and attaching the window image only on request or when the window has no content elements.
+    /// A batch step observes nothing: the batch takes one final state after its last step instead.
+    private func finishAction(
+        query: String,
+        context: ActionContext,
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+    ) throws -> ToolCallResult {
+        if context.isBatchStep {
+            return ToolCallResult(content: [])
+        }
+
+        let refreshed: AppSnapshot
+        do {
+            refreshed = try refreshSnapshot(
+                for: query,
+                recoveryPolicy: recoveryPolicy,
+                capture: actionCapturePolicy(includeScreenshot: context.includeScreenshot)
+            )
+        } catch {
+            throw errorAfterPerformedAction(error, appName: query)
+        }
+
+        return snapshotResult(
+            for: refreshed,
+            style: .actionResult,
+            includeScreenshot: context.includeScreenshot
+        )
+    }
+
+    /// The snapshot a core action reads its target from: the cached one for a single action, or the batch's
+    /// pinned snapshot with live window bounds and the target's live frame for a batch step.
+    private func actionSnapshot(for query: String, context: ActionContext, elementIndex: String?) throws -> AppSnapshot {
+        guard let pinned = context.pinnedSnapshot else {
+            return try currentSnapshot(for: query)
+        }
+
+        return try liveGeometrySnapshot(from: pinned, elementIndex: elementIndex)
+    }
+
     @discardableResult
     private func refreshSnapshot(
         for query: String,
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
-        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
+        capture: SnapshotCapturePolicy = .always
     ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
             treeLimits: treeLimits,
-            recoveryPolicy: recoveryPolicy
+            recoveryPolicy: recoveryPolicy,
+            capture: capture
         )
 
         let keys = Set([
@@ -1128,8 +1672,7 @@ public final class ComputerUseService {
         snapshot: AppSnapshot,
         button: MouseButtonKind,
         clickCount: Int,
-        includeNearbyHitTesting: Bool,
-        allowActivationFallback: Bool
+        includeNearbyHitTesting: Bool
     ) throws -> Bool {
         let preferContainingWebRowAXClick = shouldPreferContainingWebRowAXClick(record, in: snapshot)
         debugClickDecision("record=\(clickDebugDescription(record)) preferContainingWebRowAXClick=\(preferContainingWebRowAXClick)")
@@ -1190,22 +1733,6 @@ public final class ComputerUseService {
             }
         }
 
-        guard
-            allowActivationFallback,
-            !record.isSyntheticText,
-            button == .left,
-            let element = record.element,
-            canUseActivationOnlyClickFallback(role: stringValue(of: element, attribute: kAXRoleAttribute))
-        else {
-            return false
-        }
-
-        if try activateClickTarget(element: element, availableActions: record.rawActions) {
-            debugClickDecision("handled by activation fallback \(clickDebugDescription(record))")
-            Thread.sleep(forTimeInterval: 0.15)
-            return true
-        }
-
         return false
     }
 
@@ -1232,36 +1759,6 @@ public final class ComputerUseService {
         }
 
         return true
-    }
-
-    private func activateClickTarget(element: AXUIElement, availableActions: [String]) throws -> Bool {
-        var activated = false
-
-        if try performAction(named: kAXRaiseAction as String, on: element, availableActions: availableActions) {
-            activated = true
-        }
-
-        if try setBoolAttribute(named: kAXMainAttribute, on: element) {
-            activated = true
-        }
-
-        if try setBoolAttribute(named: kAXFocusedAttribute, on: element) {
-            activated = true
-        }
-
-        return activated
-    }
-
-    private func setBoolAttribute(named attribute: String, on element: AXUIElement) throws -> Bool {
-        let result = AXUIElementSetAttributeValue(element, attribute as CFString, kCFBooleanTrue)
-        switch result {
-        case .success:
-            return true
-        case .failure, .attributeUnsupported, .actionUnsupported, .cannotComplete, .noValue, .invalidUIElement, .illegalArgument:
-            return false
-        default:
-            throw ComputerUseError.message("AXUIElementSetAttributeValue(\(attribute)) failed with \(result.rawValue)")
-        }
     }
 
     private func isSettable(element: AXUIElement, attribute: String) -> Bool {
@@ -1297,7 +1794,7 @@ public final class ComputerUseService {
 
     private func hitTestElement(at point: CGPoint, in snapshot: AppSnapshot) throws -> ElementRecord? {
         let appElement = AXUIElementCreateApplication(snapshot.app.pid)
-        let globalPoint = try screenshotToGlobalPoint(snapshot: snapshot, x: Double(point.x), y: Double(point.y))
+        let globalPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
         var hitElement: AXUIElement?
         let result = AXUIElementCopyElementAtPosition(appElement, Float(globalPoint.x), Float(globalPoint.y), &hitElement)
         guard result == .success, let hitElement else {
@@ -1368,7 +1865,12 @@ public final class ComputerUseService {
         }
 
         let sideActionParent = sideActionScope ?? record
-        return descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)
+        return excludingHiddenAndTabCloseCandidates(
+            excludingWindowTitleBarButtons(descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)),
+            targetFrame: record.element.flatMap { localFrame(of: $0, windowBounds: snapshot.windowBounds) }
+                ?? record.localFrame,
+            closeButtonLabels: { closeButtonLabels(for: $0.element) }
+        )
             .filter { candidate in
                 !isLikelySyntheticSideAction(candidate, in: sideActionParent)
             }
@@ -1397,6 +1899,8 @@ public final class ComputerUseService {
                     identifier: nil,
                     element: child,
                     localFrame: localFrame(of: child, windowBounds: windowBounds),
+                    // Only an actionable child can be pressed, so only its subrole is worth a read.
+                    subrole: rawActions.isEmpty ? nil : stringValue(of: child, attribute: kAXSubroleAttribute),
                     rawActions: rawActions,
                     prettyActions: rawActions
                 )
@@ -1516,6 +2020,17 @@ public final class ComputerUseService {
         return false
     }
 
+    private func closeButtonLabels(for element: AXUIElement?) -> (identifier: String?, description: String?) {
+        guard let element else {
+            return (nil, nil)
+        }
+
+        return (
+            stringValue(of: element, attribute: "AXIdentifier"),
+            stringValue(of: element, attribute: kAXDescriptionAttribute as String)
+        )
+    }
+
     private func accessibilityLabels(for element: AXUIElement?) -> [String] {
         guard let element else {
             return []
@@ -1532,8 +2047,8 @@ public final class ComputerUseService {
         }
     }
 
-    private func typeTextBySettingFocusedValueIfAvailable(_ text: String, in snapshot: AppSnapshot) throws -> Bool {
-        guard let element = snapshot.focusedElement else {
+    private func typeTextBySettingFocusedValueIfAvailable(_ text: String, focusedElement: AXUIElement?) throws -> Bool {
+        guard let element = focusedElement else {
             return false
         }
 
@@ -1553,17 +2068,19 @@ public final class ComputerUseService {
         }
     }
 
-    private func canTypeTextUsingKeyboardFallback(in snapshot: AppSnapshot) throws -> Bool {
-        guard let element = snapshot.focusedElement else {
-            return false
+    private func typeTextFocus(of focusedElement: AXUIElement?) throws -> TypeTextFocus? {
+        guard let element = focusedElement else {
+            return nil
         }
 
         let role = stringValue(of: element, attribute: kAXRoleAttribute)
         let roleDescription = role.flatMap {
             stringValue(of: element, attribute: kAXRoleDescriptionAttribute) ?? humanizedRoleDescription(for: $0)
         }
-        return canUseKeyboardTextFallback(
+        let subrole = stringValue(of: element, attribute: kAXSubroleAttribute)
+        return makeTypeTextFocus(
             role: role,
+            subrole: subrole,
             roleDescription: roleDescription,
             isValueSettable: try isSettableForSetValue(element: element, attribute: kAXValueAttribute)
         )
@@ -1775,35 +2292,28 @@ public final class ComputerUseService {
     private func screenshotToGlobalPoint(snapshot: AppSnapshot, x: Double, y: Double) throws -> CGPoint {
         try windowPointToGlobalPoint(
             snapshot: snapshot,
-            point: screenshotPixelToWindowPointInSnapshot(
+            point: try screenshotPixelToWindowPointInSnapshot(
                 snapshot: snapshot,
                 point: CGPoint(x: x, y: y)
             )
         )
     }
 
-    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) -> CGPoint {
+    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
         screenshotPixelToWindowPoint(
             point,
-            screenshotPixelSize: screenshotPixelSize(snapshot: snapshot),
+            screenshotPixelSize: try screenshotPixelSize(snapshot: snapshot),
             windowBounds: snapshot.windowBounds
         )
     }
 
-    private func screenshotPixelSize(snapshot: AppSnapshot) -> CGSize? {
-        guard
-            let screenshotPNGData = snapshot.screenshotPNGData,
-            let imageSource = CGImageSourceCreateWithData(screenshotPNGData as CFData, nil),
-            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
-            let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
-            let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
-            pixelWidth > 0,
-            pixelHeight > 0
-        else {
-            return nil
-        }
-
-        return CGSize(width: pixelWidth, height: pixelHeight)
+    private func screenshotPixelSize(snapshot: AppSnapshot) throws -> CGSize? {
+        try resolveScreenshotPixelSize(
+            snapshotPixelSize: snapshot.screenshotPNGData.flatMap { pngPixelSize(of: $0) },
+            windowID: snapshot.targetWindowID,
+            windowBounds: snapshot.windowBounds,
+            lastReturned: lastReturnedScreenshotFrames[snapshot.app.pid]
+        )
     }
 
     private func windowPointToGlobalPoint(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
@@ -1922,6 +2432,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
@@ -1944,6 +2455,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws -> DragDeliveryPath {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventStart = inputEventPoint(fromScreenStatePoint: start)
         let eventEnd = inputEventPoint(fromScreenStatePoint: end)
         let path = dragDeliveryPath(environment: ProcessInfo.processInfo.environment)
@@ -1971,6 +2483,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
@@ -2021,6 +2534,7 @@ public final class ComputerUseService {
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        try rejectCoordinateInputWhenOffStage(snapshot.isOffStage)
         let eventPoint = inputEventPoint(fromScreenStatePoint: point)
 
         switch method {
@@ -2063,12 +2577,32 @@ public final class ComputerUseService {
         }
     }
 
-    private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
+    private func snapshotResult(
+        for snapshot: AppSnapshot,
+        style: SnapshotTextStyle,
+        includeScreenshot: Bool = false
+    ) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
         // The compact view exists to cut tokens; attaching the screenshot would defeat it.
-        if style != .compactActionable, let screenshotPNGData = snapshot.screenshotPNGData {
+        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.windowContentIsEmpty),
+           let screenshotPNGData = snapshot.screenshotPNGData {
             content.append(.pngImage(screenshotPNGData))
+            rememberReturnedScreenshotFrame(for: snapshot, pngData: screenshotPNGData)
         }
         return ToolCallResult(content: content)
+    }
+
+    /// Records the frame of a screenshot handed to the caller so later x/y coordinates, read from
+    /// that image, are scaled against it even when a text-only result replaced the cached snapshot.
+    private func rememberReturnedScreenshotFrame(for snapshot: AppSnapshot, pngData: Data) {
+        guard let windowBounds = snapshot.windowBounds, let pixelSize = pngPixelSize(of: pngData) else {
+            return
+        }
+
+        lastReturnedScreenshotFrames[snapshot.app.pid] = ReturnedScreenshotFrame(
+            windowID: snapshot.targetWindowID,
+            windowSize: windowBounds.size,
+            pixelSize: pixelSize
+        )
     }
 }

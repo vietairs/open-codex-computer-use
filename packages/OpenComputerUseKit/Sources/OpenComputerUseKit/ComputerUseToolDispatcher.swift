@@ -84,22 +84,25 @@ public final class ComputerUseToolDispatcher {
                 elementIndex: optionalElementIndex(in: arguments),
                 x: optionalDouble("x", in: arguments),
                 y: optionalDouble("y", in: arguments),
-                clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
+                clickCount: try optionalClickCount(in: arguments),
                 mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
-                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
+                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments)),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "perform_secondary_action":
             return try service.performSecondaryAction(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                action: requireString("action", in: arguments)
+                action: requireString("action", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "scroll":
             return try service.scroll(
                 app: requireString("app", in: arguments),
                 direction: requireString("direction", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                pages: optionalDouble("pages", in: arguments) ?? 1
+                pages: optionalDouble("pages", in: arguments) ?? 1,
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "drag":
             return try service.drag(
@@ -107,23 +110,34 @@ public final class ComputerUseToolDispatcher {
                 fromX: requireDouble("from_x", in: arguments),
                 fromY: requireDouble("from_y", in: arguments),
                 toX: requireDouble("to_x", in: arguments),
-                toY: requireDouble("to_y", in: arguments)
+                toY: requireDouble("to_y", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "type_text":
             return try service.typeText(
                 app: requireString("app", in: arguments),
-                text: requireString("text", in: arguments)
+                text: requireString("text", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "press_key":
             return try service.pressKey(
                 app: requireString("app", in: arguments),
-                key: requireString("key", in: arguments)
+                key: requireString("key", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "set_value":
             return try service.setValue(
                 app: requireString("app", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                value: requireString("value", in: arguments)
+                value: requireValueString("value", in: arguments),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
+            )
+        case "perform_actions":
+            return try service.performActions(
+                app: requireString("app", in: arguments),
+                steps: try parseBatchSteps(arguments["actions"]),
+                includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false,
+                checkLock: { try self.macSessionGuard.requireUnlocked(for: "perform_actions") }
             )
         default:
             throw ComputerUseError.unsupportedTool(name)
@@ -148,6 +162,16 @@ public final class ComputerUseToolDispatcher {
 
     private func requireString(_ key: String, in arguments: [String: Any]) throws -> String {
         guard let value = arguments[key] as? String, !value.isEmpty else {
+            throw ComputerUseError.missingArgument(key)
+        }
+
+        return value
+    }
+
+    /// Like `requireString`, but an empty string is a real value: set_value with "" clears a field. Only an absent
+    /// or non-string argument is missing.
+    private func requireValueString(_ key: String, in arguments: [String: Any]) throws -> String {
+        guard let value = arguments[key] as? String else {
             throw ComputerUseError.missingArgument(key)
         }
 
@@ -248,7 +272,30 @@ public final class ComputerUseToolDispatcher {
         return try positiveInt(from: value, key: key, expectedDescription: "a positive integer")
     }
 
+    /// `click_count` for a single click and a batch click step: a whole number in 1...3 (single, double or triple
+    /// click), defaulting to 1. Anything else is an argument error rather than a trap on conversion or a long
+    /// loop of posted clicks.
+    private func optionalClickCount(in arguments: [String: Any]) throws -> Int {
+        guard let value = arguments["click_count"] else {
+            return 1
+        }
+
+        let expectedDescription = "an integer from 1 to 3"
+        let count = try positiveInt(from: value, key: "click_count", expectedDescription: expectedDescription)
+        guard (1...3).contains(count) else {
+            throw ComputerUseError.invalidArguments("click_count must be \(expectedDescription)")
+        }
+
+        return count
+    }
+
     private func positiveInt(from value: Any, key: String, expectedDescription: String) throws -> Int {
+        // The boolean check must run first: `JSONSerialization` decodes JSON `true` as a CFBoolean-backed
+        // NSNumber, and `as? Int` / `as? Double` would bridge it to 1.
+        if let number = value as? NSNumber, CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+            throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
+        }
+
         if let integer = value as? Int {
             return try validatePositiveInt(integer, key: key, expectedDescription: expectedDescription)
         }
@@ -258,9 +305,6 @@ public final class ComputerUseToolDispatcher {
         }
 
         if let number = value as? NSNumber {
-            if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
-                throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
-            }
             return try validatePositiveWholeNumber(number.doubleValue, key: key, expectedDescription: expectedDescription)
         }
 
@@ -272,7 +316,8 @@ public final class ComputerUseToolDispatcher {
             throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
         }
 
-        guard value >= Double(Int.min), value <= Double(Int.max) else {
+        // `Double(Int.max)` rounds up to 2^63, which `Int(_:)` cannot represent, so the upper bound is exclusive.
+        guard value >= Double(Int.min), value < Double(Int.max) else {
             throw ComputerUseError.invalidArguments("\(key) is outside the supported integer range")
         }
 
@@ -458,5 +503,93 @@ private func decodeOpenComputerUseJSONObject(_ source: String) throws -> Any {
             message: "Invalid JSON input: \(error.localizedDescription)",
             helpCommand: "call"
         )
+    }
+}
+
+extension ComputerUseToolDispatcher {
+    /// Parses and validates every step of a `perform_actions` batch before anything runs. Each step's arguments go
+    /// through the same helpers as the single tool, so a value is accepted or rejected exactly as it would be alone.
+    /// Throws `ComputerUseError.invalidArguments`; messages start with "actions" or "step N:".
+    func parseBatchSteps(_ raw: Any?) throws -> [ActionStep] {
+        guard let items = raw as? [Any], (1...BatchActionRunner.maxSteps).contains(items.count) else {
+            throw ComputerUseError.invalidArguments("actions must be an array of 1-\(BatchActionRunner.maxSteps) steps")
+        }
+
+        var steps: [ActionStep] = []
+        for (offset, item) in items.enumerated() {
+            let number = offset + 1
+            guard
+                let object = item as? [String: Any],
+                let tool = object["tool"] as? String,
+                let arguments = object["args"] as? [String: Any]
+            else {
+                throw ComputerUseError.invalidArguments("step \(number): each step must be an object with \"tool\" and \"args\"")
+            }
+
+            guard ActionStep.allowedToolNames.contains(tool) else {
+                throw ComputerUseError.invalidArguments("step \(number): tool '\(tool)' is not allowed in perform_actions")
+            }
+
+            guard arguments["app"] == nil else {
+                throw ComputerUseError.invalidArguments(
+                    "step \(number): args must not contain \"app\"; perform_actions acts on one app"
+                )
+            }
+
+            do {
+                steps.append(try parseBatchStep(tool: tool, arguments: arguments))
+            } catch {
+                throw ComputerUseError.invalidArguments("step \(number): \(BatchActionRunner.errorText(error))")
+            }
+        }
+
+        return steps
+    }
+
+    private func parseBatchStep(tool: String, arguments: [String: Any]) throws -> ActionStep {
+        switch tool {
+        case "click":
+            let elementIndex = optionalElementIndex(in: arguments)
+            let x = optionalDouble("x", in: arguments)
+            let y = optionalDouble("y", in: arguments)
+            guard elementIndex != nil || (x != nil && y != nil) else {
+                throw ComputerUseError.message("click requires either element_index or x/y")
+            }
+            return .click(
+                elementIndex: elementIndex,
+                x: x,
+                y: y,
+                clickCount: try optionalClickCount(in: arguments),
+                mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
+                clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
+            )
+        case "type_text":
+            return .typeText(text: try requireString("text", in: arguments))
+        case "press_key":
+            return .pressKey(key: try requireString("key", in: arguments))
+        case "set_value":
+            return .setValue(
+                elementIndex: try requireElementIndex(in: arguments),
+                value: try requireValueString("value", in: arguments)
+            )
+        case "scroll":
+            let direction = try requireString("direction", in: arguments)
+            let elementIndex = try requireElementIndex(in: arguments)
+            let pages = optionalDouble("pages", in: arguments) ?? 1
+            guard ["up", "down", "left", "right"].contains(direction.lowercased()) else {
+                throw ComputerUseError.message("Invalid scroll direction: \(direction)")
+            }
+            guard pages.isFinite, pages > 0 else {
+                throw ComputerUseError.message("pages must be > 0")
+            }
+            return .scroll(direction: direction, elementIndex: elementIndex, pages: pages)
+        case "perform_secondary_action":
+            return .performSecondaryAction(
+                elementIndex: try requireElementIndex(in: arguments),
+                action: try requireString("action", in: arguments)
+            )
+        default:
+            throw ComputerUseError.unsupportedTool(tool)
+        }
     }
 }
