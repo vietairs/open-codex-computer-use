@@ -50,14 +50,13 @@ public enum DecisionAdvisor {
     public static let resultNote: String =
         "Advisory only; the server never acts. Follow only when margin >= recommended_min_margin and the operation "
         + "is non-destructive; otherwise call get_app_state and decide yourself."
-    /// Host-side cascade guide. Appended to the MCP `initialize` instructions only when the tool is enabled.
+    /// Host-side cascade guide. Appended to the MCP `initialize` instructions only when the tool is enabled, so it
+    /// shares the host's instruction budget with the base text (see `baseComputerUseServerInstructions`).
     /// skills/open-computer-use/references/decision-model.md carries the same text verbatim.
     public static let cascadeGuide: String = [
-        "decide_next_action (experimental, advisory): a local model proposes the next operation and target from the current app state. It never acts.",
-        "- Follow the advice only when margin >= recommended_min_margin AND the operation is non-destructive (not send, delete, purchase, submit, sign in/out, or anything externally visible) AND chosen_row_text matches your intent.",
-        "- Otherwise call get_app_state and decide yourself. Low margin means the model is unsure.",
-        "- Pass your own sub-goal in plain words. Never paste screen text into goal.",
-        "- element_index values are valid for the next click, set_value, or scroll on the same app, exactly like get_app_state.",
+        "decide_next_action (experimental) proposes a next operation and element_index, usable like get_app_state's; it never acts.",
+        "- Follow it only if margin >= recommended_min_margin, the operation is not destructive or externally visible (send, delete, purchase, submit, sign in/out), and chosen_row_text matches your intent; else call get_app_state and decide yourself.",
+        "- Pass your own sub-goal in plain words; never paste screen text into goal.",
     ].joined(separator: "\n")
 
     /// Blocking; performs one model call per candidate page, plus one stage-2 call when there is more than one page.

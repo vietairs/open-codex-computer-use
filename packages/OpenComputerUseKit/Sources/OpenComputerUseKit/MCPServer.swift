@@ -1,21 +1,20 @@
 import Foundation
 
+/// Hosts such as Claude Code cut server instructions at 2048 characters, and this text is the shortest part of what a
+/// host receives: the relay may swap the AppleScript line for the longer script-first guide, and the advisory tool's
+/// cascade guide may follow. The newest tools lead so their guidance is read first. Tool behavior already in a tool's
+/// own description is not repeated here.
 let baseComputerUseServerInstructions = """
-Computer Use tools let you interact with macOS apps by performing UI actions. If an app's dedicated plugin or skill can do the task, prefer it.
+Use `perform_actions` for any short sequence you can fully specify; put externally visible steps such as Send in their own call, after you confirm them.
+To act on one control without reading the whole tree, call `find_elements` with a role, label or identifier; its indices work in actions and `perform_actions` until the next refresh.
+The available tools are list_apps, get_app_state, find_elements, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are missing, surface them with tool_search, and load `perform_actions` together with `get_app_state`.
 
-Call `get_app_state` at the start of each assistant turn that uses Computer Use, because the user may have changed the app since your last turn. Within a turn, action results already include the refreshed text state, so do not call `get_app_state` after every action.
-
-Use `perform_actions` for any short sequence you can fully specify from the current state, such as focusing a field, typing text and pressing Return. It runs the steps in order, stops at the first failure, and returns one final state with a line per step. Every `element_index` refers to the state you last received. Keep externally visible steps such as Send in their own call, after you confirm them.
-
-The available tools are list_apps, get_app_state, find_elements, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, and perform_actions. If any are not available, use tool_search to surface them, and load `perform_actions` together with `get_app_state`.
-
-Computer Use drives the user's apps in the background while they keep using other apps. Do not disrupt their session, for example by overwriting the clipboard, unless they asked you to.
-
-Verify each action from its result; call `get_app_state` only when the result lacks what you need. Results are text-only unless you pass `include_screenshot: true`; take x/y coordinates only from the most recent screenshot.
-Prefer `element_index` over coordinate clicks; indices are the integers in the app state's accessibility tree.
+Call `get_app_state` at the start of each assistant turn that uses Computer Use; verify actions from their results, and do not call `get_app_state` after every action.
+Results are text-only unless you pass `include_screenshot: true`; take x/y only from the latest screenshot, and prefer `element_index`.
+Prefer an app's own plugin or skill when it can do the task.
+Work in the background: never disrupt the user or overwrite the clipboard unless asked.
 \(appleScriptAvoidanceInstructionLine)
-Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing, and ask follow-up questions when the request is unclear.
-To act on one specific control without reading the whole tree, call `find_elements` with a role, label or identifier; its element_index values work with the action tools and `perform_actions` until the next state refresh.
+Ask the user before destructive or externally visible actions such as sending, deleting, or purchasing, and when the request is unclear.
 """
 
 /// The base instructions under their original name, for existing callers that compare against the unmodified text.

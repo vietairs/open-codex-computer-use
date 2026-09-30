@@ -51,11 +51,27 @@ final class LocalChannelGuidanceTests: XCTestCase {
         )
     }
 
+    func testScriptFirstGuideNamesBatchTool() {
+        XCTAssertTrue(
+            scriptFirstInstructionGuide.contains("perform_actions"),
+            "the guide's UI sentence must name the batch tool next to find_elements"
+        )
+    }
+
     func testInstructionsWithoutAdvisorStayBase() {
         XCTAssertEqual(
             computerUseServerInstructions(environment: [:]),
             baseComputerUseServerInstructions
         )
+    }
+
+    func testNewestToolGuidanceComesBeforeTheOlderRules() throws {
+        let instructions = baseComputerUseServerInstructions
+        let appleScriptLine = try XCTUnwrap(instructions.range(of: appleScriptAvoidanceInstructionLine))
+        for marker in ["Use `perform_actions`", "call `find_elements`", "load `perform_actions` together with `get_app_state`"] {
+            let range = try XCTUnwrap(instructions.range(of: marker), "missing: \(marker)")
+            XCTAssertLessThan(range.lowerBound, appleScriptLine.lowerBound, "\(marker) must come before the older rules")
+        }
     }
 
     private func containsIgnoringCase(_ text: String, _ needle: String) -> Bool {

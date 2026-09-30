@@ -36,11 +36,11 @@ final class ServerInstructionsGuidanceTests: XCTestCase {
     }
 
     func testAppleScriptLineIsVerbatimAndStaysAtSourceLineSixteen() {
-        // The string body starts at source line 4, so element 12 is source line 16.
+        // The string body starts at source line 8, so element 8 is source line 16.
         let lines = baseComputerUseServerInstructions.components(separatedBy: "\n")
-        XCTAssertGreaterThan(lines.count, 12)
-        guard lines.count > 12 else { return }
-        XCTAssertEqual(lines[12], appleScriptLine)
+        XCTAssertGreaterThan(lines.count, 8)
+        guard lines.count > 8 else { return }
+        XCTAssertEqual(lines[8], appleScriptLine)
     }
 
     // MCP hosts such as Claude Code truncate server instructions at 2048 characters, so anything past that is never

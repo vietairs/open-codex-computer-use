@@ -39,3 +39,32 @@ that its filter is friction and not a security boundary.
 - `docs/SECURITY.md`
 - `README.md`
 - `docs/exec-plans/active/20260929-fast-macos-channels.md`
+
+## [2026-09-30 14:42] | Round: rebase onto the action-latency work
+
+### 🛠 Changes Overview
+- **find_elements window and merge**: the search resolves its window the way a full snapshot does (an off-stage
+  Stage Manager window by its own id and accessibility frame, otherwise the window-server entry of the AX window's
+  own id, with non-modal overlays ignored), reads each node through the shared single-round-trip prefetch, and merges
+  hits only into a cached snapshot in the same stage state, carrying the off-stage flag that gates pointer input.
+- **One snapshot cache writer**: `refreshSnapshot` and `find_elements` both store through `storeSnapshot`.
+- **Server instructions**: the base text leads with `perform_actions`, `find_elements` and the load-together hint,
+  drops tool behavior that each tool's own description already states, and fits the 2048-character host limit again.
+  The script-first guide and the advisory cascade guide are tightened the same way; every rule is kept.
+
+### 🧠 Design Intent (Why)
+A merged snapshot must describe the same window, in the same place and stage state, as the snapshot it joins;
+otherwise an index would resolve against the wrong frame or skip the off-stage guard. Hosts cut server instructions
+at 2048 characters, so the newest tools' guidance has to come first and the text has to stay short.
+
+### 📁 Files Modified
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ElementSearchAccessibilitySource.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ElementSearchSnapshotMerge.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/LocalChannelGuidance.swift`
+- `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/DecisionAdvisor.swift`
+- `skills/open-computer-use/references/decision-model.md`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ElementSearchTests.swift`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/LocalChannelGuidanceTests.swift`
+- `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/ServerInstructionsGuidanceTests.swift`
