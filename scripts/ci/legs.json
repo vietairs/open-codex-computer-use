@@ -6,7 +6,7 @@
       "os": "linux",
       "script": "scripts/ci/repo-checks.sh",
       "image": "node:24-bookworm",
-      "setup": "curl -fsSL \"https://go.dev/dl/$(curl -fsSL 'https://go.dev/dl/?mode=json' | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>console.log(JSON.parse(s).find(r=>r.version.startsWith(\"go1.27\")).version))').linux-amd64.tar.gz\" | tar -C /usr/local -xz && export PATH=\"$PATH:/usr/local/go/bin\""
+      "setup": ". scripts/ci/install-go-linux.sh"
     },
     {
       "check": "swift",
@@ -30,8 +30,7 @@
       "os": "linux",
       "script": "scripts/ci/audit-dependencies.sh",
       "image": "node:24-bookworm",
-      "setup": "curl -fsSL \"https://go.dev/dl/$(curl -fsSL 'https://go.dev/dl/?mode=json' | node -e 'let s=\"\";process.stdin.on(\"data\",d=>s+=d).on(\"end\",()=>console.log(JSON.parse(s).find(r=>r.version.startsWith(\"go1.27\")).version))').linux-amd64.tar.gz\" | tar -C /usr/local -xz && export PATH=\"$PATH:/usr/local/go/bin\"",
-      "env": { "GOVULNCHECK_VERSION": "v1.8.0" }
+      "setup": ". scripts/ci/install-go-linux.sh"
     }
   ]
 }

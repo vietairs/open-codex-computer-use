@@ -55,11 +55,12 @@ jobs:
           # 1.26 patches already fix. The minor must be >= 1.26 to satisfy both
           # that go directive and govulncheck v1.8.0's own minimum.
           go-version: "1.27.x"
+          # Long-lived self-hosted runner: refresh the cached patch so the
+          # scanner toolchain keeps tracking release.yml's floating patch.
+          check-latest: true
 
       # Job body lives in scripts/ci/audit-dependencies.sh so scripts/local-ci.mjs
-      # runs exactly what this step runs. The govulncheck pin and its rationale
-      # are documented there.
+      # runs exactly what this step runs. The govulncheck pin (single source of
+      # truth) and its rationale are documented there.
       - name: Audit npm and Go module dependencies
-        env:
-          GOVULNCHECK_VERSION: v1.8.0
         run: bash scripts/ci/audit-dependencies.sh

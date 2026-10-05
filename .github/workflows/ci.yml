@@ -39,6 +39,9 @@ jobs:
           # Kept equal to release.yml and supply-chain-security.yml. See the
           # header of supply-chain-security.yml for why the three must agree.
           go-version: "1.27.x"
+          # The self-hosted runner is long-lived, so its tool cache persists.
+          # Without this the first cached 1.27 patch is reused forever.
+          check-latest: true
 
       # Job body lives in scripts/ci/repo-checks.sh so scripts/local-ci.mjs
       # runs exactly what this step runs.
@@ -47,8 +50,9 @@ jobs:
 
   # The Swift package is this repository's primary deliverable, and
   # scripts/ci.sh has no swift step at all -- without this job a green CI run
-  # would say nothing about the shipped binary. macos-26 matches the runner
-  # release.yml builds and signs against.
+  # would say nothing about the shipped binary. Runs on the self-hosted Mac;
+  # release.yml still builds and signs on GitHub-hosted macos-26, so toolchain
+  # parity with the release builder is not guaranteed by this job.
   swift:
     runs-on: [self-hosted, macOS, ARM64]
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository

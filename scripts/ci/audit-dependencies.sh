@@ -13,7 +13,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
-: "${GOVULNCHECK_VERSION:=v1.8.0}"
+GOVULNCHECK_VERSION="${GOVULNCHECK_VERSION:-v1.8.0}"
 
 if [ -f package-lock.json ]; then
   npm audit --audit-level=high
