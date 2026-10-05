@@ -21,7 +21,8 @@ jobs:
   # rejected ("missing LC_UUID load command", abort trap). Linux is also the
   # native platform for the module being tested.
   repo-checks:
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, Linux, X64]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Check out repository
@@ -39,27 +40,22 @@ jobs:
           # header of supply-chain-security.yml for why the three must agree.
           go-version: "1.27.x"
 
-      # The single source of truth for what "passing CI" means locally --
-      # `make ci` runs this same script. It re-runs check-docs.sh,
-      # check-repo-hygiene.sh and check-action-pinning.sh, duplicating
-      # docs-check.yml and repo-hygiene.yml; that overlap is intentional so a
-      # contributor running `make ci` sees exactly what CI checks.
+      # Job body lives in scripts/ci/repo-checks.sh so scripts/local-ci.mjs
+      # runs exactly what this step runs.
       - name: Run repository CI script
-        run: ./scripts/ci.sh
+        run: bash scripts/ci/repo-checks.sh
 
   # The Swift package is this repository's primary deliverable, and
   # scripts/ci.sh has no swift step at all -- without this job a green CI run
   # would say nothing about the shipped binary. macos-26 matches the runner
   # release.yml builds and signs against.
   swift:
-    runs-on: macos-26
+    runs-on: [self-hosted, macOS, ARM64]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Check out repository
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
-      - name: Build Swift package
-        run: swift build
-
-      - name: Test Swift package
-        run: swift test
+      - name: Build and test Swift package
+        run: bash scripts/ci/swift.sh
