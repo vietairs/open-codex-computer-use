@@ -15,14 +15,11 @@ permissions:
 
 jobs:
   check-hygiene:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-24.04' || fromJSON('["self-hosted","Linux","X64"]') }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
-      - name: Run repository hygiene check
-        run: ./scripts/check-repo-hygiene.sh
-
-      - name: Run GitHub Action SHA pinning check
-        run: ./scripts/check-action-pinning.sh
+      - name: Run repository hygiene and GitHub Action SHA pinning checks
+        run: bash scripts/ci/check-hygiene.sh

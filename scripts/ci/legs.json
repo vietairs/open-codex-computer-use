@@ -1,0 +1,36 @@
+{
+  "repo": "vietairs/open-codex-computer-use",
+  "legs": [
+    {
+      "check": "repo-checks",
+      "os": "linux",
+      "script": "scripts/ci/repo-checks.sh",
+      "image": "node:24-bookworm",
+      "setup": ". scripts/ci/install-go-linux.sh"
+    },
+    {
+      "check": "swift",
+      "os": "macos",
+      "script": "scripts/ci/swift.sh"
+    },
+    {
+      "check": "check-docs",
+      "os": "linux",
+      "script": "scripts/ci/check-docs.sh",
+      "image": "node:24-bookworm"
+    },
+    {
+      "check": "check-hygiene",
+      "os": "linux",
+      "script": "scripts/ci/check-hygiene.sh",
+      "image": "node:24-bookworm"
+    },
+    {
+      "check": "audit-dependencies",
+      "os": "linux",
+      "script": "scripts/ci/audit-dependencies.sh",
+      "image": "node:24-bookworm",
+      "setup": ". scripts/ci/install-go-linux.sh"
+    }
+  ]
+}
