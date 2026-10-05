@@ -21,8 +21,7 @@ jobs:
   # rejected ("missing LC_UUID load command", abort trap). Linux is also the
   # native platform for the module being tested.
   repo-checks:
-    runs-on: [self-hosted, Linux, X64]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-24.04' || fromJSON('["self-hosted","Linux","X64"]') }}
 
     steps:
       - name: Check out repository
@@ -54,8 +53,7 @@ jobs:
   # release.yml still builds and signs on GitHub-hosted macos-26, so toolchain
   # parity with the release builder is not guaranteed by this job.
   swift:
-    runs-on: [self-hosted, macOS, ARM64]
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && 'macos-26' || fromJSON('["self-hosted","macOS","ARM64"]') }}
 
     steps:
       - name: Check out repository
