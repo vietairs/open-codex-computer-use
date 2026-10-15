@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/base64"
@@ -32,7 +31,7 @@ const (
 //go:embed runtime.ps1
 var windowsRuntimeScript string
 
-const serverInstructions = "Computer Use tools let you interact with Windows apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Screenshot-coordinate actions require get_app_state to return a usable image; hidden, minimized, cloaked, off-screen, or degenerate windows may return only the accessibility tree. Windows actions use UI Automation patterns first and fall back to window messages when an app does not expose the needed pattern. The Windows runtime does not auto-launch apps, perform SetFocus, or use UIA text fallback by default, so background-capable actions do not intentionally steal the user's foreground focus."
+const serverInstructions = "Computer Use tools let you interact with Windows apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Screenshot-coordinate actions require get_app_state to return a usable image; hidden, minimized, cloaked, off-screen, or degenerate windows may return only the accessibility tree. list_apps lists every running app with a main window and marks those whose screenshot is unavailable. Windows actions use UI Automation patterns first and fall back to window messages when an app does not expose the needed pattern. The Windows runtime does not auto-launch apps, perform SetFocus, or use UIA text fallback by default, so background-capable actions do not intentionally steal the user's foreground focus."
 
 type toolDefinition struct {
 	Name        string         `json:"name"`
@@ -179,11 +178,9 @@ func validateScreenshotPNGBase64(encoded string) string {
 	if encoded == "" {
 		return ""
 	}
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return ""
-	}
-	configuration, err := png.DecodeConfig(bytes.NewReader(data))
+	// Decode as a stream: DecodeConfig only reads the PNG header, so the full
+	// (possibly multi-megabyte) payload is never materialized.
+	configuration, err := png.DecodeConfig(base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded)))
 	if err != nil || configuration.Width < minimumScreenshotDimension || configuration.Height < minimumScreenshotDimension {
 		return ""
 	}
@@ -430,7 +427,7 @@ func (s *service) scroll(app, direction, elementIndex string, pages float64) too
 	if err != nil {
 		return textResult(err.Error(), true)
 	}
-	return s.actionResult(app, psRequest{Tool: "scroll", App: app, Element: record, Direction: normalized, Pages: pages})
+	return s.actionResult(app, psRequest{Tool: "scroll", App: app, Element: record, Direction: normalized, Pages: pages, WindowBounds: snapshot.WindowBounds})
 }
 
 func (s *service) drag(app string, fromX, fromY, toX, toY *float64) toolCallResult {
@@ -559,7 +556,11 @@ func lookupElement(snapshot *appSnapshot, elementIndex string) (*elementRecord, 
 	return nil, fmt.Errorf("unknown element_index %q", elementIndex)
 }
 
-func runPowerShell(request psRequest) (*psResponse, error) {
+// runPowerShell is a variable so tests can substitute the PowerShell bridge
+// and assert the requests the service builds.
+var runPowerShell = runPowerShellBridge
+
+func runPowerShellBridge(request psRequest) (*psResponse, error) {
 	if runtime.GOOS != "windows" {
 		return nil, errors.New("Windows Computer Use runtime requires powershell.exe on Windows")
 	}
