@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/png"
 	"strings"
 	"testing"
 )
@@ -295,6 +298,209 @@ func TestWindowsRuntimeTreeBudgetDefaultsMatchMacOS(t *testing.T) {
 	if !strings.Contains(windowsRuntimeScript, "$script:nextIndex -ge $script:MaxTreeNodes -or $depth -gt $script:MaxTreeDepth") {
 		t.Fatal("Windows runtime should use shared tree budget constants while rendering")
 	}
+}
+
+func TestWindowsScreenshotValidationRejectsDegenerateImages(t *testing.T) {
+	for name, encoded := range map[string]string{
+		"one pixel":        pngBase64(t, 1, 1),
+		"narrow":           pngBase64(t, minimumScreenshotDimension-1, 400),
+		"small area":       pngBase64(t, 100, 100),
+		"invalid base64":   "not base64",
+		"invalid PNG data": base64.StdEncoding.EncodeToString([]byte("not a png")),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := validateScreenshotPNGBase64(encoded); got != "" {
+				t.Fatalf("validateScreenshotPNGBase64() = %q, want empty", got)
+			}
+		})
+	}
+
+	valid := pngBase64(t, 100, 200)
+	if got := validateScreenshotPNGBase64(valid); got != valid {
+		t.Fatal("a screenshot at the minimum area should remain available")
+	}
+}
+
+func TestWindowsSnapshotOmitsUnusableScreenshot(t *testing.T) {
+	snapshot := &appSnapshot{
+		App:                 appDescriptor{Name: "fixture", BundleIdentifier: "fixture", PID: 42},
+		WindowBounds:        &frame{Width: 1, Height: 1},
+		ScreenshotPNGBase64: pngBase64(t, 1, 1),
+	}
+	result := snapshot.result()
+	if result.IsError || len(result.Content) != 1 || result.Content[0].Type != "text" {
+		t.Fatalf("degenerate screenshot result = %#v", result)
+	}
+	if snapshot.ScreenshotPNGBase64 != "" {
+		t.Fatal("degenerate screenshot should be removed from the remembered snapshot")
+	}
+	if !strings.Contains(result.Content[0].Text, "Screenshot unavailable") {
+		t.Fatalf("missing screenshot guidance: %q", result.Content[0].Text)
+	}
+
+	snapshot.WindowBounds = &frame{Width: 100, Height: 200}
+	snapshot.ScreenshotPNGBase64 = pngBase64(t, 100, 200)
+	result = snapshot.result()
+	if result.IsError || len(result.Content) != 2 || result.Content[1].Type != "image" {
+		t.Fatalf("valid screenshot result = %#v", result)
+	}
+}
+
+func TestWindowsCoordinateActionsRequireUsableScreenshot(t *testing.T) {
+	svc := newService()
+	svc.snapshots["fixture"] = &appSnapshot{
+		App:          appDescriptor{Name: "fixture", PID: 42},
+		WindowBounds: &frame{Width: 1, Height: 1},
+		Elements:     []elementRecord{{Index: 0}},
+	}
+	x, y := 1.0, 1.0
+	clickResult := svc.click("fixture", "", &x, &y, 1, "left", "auto")
+	if !clickResult.IsError || !strings.Contains(clickResult.Content[0].Text, "No usable screenshot is available") {
+		t.Fatalf("coordinate click result = %#v", clickResult)
+	}
+	appPostResult := svc.click("fixture", "0", nil, nil, 1, "left", "app_post")
+	if !appPostResult.IsError || !strings.Contains(appPostResult.Content[0].Text, "No usable screenshot is available") {
+		t.Fatalf("app_post click result = %#v", appPostResult)
+	}
+	dragResult := svc.drag("fixture", &x, &y, &x, &y)
+	if !dragResult.IsError || !strings.Contains(dragResult.Content[0].Text, "No usable screenshot is available") {
+		t.Fatalf("coordinate drag result = %#v", dragResult)
+	}
+}
+
+func TestWindowsRuntimeFiltersUncapturableWindows(t *testing.T) {
+	for _, snippet := range []string{
+		"$MinimumScreenshotDimension = 64",
+		"$MinimumScreenshotArea = 20000",
+		"[OCUWin32]::IsWindowVisible($hwnd)",
+		"[OCUWin32]::IsIconic($hwnd)",
+		"[OCUWin32]::DwmGetWindowAttribute($hwnd, 14",
+		"Test-FrameIntersectsVirtualScreen $frame",
+		"if (-not (Test-CapturableFrame $bounds))",
+		"Get-WindowCaptureBlocker ([IntPtr]$process.MainWindowHandle)",
+		"screenshot=unavailable ($blocker)",
+		"Assert-UsableWindowBounds $windowBounds $hwnd",
+		"$blocker = Get-WindowCaptureBlocker $hwnd",
+	} {
+		if !strings.Contains(windowsRuntimeScript, snippet) {
+			t.Fatalf("Windows runtime missing screenshot guard %q", snippet)
+		}
+	}
+}
+
+func TestWindowsListAppsDoesNotDropUncapturableApps(t *testing.T) {
+	start := strings.Index(windowsRuntimeScript, "function List-Apps")
+	end := strings.Index(windowsRuntimeScript, "function Same-RuntimeId")
+	if start < 0 || end < start {
+		t.Fatal("List-Apps function not found in the Windows runtime")
+	}
+	body := windowsRuntimeScript[start:end]
+	if strings.Contains(body, "continue") {
+		t.Fatal("List-Apps must annotate apps without a capturable window instead of skipping them")
+	}
+}
+
+func TestWindowsScrollWheelMessagesUseScreenCoordinates(t *testing.T) {
+	start := strings.Index(windowsRuntimeScript, "function Send-Scroll")
+	end := strings.Index(windowsRuntimeScript, "function Send-Text(")
+	if start < 0 || end < start {
+		t.Fatal("Send-Scroll function not found in the Windows runtime")
+	}
+	body := windowsRuntimeScript[start:end]
+	if strings.Contains(body, "ScreenToClient") {
+		t.Fatal("wheel messages carry screen coordinates and must not be converted to client coordinates")
+	}
+	if !strings.Contains(body, "ConvertTo-LParam $screenX $screenY") {
+		t.Fatal("wheel messages should pack the screen coordinates into lParam")
+	}
+}
+
+// stubPowerShell replaces the PowerShell bridge for one test and records every
+// request the service sends. The stub answers with the given snapshot.
+func stubPowerShell(t *testing.T, reply *appSnapshot) *[]psRequest {
+	t.Helper()
+	var requests []psRequest
+	original := runPowerShell
+	runPowerShell = func(request psRequest) (*psResponse, error) {
+		requests = append(requests, request)
+		return &psResponse{OK: true, Snapshot: reply}, nil
+	}
+	t.Cleanup(func() { runPowerShell = original })
+	return &requests
+}
+
+func TestWindowsScrollRequestCarriesSnapshotWindowBounds(t *testing.T) {
+	bounds := &frame{X: 10, Y: 20, Width: 400, Height: 300}
+	element := elementRecord{Index: 3, Frame: &frame{X: 5, Y: 6, Width: 50, Height: 60}}
+	svc := newService()
+	svc.snapshots["fixture"] = &appSnapshot{
+		App:          appDescriptor{Name: "fixture", PID: 42},
+		WindowBounds: bounds,
+		Elements:     []elementRecord{element},
+	}
+	requests := stubPowerShell(t, &appSnapshot{App: appDescriptor{Name: "fixture", PID: 42}, WindowBounds: bounds})
+
+	result := svc.scroll("fixture", "Down", "3", 2)
+	if result.IsError {
+		t.Fatalf("scroll result = %#v", result)
+	}
+	if len(*requests) != 1 {
+		t.Fatalf("scroll sent %d requests, want 1", len(*requests))
+	}
+	got := (*requests)[0]
+	if got.Tool != "scroll" || got.App != "fixture" || got.Direction != "down" || got.Pages != 2 {
+		t.Fatalf("scroll request = %#v", got)
+	}
+	if got.Element == nil || got.Element.Index != 3 {
+		t.Fatalf("scroll request element = %#v", got.Element)
+	}
+	if got.WindowBounds == nil || *got.WindowBounds != *bounds {
+		t.Fatalf("scroll request windowBounds = %#v, want %#v", got.WindowBounds, bounds)
+	}
+}
+
+func TestWindowsElementClickWithoutScreenshotStillReachesBridge(t *testing.T) {
+	svc := newService()
+	svc.snapshots["fixture"] = &appSnapshot{
+		App:          appDescriptor{Name: "fixture", PID: 42},
+		WindowBounds: &frame{Width: 1, Height: 1},
+		Elements:     []elementRecord{{Index: 0}},
+	}
+	requests := stubPowerShell(t, &appSnapshot{App: appDescriptor{Name: "fixture", PID: 42}, WindowBounds: &frame{Width: 1, Height: 1}})
+
+	result := svc.click("fixture", "0", nil, nil, 1, "left", "auto")
+	if result.IsError {
+		t.Fatalf("element click should not require a screenshot: %#v", result)
+	}
+	if len(*requests) != 1 || (*requests)[0].Tool != "click" || (*requests)[0].Element == nil {
+		t.Fatalf("element click requests = %#v", *requests)
+	}
+}
+
+func TestWindowsCoordinateClickWithoutScreenshotNeverReachesBridge(t *testing.T) {
+	svc := newService()
+	svc.snapshots["fixture"] = &appSnapshot{
+		App:          appDescriptor{Name: "fixture", PID: 42},
+		WindowBounds: &frame{Width: 1, Height: 1},
+	}
+	requests := stubPowerShell(t, nil)
+	x, y := 1.0, 1.0
+
+	if result := svc.click("fixture", "", &x, &y, 1, "left", "auto"); !result.IsError {
+		t.Fatalf("coordinate click should fail closed: %#v", result)
+	}
+	if len(*requests) != 0 {
+		t.Fatalf("coordinate click reached the bridge: %#v", *requests)
+	}
+}
+
+func pngBase64(t *testing.T, width, height int) string {
+	t.Helper()
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, image.NewRGBA(image.Rect(0, 0, width, height))); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(buffer.Bytes())
 }
 
 func findToolDefinition(t *testing.T, name string) toolDefinition {
