@@ -97,14 +97,48 @@ final class SkyLightWindowServerSPITests: XCTestCase {
         XCTAssertFalse(hardwareWindowCaptureAllowed(sharingState: 1, screenRecordingGranted: true, sessionIsUnlocked: false))
     }
 
+    private func capturable(
+        isOnscreen: Bool,
+        isOffStage: Bool = false,
+        unlocked: Bool = true,
+        currentSpace: Bool? = true,
+        offscreenAllowed: Bool = true,
+        asked: ((String) -> Void)? = nil
+    ) -> Bool {
+        windowIsCapturable(
+            isOnscreen: isOnscreen,
+            isOffStage: isOffStage,
+            probes: WindowCaptureProbes(
+                sessionIsStrictlyUnlocked: { asked?("unlocked"); return unlocked },
+                isOnCurrentSpace: { asked?("space"); return currentSpace },
+                offscreenCaptureAllowed: { asked?("offscreen"); return offscreenAllowed }
+            )
+        )
+    }
+
     func testCaptureEligibility() {
-        var asked = false
-        XCTAssertTrue(windowIsCapturable(isOnscreen: true, isOffStage: false, offscreenCaptureAllowed: { asked = true; return false }))
-        XCTAssertFalse(asked, "an on-screen window needs no off-screen check")
-        XCTAssertFalse(windowIsCapturable(isOnscreen: true, isOffStage: true, offscreenCaptureAllowed: { true }))
-        XCTAssertFalse(windowIsCapturable(isOnscreen: false, isOffStage: true, offscreenCaptureAllowed: { true }))
-        XCTAssertTrue(windowIsCapturable(isOnscreen: false, isOffStage: false, offscreenCaptureAllowed: { true }))
-        XCTAssertFalse(windowIsCapturable(isOnscreen: false, isOffStage: false, offscreenCaptureAllowed: { false }))
+        var asked: [String] = []
+        XCTAssertTrue(capturable(isOnscreen: true, offscreenAllowed: false, asked: { asked.append($0) }))
+        XCTAssertFalse(asked.contains("offscreen"), "an on-screen window needs no off-screen check")
+        XCTAssertFalse(capturable(isOnscreen: true, isOffStage: true))
+        XCTAssertFalse(capturable(isOnscreen: false, isOffStage: true))
+        XCTAssertTrue(capturable(isOnscreen: false, offscreenAllowed: true))
+        XCTAssertFalse(capturable(isOnscreen: false, offscreenAllowed: false))
+    }
+
+    func testOnscreenWindowOnAnotherSpaceNeedsAStrictUnlock() {
+        // Windows on another Desktop report kCGWindowIsOnscreen too. With the Mac locked and
+        // OPEN_COMPUTER_USE_ALLOW_LOCKED set, the session is still not strictly unlocked, so such a window is not captured.
+        let lockedWithOptIn = sessionIsStrictlyUnlocked(MacSessionSnapshot(isLocked: true, isUnknown: false, rawKeysSeen: []))
+        XCTAssertFalse(capturable(isOnscreen: true, unlocked: lockedWithOptIn, currentSpace: false))
+        XCTAssertFalse(capturable(isOnscreen: true, unlocked: false, currentSpace: nil), "an unreadable Space fails closed")
+        XCTAssertTrue(capturable(isOnscreen: true, unlocked: false, currentSpace: true), "the current Space keeps the lock opt-in")
+        XCTAssertTrue(capturable(isOnscreen: true, unlocked: true, currentSpace: false))
+        XCTAssertTrue(capturable(isOnscreen: true, unlocked: true, currentSpace: nil))
+
+        var asked: [String] = []
+        _ = capturable(isOnscreen: true, unlocked: true, currentSpace: false, asked: { asked.append($0) })
+        XCTAssertEqual(asked, ["unlocked"], "the Space is not read while the session is unlocked")
     }
 
     func testOffscreenCaptureNeedsTheTreeWindowVisibleAppAndUnlockedSession() {

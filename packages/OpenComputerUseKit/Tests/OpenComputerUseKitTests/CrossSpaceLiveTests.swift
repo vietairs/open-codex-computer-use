@@ -115,6 +115,16 @@ final class CrossSpaceLiveTests: XCTestCase {
         XCTAssertEqual(spacesOfWindow(window.id), [otherSpace], "the window must stay on the other Space")
         XCTAssertEqual(SkyLightWindowServerSPI.shared.windowIsOnCurrentSpace(window.id), false)
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid)
+        // Evidence for the docs: what the window server reports as on screen for a window on another Desktop.
+        let parkedIsOnscreen = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? [])
+            .first { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value == window.id }
+            .flatMap { ($0[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue }
+        let onscreenRecord = "kCGWindowIsOnscreen for a window on another Desktop: "
+            + (parkedIsOnscreen.map { String($0) } ?? "absent")
+        print(onscreenRecord)
+        let attachment = XCTAttachment(string: onscreenRecord)
+        attachment.lifetime = .keepAlways
+        add(attachment)
 
         // Production paths against the window on the other Space.
         let parkedSnapshot = try SnapshotBuilder.build(
