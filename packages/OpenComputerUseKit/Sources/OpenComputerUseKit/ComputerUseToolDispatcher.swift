@@ -403,9 +403,11 @@ public struct OpenComputerUseCallOutput {
 
 public typealias OpenComputerUseSleepHandler = (TimeInterval) -> Void
 
+/// Runs one `open-computer-use call`. The default service is one-shot: its snapshots pin no window, because the
+/// command ends right after the call.
 public func runOpenComputerUseCall(
     _ invocation: OpenComputerUseCallInvocation,
-    service: ComputerUseService = ComputerUseService(),
+    service: ComputerUseService = ComputerUseService(keepsSnapshotWindowsVisible: false),
     guard macSessionGuard: MacSessionGuard = MacSessionGuard(),
     sleepHandler: OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
     environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment },

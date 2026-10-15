@@ -80,6 +80,63 @@ final class WindowOcclusionRestoreJournalTests: XCTestCase {
         other.discard()
     }
 
+    func testStaleJournalUnderTheOwnPidIsTakenBeforeTheFirstWrite() throws {
+        let directory = try makeDirectory()
+        let ended = FileOcclusionRestoreJournal(directory: directory, processID: 101)
+        try ended.write([OcclusionRestoreEntry(windowID: 10, ownerPID: 500)])
+        ended.abandonForTesting()
+
+        // A new process that was given the same pid.
+        let reused = FileOcclusionRestoreJournal(directory: directory, processID: 101)
+        XCTAssertEqual(reused.takeAbandonedEntries(), [OcclusionRestoreEntry(windowID: 10, ownerPID: 500)])
+        try reused.write([OcclusionRestoreEntry(windowID: 20, ownerPID: 700)])
+        XCTAssertEqual(reused.takeAbandonedEntries(), [], "once written, the own journal is never taken")
+        XCTAssertEqual(
+            try String(contentsOf: directory.appendingPathComponent("101.journal"), encoding: .utf8),
+            "20 700\n"
+        )
+        reused.discard()
+    }
+
+    func testShorterWriteLeavesNoTailOfTheOldContent() throws {
+        let directory = try makeDirectory()
+        let journal = FileOcclusionRestoreJournal(directory: directory, processID: 101)
+        try journal.write([
+            OcclusionRestoreEntry(windowID: 1_234, ownerPID: 500),
+            OcclusionRestoreEntry(windowID: 5_678, ownerPID: 600),
+        ])
+        try journal.write([OcclusionRestoreEntry(windowID: 9, ownerPID: 7)])
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("101.journal"), encoding: .utf8), "9 7\n")
+        try journal.write([])
+        XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("101.journal")).count, 0)
+        journal.discard()
+    }
+
+    func testPaddingFromAnInterruptedWriteParsesToTheNewEntriesOnly() {
+        // What a process killed between the padded write and the truncate leaves behind.
+        XCTAssertEqual(
+            parseOcclusionRestoreJournal("9 7\n" + String(repeating: " ", count: 14)),
+            [OcclusionRestoreEntry(windowID: 9, ownerPID: 7)]
+        )
+    }
+
+    func testWriteFailsWhileAnotherHolderKeepsTheFileLocked() throws {
+        let directory = try makeDirectory()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let path = directory.appendingPathComponent("101.journal").path
+        let holder = open(path, O_RDWR | O_CREAT | O_CLOEXEC | O_EXLOCK, 0o600)
+        XCTAssertGreaterThanOrEqual(holder, 0)
+
+        let journal = FileOcclusionRestoreJournal(directory: directory, processID: 101)
+        XCTAssertThrowsError(try journal.write([OcclusionRestoreEntry(windowID: 10, ownerPID: 500)])) { error in
+            XCTAssertTrue((error as? ComputerUseError)?.errorDescription?.contains("stayed busy") == true)
+        }
+
+        close(holder)
+        XCTAssertNoThrow(try journal.write([OcclusionRestoreEntry(windowID: 10, ownerPID: 500)]))
+        journal.discard()
+    }
+
     func testMissingDirectoryHasNothingAbandoned() throws {
         let directory = try makeDirectory()
         XCTAssertEqual(FileOcclusionRestoreJournal(directory: directory, processID: 1).takeAbandonedEntries(), [])

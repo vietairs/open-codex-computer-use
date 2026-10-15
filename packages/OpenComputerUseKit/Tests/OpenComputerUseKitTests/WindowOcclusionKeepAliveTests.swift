@@ -79,6 +79,8 @@ final class WindowOcclusionKeepAliveTests: XCTestCase {
     private var control: FakeOcclusionControl!
     private var journal: FakeRestoreJournal!
     private var windowOwners: [CGWindowID: pid_t] = [:]
+    /// Windows whose owner cannot be read, as when the window list is momentarily unavailable.
+    private var unreadableOwners: Set<CGWindowID> = []
 
     override func setUp() {
         super.setUp()
@@ -86,14 +88,20 @@ final class WindowOcclusionKeepAliveTests: XCTestCase {
         control = FakeOcclusionControl(log: log)
         journal = FakeRestoreJournal(log: log)
         windowOwners = [10: 500, 11: 500, 12: 600]
+        unreadableOwners = []
     }
 
-    private func makeKeepAlive(session: KeepAliveSessionProvider = KeepAliveSessionProvider()) -> WindowOcclusionKeepAlive {
+    private func makeKeepAlive(session: MacSessionStateProvider = KeepAliveSessionProvider()) -> WindowOcclusionKeepAlive {
         WindowOcclusionKeepAlive(
             control: control,
             journal: journal,
             sessionState: session,
-            windowOwnerPID: { [unowned self] in self.windowOwners[$0] }
+            windowOwner: { [unowned self] windowID in
+                if self.unreadableOwners.contains(windowID) {
+                    return .unknown
+                }
+                return self.windowOwners[windowID].map(WindowOwnerLookup.owner) ?? .gone
+            }
         )
     }
 
@@ -379,7 +387,141 @@ final class WindowOcclusionKeepAliveTests: XCTestCase {
         XCTAssertFalse(keepAlive.isPinned(windowID: 12))
     }
 
+    func testWindowOwnerLookupTellsAMissingListFromAMissingWindow() {
+        let entry: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: UInt32(10)),
+            kCGWindowOwnerPID as String: NSNumber(value: Int32(500)),
+        ]
+        XCTAssertEqual(windowOwnerLookup(windowID: 10, windowInfo: [entry]), .owner(500))
+        XCTAssertEqual(windowOwnerLookup(windowID: 11, windowInfo: [entry]), .gone)
+        XCTAssertEqual(windowOwnerLookup(windowID: 11, windowInfo: []), .gone)
+        XCTAssertEqual(windowOwnerLookup(windowID: 10, windowInfo: nil), .unknown, "a failed list read is not a gone window")
+        XCTAssertEqual(
+            windowOwnerLookup(windowID: 10, windowInfo: [[kCGWindowNumber as String: NSNumber(value: UInt32(10))]]),
+            .unknown
+        )
+    }
+
+    func testUnreadableOwnerKeepsTheWindowForALaterRelease() {
+        let keepAlive = makeKeepAlive()
+        keepAlive.pin(windowID: 10, windowOwnerPID: 500, owner: ownerA)
+        unreadableOwners = [10]
+
+        keepAlive.release(owner: ownerA)
+        XCTAssertFalse(keepAlive.isPinned(windowID: 10))
+        XCTAssertFalse(log.events.contains("enable 10"))
+        XCTAssertEqual(journal.written, [OcclusionRestoreEntry(windowID: 10, ownerPID: 500)], "the window stays journaled")
+
+        unreadableOwners = []
+        keepAlive.release(owner: ownerB)
+        XCTAssertEqual(log.events.filter { $0 == "enable 10" }.count, 1)
+        XCTAssertEqual(journal.written, [])
+    }
+
+    func testFailedRecoveryRestoreIsAdoptedJournaledAndRetried() {
+        journal.abandoned = [OcclusionRestoreEntry(windowID: 11, ownerPID: 500), OcclusionRestoreEntry(windowID: 12, ownerPID: 600)]
+        control.failingEnables = [11]
+        unreadableOwners = [12]
+        let keepAlive = makeKeepAlive()
+
+        keepAlive.recoverAbandonedJournals()
+        XCTAssertEqual(journal.written, [
+            OcclusionRestoreEntry(windowID: 11, ownerPID: 500),
+            OcclusionRestoreEntry(windowID: 12, ownerPID: 600),
+        ], "restores that could not finish move into this process's journal")
+
+        control.failingEnables = []
+        unreadableOwners = []
+        keepAlive.release(owner: ownerA)
+        XCTAssertEqual(log.events.filter { $0 == "enable 11" }.count, 2)
+        XCTAssertEqual(log.events.filter { $0 == "enable 12" }.count, 1)
+        XCTAssertEqual(journal.written, [])
+    }
+
+    func testSuccessfulRecoveryWritesNoJournal() {
+        journal.abandoned = [OcclusionRestoreEntry(windowID: 11, ownerPID: 500)]
+        let keepAlive = makeKeepAlive()
+
+        keepAlive.recoverAbandonedJournals()
+
+        XCTAssertEqual(log.events, ["enable 11"])
+    }
+
+    func testLockWatchReleasesEveryPinOnceTheSessionIsNotUnlocked() {
+        final class SwitchableSession: MacSessionStateProvider, @unchecked Sendable {
+            var snapshot = MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: [])
+            func currentSnapshot() -> MacSessionSnapshot { snapshot }
+        }
+        let session = SwitchableSession()
+        let keepAlive = makeKeepAlive(session: session)
+        keepAlive.pin(windowID: 10, windowOwnerPID: 500, owner: ownerA)
+        keepAlive.pin(windowID: 12, windowOwnerPID: 600, owner: ownerB)
+
+        keepAlive.releaseAllUnlessStrictlyUnlocked()
+        XCTAssertTrue(keepAlive.isPinned(windowID: 10), "nothing changes while the session is unlocked")
+
+        session.snapshot = MacSessionSnapshot(isLocked: true, isUnknown: true, rawKeysSeen: [])
+        keepAlive.releaseAllUnlessStrictlyUnlocked()
+        XCTAssertFalse(keepAlive.isPinned(windowID: 10))
+        XCTAssertFalse(keepAlive.isPinned(windowID: 12))
+        XCTAssertTrue(log.events.contains("enable 10"))
+        XCTAssertTrue(log.events.contains("enable 12"))
+    }
+
+    // MARK: - Snapshot pinning
+
+    private func snapshotKeepAlive(_ keepAlive: WindowOcclusionKeepAlive, owner: UUID) -> SnapshotKeepAlive {
+        SnapshotKeepAlive(keeper: keepAlive, owner: owner)
+    }
+
+    func testSnapshotPinsOnlyTheVisibleTreeWindow() {
+        let keepAlive = makeKeepAlive()
+        var visibilityReads = 0
+
+        XCTAssertFalse(keepSnapshotWindowVisible(
+            keepAlive: snapshotKeepAlive(keepAlive, owner: ownerA), windowID: 10, isAccessibilityRoot: false,
+            windowOwnerPID: 500, isVisibleToItsApp: { visibilityReads += 1; return true }
+        ), "a captured window that is not the tree's root is never pinned")
+        XCTAssertEqual(visibilityReads, 0)
+
+        XCTAssertFalse(keepSnapshotWindowVisible(
+            keepAlive: snapshotKeepAlive(keepAlive, owner: ownerA), windowID: 10, isAccessibilityRoot: true,
+            windowOwnerPID: 500, isVisibleToItsApp: { false }
+        ))
+        XCTAssertFalse(keepAlive.isPinned(windowID: 10))
+
+        XCTAssertTrue(keepSnapshotWindowVisible(
+            keepAlive: snapshotKeepAlive(keepAlive, owner: ownerA), windowID: 10, isAccessibilityRoot: true,
+            windowOwnerPID: 500, isVisibleToItsApp: { true }
+        ))
+        XCTAssertEqual(keepAlive.pinnedWindowIDs(owner: ownerA), [10])
+    }
+
+    func testSnapshotJoinsAnExistingPinEvenWhenTheWindowIsNowCovered() {
+        let keepAlive = makeKeepAlive()
+        keepAlive.pin(windowID: 10, windowOwnerPID: 500, owner: ownerA)
+
+        XCTAssertTrue(keepSnapshotWindowVisible(
+            keepAlive: snapshotKeepAlive(keepAlive, owner: ownerB), windowID: 10, isAccessibilityRoot: true,
+            windowOwnerPID: 500, isVisibleToItsApp: { XCTFail("a pinned window needs no visibility check"); return false }
+        ))
+        XCTAssertEqual(keepAlive.pinnedWindowIDs(owner: ownerB), [10])
+    }
+
+    func testSnapshotWithoutKeepAliveReportsVisibilityAndPinsNothing() {
+        XCTAssertTrue(keepSnapshotWindowVisible(
+            keepAlive: nil, windowID: 10, isAccessibilityRoot: true, windowOwnerPID: 500, isVisibleToItsApp: { true }
+        ))
+        XCTAssertEqual(log.events, [])
+    }
+
     // MARK: - Session lifecycle
+
+    func testOneShotServiceHoldsNoKeepAlive() {
+        let service = ComputerUseService(windowKeepAlive: nil)
+        service.releaseBackgroundWindowState()
+        XCTAssertEqual(log.events, [])
+    }
 
     func testEndSessionReleasesOnlyThatServersPins() {
         let keepAlive = makeKeepAlive()

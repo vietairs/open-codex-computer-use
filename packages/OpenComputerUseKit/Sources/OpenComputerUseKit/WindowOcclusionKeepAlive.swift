@@ -93,13 +93,36 @@ func windowIsVisibleToItsApp(
     return windowLooksUnoccluded(bounds: bounds, coveringBounds: probes.coveringBounds())
 }
 
-/// The window-server owner of `windowID`, or nil when the window no longer exists.
-func liveWindowOwnerPID(_ windowID: CGWindowID) -> pid_t? {
-    let infoList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
-    for info in infoList where (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID {
-        return (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value
+/// Who owns a window right now, as far as the window server says.
+enum WindowOwnerLookup: Equatable {
+    case owner(pid_t)
+    /// The window list was read and does not contain the window.
+    case gone
+    /// The window list or the entry's owner could not be read; nothing is known about the window.
+    case unknown
+}
+
+/// Pure. The owner of `windowID` in a window list read with `.optionAll`, or `.unknown` when there is no list.
+func windowOwnerLookup(windowID: CGWindowID, windowInfo: [[String: Any]]?) -> WindowOwnerLookup {
+    guard let windowInfo else {
+        return .unknown
     }
-    return nil
+    for info in windowInfo where (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value == windowID {
+        guard let ownerPID = (info[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value else {
+            return .unknown
+        }
+        return .owner(ownerPID)
+    }
+    return .gone
+}
+
+/// The window-server owner of `windowID`. A failed window-list read is `.unknown`, never "gone": a transient failure
+/// must not make a release forget a window whose notifications are still off.
+func liveWindowOwner(_ windowID: CGWindowID) -> WindowOwnerLookup {
+    windowOwnerLookup(
+        windowID: windowID,
+        windowInfo: CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]
+    )
 }
 
 /// Keeps a window "visible" from its own app's point of view while the agent works on it in the background.
@@ -115,7 +138,7 @@ func liveWindowOwnerPID(_ windowID: CGWindowID) -> pid_t? {
 /// reference counted per window: a session that ends releases only its own pins. Every pin is written to a
 /// per-process journal before the WindowServer call, so a later process can turn notifications back on for windows a
 /// killed process left pinned. Pins are released at session end, process exit (atexit, SIGTERM, SIGINT, SIGHUP,
-/// `applicationWillTerminate`) and when the screen locks.
+/// `applicationWillTerminate`) and when the screen locks (see `WindowOcclusionProcessHooks`).
 final class WindowOcclusionKeepAlive: @unchecked Sendable {
     static let shared = WindowOcclusionKeepAlive(installsProcessHooks: true)
 
@@ -127,12 +150,14 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
     private let control: WindowOcclusionControlling
     private let journal: OcclusionRestoreJournaling
     private let sessionState: MacSessionStateProvider
-    private let windowOwnerPID: (CGWindowID) -> pid_t?
+    private let windowOwner: (CGWindowID) -> WindowOwnerLookup
     private let installsProcessHooks: Bool
 
     private let lock = NSLock()
     private var pins: [CGWindowID: Pin] = [:]
-    /// Windows whose restore failed; retried at every release, dropped once the window is gone.
+    /// Windows whose notifications may still be off and that this process must turn back on: a restore that failed,
+    /// or one that could not be attempted because the window's owner could not be read, including entries taken
+    /// from an ended process's journal. Retried at every release and journaled, dropped once the window is gone.
     private var failedRestores: [CGWindowID: pid_t] = [:]
     private var abandonedJournalsRecovered = false
     private var processHooksInstalled = false
@@ -141,13 +166,13 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
         control: WindowOcclusionControlling = SkyLightWindowServerSPI.shared,
         journal: OcclusionRestoreJournaling = FileOcclusionRestoreJournal(),
         sessionState: MacSessionStateProvider = SystemMacSessionStateProvider(),
-        windowOwnerPID: @escaping (CGWindowID) -> pid_t? = liveWindowOwnerPID,
+        windowOwner: @escaping (CGWindowID) -> WindowOwnerLookup = liveWindowOwner,
         installsProcessHooks: Bool = false
     ) {
         self.control = control
         self.journal = journal
         self.sessionState = sessionState
-        self.windowOwnerPID = windowOwnerPID
+        self.windowOwner = windowOwner
         self.installsProcessHooks = installsProcessHooks
     }
 
@@ -270,6 +295,18 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
         writeJournalLocked()
     }
 
+    /// Releases every pin when the session is locked or its lock state is unknown. The lock watch calls it, so pins
+    /// taken before a lock do not keep windows reporting "visible" to their apps while the Mac is locked.
+    func releaseAllUnlessStrictlyUnlocked() {
+        lock.lock()
+        let hasPins = !pins.isEmpty
+        lock.unlock()
+        guard hasPins, !sessionIsStrictlyUnlocked(sessionState.currentSnapshot()) else {
+            return
+        }
+        releaseAll()
+    }
+
     /// Final cleanup at process exit: release everything, and remove the journal when nothing is left to restore. A
     /// journal that still lists a failed restore is kept for the next process to retry.
     func finishAtExit() {
@@ -299,24 +336,35 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
         guard control.occlusionAvailability.isAvailable else {
             return
         }
+        // The ended process's journal file is gone once read, so a restore that cannot finish now is adopted here:
+        // it is retried at the next release and written to this process's journal.
+        var adopted = false
         for entry in Set(journal.takeAbandonedEntries()) where pins[entry.windowID] == nil {
-            // Only while the same app still owns the window: a reused window id belongs to someone else.
-            guard windowOwnerPID(entry.windowID) == entry.ownerPID else {
-                continue
-            }
-            do {
-                _ = try control.setWindowOcclusionNotificationsEnabled(true, windowID: entry.windowID)
-            } catch {
-                logKeepAlive("could not restore window \(entry.windowID) left by an ended process: \(describe(error))")
-            }
+            restoreLocked(windowID: entry.windowID, ownerPID: entry.ownerPID, source: "left by an ended process")
+            adopted = adopted || failedRestores[entry.windowID] != nil
+        }
+        if adopted {
+            writeJournalLocked()
         }
     }
 
-    private func restoreLocked(windowID: CGWindowID, ownerPID: pid_t) {
-        // A window that is gone, or whose id now belongs to another app, needs nothing.
-        guard windowOwnerPID(windowID) == ownerPID else {
+    /// Turns notifications back on for `windowID` while `ownerPID` still owns it. A window that is gone, or whose id
+    /// now belongs to another app, needs nothing; an unreadable owner or a failed call keeps it in `failedRestores`.
+    private func restoreLocked(windowID: CGWindowID, ownerPID: pid_t, source: String = "") {
+        let label = source.isEmpty ? "window \(windowID)" : "window \(windowID) \(source)"
+        switch windowOwner(windowID) {
+        case .gone:
             failedRestores.removeValue(forKey: windowID)
             return
+        case let .owner(currentOwnerPID) where currentOwnerPID != ownerPID:
+            failedRestores.removeValue(forKey: windowID)
+            return
+        case .unknown:
+            failedRestores[windowID] = ownerPID
+            logKeepAlive("could not read the owner of \(label); will retry")
+            return
+        case .owner:
+            break
         }
         do {
             // Always back on: a pin is only kept when the previous state was on or unknown.
@@ -324,7 +372,7 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
             failedRestores.removeValue(forKey: windowID)
         } catch {
             failedRestores[windowID] = ownerPID
-            logKeepAlive("could not restore window \(windowID); will retry: \(describe(error))")
+            logKeepAlive("could not restore \(label); will retry: \(describe(error))")
         }
     }
 
@@ -364,26 +412,52 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
     }
 }
 
+/// Receives loginwindow's screen-lock notification for the shared keep-alive.
+private final class ScreenLockObserver: NSObject {
+    @objc func screenDidLock(_: Notification) {
+        WindowOcclusionKeepAlive.shared.releaseAll()
+    }
+}
+
 /// Process-exit and screen-lock hooks for the shared keep-alive, installed once with the first pin.
 private enum WindowOcclusionProcessHooks {
     nonisolated(unsafe) private static var signalSources: [DispatchSourceSignal] = []
+    nonisolated(unsafe) private static var screenLockObserver: ScreenLockObserver?
+    nonisolated(unsafe) private static var lockWatch: DispatchSourceTimer?
+    /// How often the lock watch reads the session state while a pin exists.
+    private static let lockWatchInterval: DispatchTimeInterval = .seconds(2)
 
     static func install() {
         atexit {
             WindowOcclusionKeepAlive.shared.finishAtExit()
         }
         installTerminationSignalHandlers()
-        // Distributed notifications arrive on the main run loop: the app runtimes run one; the plain stdio server
-        // does not, and there the lock check before every pin is what applies.
-        DispatchQueue.main.async {
-            _ = DistributedNotificationCenter.default().addObserver(
-                forName: Notification.Name("com.apple.screenIsLocked"),
-                object: nil,
-                queue: nil
-            ) { _ in
-                WindowOcclusionKeepAlive.shared.releaseAll()
-            }
+        installScreenLockHooks()
+    }
+
+    /// Two paths release the pins when the screen locks. The distributed notification is immediate, but it is
+    /// delivered only through the main thread's run loop, which the app runtimes run and the plain stdio server never
+    /// does; `.deliverImmediately` keeps it from being held while the agent, an accessory app that is never active,
+    /// is inactive. The lock watch, a timer on a background queue, covers every runtime: while a pin exists it reads
+    /// the session state and releases everything when the session is not known to be unlocked.
+    private static func installScreenLockHooks() {
+        let observer = ScreenLockObserver()
+        screenLockObserver = observer
+        DistributedNotificationCenter.default().addObserver(
+            observer,
+            selector: #selector(ScreenLockObserver.screenDidLock(_:)),
+            name: Notification.Name("com.apple.screenIsLocked"),
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + lockWatchInterval, repeating: lockWatchInterval, leeway: .milliseconds(500))
+        timer.setEventHandler {
+            WindowOcclusionKeepAlive.shared.releaseAllUnlessStrictlyUnlocked()
         }
+        timer.resume()
+        lockWatch = timer
     }
 
     /// SIGTERM, SIGINT and SIGHUP terminate without running atexit handlers, so each one that still has its default

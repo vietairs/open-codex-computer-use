@@ -52,13 +52,11 @@ public final class StdioMCPServer {
         try LocalChannelRouter().run { self.handle(line: $0) }
     }
 
-    /// Ends this host's session: resets the visual cursor and releases the window pins this server's snapshots took.
-    /// Pins other sessions of a shared app agent hold stay in place. The app runtimes call it when the host's
-    /// connection or standard input closes. Safe to call more than once.
+    /// Ends this host's session: releases the window pins this server's snapshots took. Pins other sessions of a
+    /// shared app agent hold stay in place, and so does the visual cursor, which is process-wide and may belong to
+    /// another live session; it is reset at turn end and goes away with the process. The app runtimes call this when
+    /// the host's connection or standard input closes. Safe to call more than once.
     public func endSession() {
-        VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.reset()
-        }
         service.releaseBackgroundWindowState()
     }
 

@@ -771,18 +771,24 @@ public final class ComputerUseService {
     /// Holds the window pins this service's snapshots take (see `WindowOcclusionKeepAlive`). One owner per service,
     /// so per host session of the shared app agent: a session that ends releases only its own pins.
     let backgroundStateOwner = UUID()
-    private let windowKeepAlive: WindowOcclusionKeepAlive
+    /// Nil for a one-shot service, whose snapshots pin nothing.
+    private let windowKeepAlive: WindowOcclusionKeepAlive?
 
-    public init() {
-        sleepHandler = { Thread.sleep(forTimeInterval: $0) }
-        appResolver = { try AppDiscovery.resolve($0) }
-        windowKeepAlive = .shared
+    /// A service for a host session: its snapshots keep their window visible to its app until the session ends.
+    public convenience init() {
+        self.init(keepsSnapshotWindowsVisible: true)
+    }
+
+    /// `keepsSnapshotWindowsVisible` false is for a one-shot command (`snapshot`, `call`): a pin it took would be
+    /// released again when the command ends, so it would cost WindowServer and journal writes for no benefit.
+    public convenience init(keepsSnapshotWindowsVisible: Bool) {
+        self.init(windowKeepAlive: keepsSnapshotWindowsVisible ? .shared : nil)
     }
 
     init(
         sleepHandler: @escaping OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
         appResolver: @escaping (String) throws -> RunningAppDescriptor = { try AppDiscovery.resolve($0) },
-        windowKeepAlive: WindowOcclusionKeepAlive = .shared
+        windowKeepAlive: WindowOcclusionKeepAlive? = .shared
     ) {
         self.sleepHandler = sleepHandler
         self.appResolver = appResolver
@@ -790,12 +796,12 @@ public final class ComputerUseService {
     }
 
     deinit {
-        windowKeepAlive.release(owner: backgroundStateOwner)
+        windowKeepAlive?.release(owner: backgroundStateOwner)
     }
 
     /// Releases the window pins this service's snapshots took. Called when the host session ends.
     func releaseBackgroundWindowState() {
-        windowKeepAlive.release(owner: backgroundStateOwner)
+        windowKeepAlive?.release(owner: backgroundStateOwner)
     }
 
     public func listApps() -> ToolCallResult {
@@ -843,7 +849,8 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("goal must not be empty")
         }
 
-        let snapshot = try refreshSnapshot(for: query, capture: .never)
+        // Read-only, as its tool annotation says: the advisor's snapshot pins nothing.
+        let snapshot = try refreshSnapshot(for: query, capture: .never, keepsWindowVisible: false)
         let appName = snapshot.app.name
         let renderedFull = snapshot.renderedText(style: .fullState)
         let renderedCompact = snapshot.renderedText(style: .compactActionable)
@@ -1729,9 +1736,13 @@ public final class ComputerUseService {
         treeLimits: AccessibilityTreeLimits = .defaults,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
         capture: SnapshotCapturePolicy = .always,
-        waitsForLazyWebContent: Bool = false
+        waitsForLazyWebContent: Bool = false,
+        keepsWindowVisible: Bool = true
     ) throws -> AppSnapshot {
         let app = try appResolver(query)
+        let keepAlive = keepsWindowVisible
+            ? windowKeepAlive.map { SnapshotKeepAlive(keeper: $0, owner: backgroundStateOwner) }
+            : nil
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
@@ -1739,7 +1750,7 @@ public final class ComputerUseService {
             recoveryPolicy: recoveryPolicy,
             capture: capture,
             imageConfig: { [self] in effectiveImageConfig },
-            keepAlive: SnapshotKeepAlive(keeper: windowKeepAlive, owner: backgroundStateOwner),
+            keepAlive: keepAlive,
             waitsForLazyWebContent: waitsForLazyWebContent
         )
 

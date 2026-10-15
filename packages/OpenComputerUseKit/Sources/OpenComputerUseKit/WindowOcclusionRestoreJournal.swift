@@ -38,7 +38,8 @@ protocol OcclusionRestoreJournaling: AnyObject {
     /// Replaces this process's journal with `entries`. Throws when it cannot be written; the caller then pins nothing.
     func write(_ entries: [OcclusionRestoreEntry]) throws
 
-    /// Entries from journals whose writing process has ended. Their files are removed once read.
+    /// Entries from journals whose writing process has ended, including a file under this process's own name that an
+    /// ended process with the same pid left before this process wrote anything. Their files are removed once read.
     func takeAbandonedEntries() -> [OcclusionRestoreEntry]
 
     /// Removes this process's journal at a clean exit with nothing left to restore.
@@ -47,7 +48,9 @@ protocol OcclusionRestoreJournaling: AnyObject {
 
 /// One file per process in a private directory, holding an exclusive `flock` for as long as the process lives. The
 /// kernel drops the lock when the process ends however it ends, so another process that can take the lock knows the
-/// writer is gone, and pid reuse cannot make a live writer look dead or the reverse.
+/// writer is gone, and pid reuse cannot make a live writer look dead or the reverse. The file is created and locked in
+/// one `open` (`O_EXLOCK`), and a writer that finds its locked file already unlinked by a reader opens a new one, so a
+/// reader can never take a live writer's journal.
 ///
 /// A replay only ever turns notifications back on, which is the system default, so a journal planted by another
 /// same-user process cannot make the agent hide anything.
@@ -79,20 +82,28 @@ final class FileOcclusionRestoreJournal: OcclusionRestoreJournaling {
         "\(processID).\(Self.fileExtension)"
     }
 
+    /// Writes before truncating, so a process killed in between leaves the new entries, never an empty journal. A
+    /// shorter journal is padded with spaces over the old content first, so no tail of an old line survives to be
+    /// parsed as an entry.
     func write(_ entries: [OcclusionRestoreEntry]) throws {
         let descriptor = try openOwnFile()
         let data = Data(renderOcclusionRestoreJournal(entries).utf8)
-        guard ftruncate(descriptor, 0) == 0 else {
-            throw journalError("truncate")
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else {
+            throw journalError("stat")
         }
-        let written = data.withUnsafeBytes { bytes -> Int in
+        let padded = data + Data(repeating: UInt8(ascii: " "), count: max(0, Int(status.st_size) - data.count))
+        let written = padded.withUnsafeBytes { bytes -> Int in
             guard let base = bytes.baseAddress else {
                 return 0
             }
             return pwrite(descriptor, base, bytes.count, 0)
         }
-        guard written == data.count else {
+        guard written == padded.count else {
             throw journalError("write")
+        }
+        guard ftruncate(descriptor, off_t(data.count)) == 0 else {
+            throw journalError("truncate")
         }
     }
 
@@ -101,7 +112,9 @@ final class FileOcclusionRestoreJournal: OcclusionRestoreJournaling {
             return []
         }
         var entries: [OcclusionRestoreEntry] = []
-        for name in names where name.hasSuffix(".\(Self.fileExtension)") && name != ownFileName {
+        // The own file is skipped only once this process holds it; before that, a file under its name was left by an
+        // ended process with the same pid.
+        for name in names where name.hasSuffix(".\(Self.fileExtension)") && (name != ownFileName || fileDescriptor < 0) {
             let path = directory.appendingPathComponent(name).path
             let descriptor = open(path, O_RDWR | O_NOFOLLOW | O_CLOEXEC)
             guard descriptor >= 0 else {
@@ -148,17 +161,33 @@ final class FileOcclusionRestoreJournal: OcclusionRestoreJournaling {
             attributes: [.posixPermissions: 0o700]
         )
         let path = directory.appendingPathComponent(ownFileName).path
-        let descriptor = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        guard descriptor >= 0 else {
-            throw journalError("open")
+        // A reader holds a file's lock only while it reads and removes it, so a busy or just-removed file is retried
+        // a few times before the write fails (and the caller pins nothing).
+        for attempt in 0..<Self.openAttempts {
+            if attempt > 0 {
+                usleep(Self.openRetryDelayMicroseconds)
+            }
+            let descriptor = open(path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_EXLOCK | O_NONBLOCK, 0o600)
+            guard descriptor >= 0 else {
+                if errno == EWOULDBLOCK {
+                    continue
+                }
+                throw journalError("open")
+            }
+            // Removed by a reader between its read and our lock: the lock would protect a file nobody can find.
+            var status = stat()
+            guard fstat(descriptor, &status) == 0, status.st_nlink > 0 else {
+                close(descriptor)
+                continue
+            }
+            fileDescriptor = descriptor
+            return descriptor
         }
-        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
-            close(descriptor)
-            throw journalError("lock")
-        }
-        fileDescriptor = descriptor
-        return descriptor
+        throw ComputerUseError.message("occlusion restore journal lock failed: the journal file stayed busy")
     }
+
+    private static let openAttempts = 5
+    private static let openRetryDelayMicroseconds: useconds_t = 10_000
 
     private func readAll(_ descriptor: Int32) -> String {
         var data = Data()

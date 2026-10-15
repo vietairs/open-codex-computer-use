@@ -658,7 +658,8 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return CLIProxyResponse(stdout: (service.listApps().primaryText ?? "") + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .snapshot(app, textLimit, treeLimits):
-                let service = ComputerUseService()
+                // One-shot: a pin would be released again as soon as this command returns.
+                let service = ComputerUseService(keepsSnapshotWindowsVisible: false)
                 let text = try service.withForwardedImageSettings(environment: environment) {
                     try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits).primaryText ?? ""
                 }
