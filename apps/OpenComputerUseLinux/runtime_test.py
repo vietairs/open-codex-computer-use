@@ -103,7 +103,7 @@ class FakeModifierType:
     META3 = 6
 
 
-KEYSYMS = {"Return": 0xFF0D, "Tab": 0xFF09, "Down": 0xFF54}
+KEYSYMS = {"Return": 0xFF0D, "Tab": 0xFF09, "Down": 0xFF54, "Left": 0xFF51}
 
 
 class RuntimeKeyTests(unittest.TestCase):
@@ -145,13 +145,77 @@ class RuntimeKeyTests(unittest.TestCase):
         self.runtime.send_key("ctrl+a")
 
         mask = 1 << FakeModifierType.CONTROL
-        self.assertEqual(self.events[1], (ord("a"), None, "SYM"))
-        self.assertEqual(self.events[0], (mask, None, "LOCKMODIFIERS"))
+        self.assertEqual(
+            self.events,
+            [
+                (mask, None, "LOCKMODIFIERS"),
+                (ord("a"), None, "SYM"),
+                (mask, None, "UNLOCKMODIFIERS"),
+            ],
+        )
 
     def test_modified_punctuation_is_sent_as_keysym(self):
         self.runtime.send_key("ctrl+/")
 
-        self.assertEqual(self.events[1], (ord("/"), None, "SYM"))
+        mask = 1 << FakeModifierType.CONTROL
+        self.assertEqual(
+            self.events,
+            [
+                (mask, None, "LOCKMODIFIERS"),
+                (ord("/"), None, "SYM"),
+                (mask, None, "UNLOCKMODIFIERS"),
+            ],
+        )
+
+    def test_unknown_key_with_modifier_never_touches_modifier_state(self):
+        with self.assertRaises(RuntimeError):
+            self.runtime.send_key("ctrl+NoSuchKey")
+
+        self.assertEqual(self.events, [])
+
+    def test_modifiers_are_released_when_the_key_send_fails(self):
+        def failing_send(value, text, synth):
+            self.events.append((value, text, synth))
+            if synth == "SYM":
+                raise OSError("bus error")
+
+        self.runtime.Atspi.generate_keyboard_event = failing_send
+
+        with self.assertRaises(OSError):
+            self.runtime.send_key("ctrl+a")
+
+        mask = 1 << FakeModifierType.CONTROL
+        self.assertEqual(
+            self.events,
+            [
+                (mask, None, "LOCKMODIFIERS"),
+                (ord("a"), None, "SYM"),
+                (mask, None, "UNLOCKMODIFIERS"),
+            ],
+        )
+
+    def test_modifier_aliases_map_to_x_modifiers(self):
+        cases = {
+            "command+c": "META3",
+            "option+Left": "ALT",
+            "meta+x": "ALT",
+            "Control_L+c": "CONTROL",
+            "Control_R+c": "CONTROL",
+            "Shift_L+a": "SHIFT",
+            "Shift_R+a": "SHIFT",
+            "Alt_L+x": "ALT",
+            "Alt_R+x": "ALT",
+            "Super_L+x": "META3",
+            "Super_R+x": "META3",
+        }
+        for key, name in cases.items():
+            with self.subTest(key=key):
+                self.events.clear()
+                self.runtime.send_key(key)
+
+                mask = 1 << getattr(FakeModifierType, name)
+                self.assertEqual(self.events[0], (mask, None, "LOCKMODIFIERS"))
+                self.assertEqual(self.events[-1], (mask, None, "UNLOCKMODIFIERS"))
 
     def test_unknown_key_name_is_rejected(self):
         with self.assertRaises(RuntimeError):

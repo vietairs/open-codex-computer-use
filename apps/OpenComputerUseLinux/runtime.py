@@ -645,14 +645,28 @@ KEY_ALIASES = {
 }
 
 # X11 modifier bits for LOCKMODIFIERS/UNLOCKMODIFIERS. Super is usually Mod4.
+# Names are matched case-insensitively. "meta" follows xdotool and means Alt
+# (Mod1); "command" and "cmd" are Super so macOS-style prompts keep working,
+# and "option" is Alt. The *_l/*_r entries are the xdotool keysym names.
 MODIFIER_BITS = {
     "ctrl": "CONTROL",
     "control": "CONTROL",
+    "control_l": "CONTROL",
+    "control_r": "CONTROL",
     "shift": "SHIFT",
+    "shift_l": "SHIFT",
+    "shift_r": "SHIFT",
     "alt": "ALT",
+    "alt_l": "ALT",
+    "alt_r": "ALT",
+    "option": "ALT",
+    "meta": "ALT",
     "super": "META3",
+    "super_l": "META3",
+    "super_r": "META3",
     "win": "META3",
     "cmd": "META3",
+    "command": "META3",
 }
 
 
@@ -686,17 +700,18 @@ def send_key(key):
             raise RuntimeError("Unsupported modifier: " + modifier)
         mask |= 1 << int(getattr(Atspi.ModifierType, name))
     normalized = KEY_ALIASES.get(main.lower(), main)
+    if len(normalized) == 1 and not mask:
+        Atspi.generate_keyboard_event(0, normalized, Atspi.KeySynthType.STRING)
+        return
+    # Resolve the keysym before touching modifier state so a bad key name
+    # never locks a modifier. SYM takes a keysym; PRESS, RELEASE, and
+    # PRESSRELEASE take a hardware keycode, so passing a keysym there sends
+    # another key.
+    sym = keyval(normalized)
     if mask:
         Atspi.generate_keyboard_event(mask, None, Atspi.KeySynthType.LOCKMODIFIERS)
     try:
-        if len(normalized) == 1 and not mask:
-            Atspi.generate_keyboard_event(0, normalized, Atspi.KeySynthType.STRING)
-        else:
-            # SYM takes a keysym. PRESS, RELEASE, and PRESSRELEASE take a
-            # hardware keycode, so passing a keysym there sends another key.
-            Atspi.generate_keyboard_event(
-                keyval(normalized), None, Atspi.KeySynthType.SYM
-            )
+        Atspi.generate_keyboard_event(sym, None, Atspi.KeySynthType.SYM)
     finally:
         if mask:
             Atspi.generate_keyboard_event(
