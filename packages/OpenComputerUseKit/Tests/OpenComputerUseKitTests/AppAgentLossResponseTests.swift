@@ -62,4 +62,20 @@ final class AppAgentLossResponseTests: XCTestCase {
         let content = try XCTUnwrap(result["content"] as? [[String: Any]])
         XCTAssertEqual(content.first?["text"] as? String, "agent unreachable")
     }
+
+    func testLostConnectionReadsAsQuitOnlyWhenTheUserQuit() throws {
+        let line = #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"click"}}"#
+        func text(quitByUser: Bool) throws -> String? {
+            let reply = try object(AppAgentLossResponse.lostConnectionResponse(forRequestLine: line, quitByUser: quitByUser))
+            let result = try XCTUnwrap(reply["result"] as? [String: Any])
+            return (result["content"] as? [[String: Any]])?.first?["text"] as? String
+        }
+
+        XCTAssertEqual(try text(quitByUser: true), AppAgentLossResponse.quitMessage)
+        XCTAssertEqual(try text(quitByUser: false), AppAgentLossResponse.restartedMessage)
+        XCTAssertNil(AppAgentLossResponse.lostConnectionResponse(
+            forRequestLine: #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            quitByUser: true
+        ))
+    }
 }

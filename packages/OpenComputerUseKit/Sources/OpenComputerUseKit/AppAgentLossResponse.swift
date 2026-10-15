@@ -20,6 +20,12 @@ public enum AppAgentLossResponse {
     public static let quitMessage =
         "Open Computer Use was quit from its menu; restart your MCP host/session to start it again."
 
+    /// Reply for a call that was in flight when the agent went away. When the user quit from the
+    /// status menu that is the cause, so the caller reads the quit text rather than "is being restarted".
+    public static func lostConnectionResponse(forRequestLine requestLine: String, quitByUser: Bool) -> String? {
+        response(forRequestLine: requestLine, message: quitByUser ? quitMessage : restartedMessage)
+    }
+
     /// Whether `requestLine` carries a non-null id, i.e. the host waits for an answer. A line
     /// without one is a notification and is never answered.
     public static func expectsReply(requestLine: String) -> Bool {

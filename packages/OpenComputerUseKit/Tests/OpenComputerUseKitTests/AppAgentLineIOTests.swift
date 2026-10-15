@@ -60,6 +60,19 @@ final class AppAgentLineIOTests: XCTestCase {
         XCTAssertFalse(writeAppAgentLine(#"{"kind":"mcp"}"#, to: a))
     }
 
+    /// The agent writes replies to sockets it accepted. A peer that vanished mid-call must make that write fail, not
+    /// raise SIGPIPE (an unprotected write would terminate this test process).
+    func testWriteToVanishedPeerFailsWithoutRaisingSigPipeOnceDisabled() throws {
+        var fds: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds), 0)
+        XCTAssertTrue(disableAppAgentSocketSigPipe(fds[0]))
+        let accepted = try XCTUnwrap(fdopen(fds[0], "r+"))
+        defer { fclose(accepted) }
+        close(fds[1])
+
+        XCTAssertFalse(writeAppAgentLine(#"{"response":"late"}"#, to: accepted))
+    }
+
     func testNotificationExpectsNoReplyAndRequestDoes() {
         XCTAssertFalse(AppAgentLossResponse.expectsReply(requestLine: #"{"jsonrpc":"2.0","method":"notifications/initialized"}"#))
         XCTAssertFalse(AppAgentLossResponse.expectsReply(requestLine: #"{"jsonrpc":"2.0","id":null,"method":"ping"}"#))

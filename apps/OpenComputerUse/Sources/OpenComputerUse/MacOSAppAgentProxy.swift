@@ -33,9 +33,11 @@ enum MacOSAppAgentProxy {
     @MainActor
     static func runProxy(command: OpenComputerUseCLICommand, arguments: [String]) throws -> Int32 {
         let socketPath = defaultSocketPath()
-        // A fresh start (a new host session or CLI call) is an explicit request for computer use,
-        // so it lifts an earlier menu Quit before launching the agent.
-        AppAgentQuitMarker.clear(forSocketPath: socketPath)
+        // Only a new MCP host session is an explicit request for computer use, so only it lifts an
+        // earlier menu Quit. Other CLI commands (doctor, list-apps, ...) leave the marker in place.
+        if case .mcp = command {
+            AppAgentQuitMarker.clear(forSocketPath: socketPath)
+        }
         let client = try connectOrLaunchAgent(socketPath: socketPath)
 
         switch command {
@@ -81,7 +83,8 @@ enum MacOSAppAgentProxy {
 
     /// `allowLockedOptIn` carries the proxy's lock-screen opt-in into a freshly launched agent. The
     /// first launch passes it through; a relaunch after an agent crash must not, so it fails closed
-    /// (lock-screen control off) until the operator restarts the host with the opt-in.
+    /// (lock-screen control off) until the operator quits Open Computer Use from the menu bar and
+    /// restarts the host with the opt-in.
     @MainActor
     private static func connectOrLaunchAgent(socketPath: String, allowLockedOptIn: Bool = true) throws -> AppAgentSocketClient {
         guard let appURL = PermissionSupport.currentAppBundleURL() else {
@@ -143,7 +146,8 @@ enum MacOSAppAgentProxy {
     @MainActor
     private static func proxyMCP(client initialClient: AppAgentSocketClient, socketPath: String) throws {
         var client: AppAgentSocketClient? = initialClient
-        try LocalChannelRouter().run { line in
+        let router = LocalChannelRouter(isStopped: { AppAgentQuitMarker.exists(forSocketPath: socketPath) })
+        try router.run { line in
             let expectsReply = AppAgentLossResponse.expectsReply(requestLine: line)
 
             if client == nil {
@@ -176,7 +180,7 @@ enum MacOSAppAgentProxy {
                 return try relayMCPLine(line, client: connected)
             } catch is AppAgentConnectionLost {
                 client = nil
-                return AppAgentLossResponse.response(forRequestLine: line)
+                return connectionLostResponse(forRequestLine: line, socketPath: socketPath)
             } catch is AppAgentRequestNotDelivered {
                 client = nil
                 guard expectsReply else {
@@ -208,10 +212,19 @@ enum MacOSAppAgentProxy {
                     )
                 } catch is AppAgentConnectionLost {
                     client = nil
-                    return AppAgentLossResponse.response(forRequestLine: line)
+                    return connectionLostResponse(forRequestLine: line, socketPath: socketPath)
                 }
             }
         }
+    }
+
+    /// Reply for a call that was in flight when the agent went away: a menu Quit says so, anything
+    /// else reads as a crash or restart.
+    private static func connectionLostResponse(forRequestLine line: String, socketPath: String) -> String? {
+        AppAgentLossResponse.lostConnectionResponse(
+            forRequestLine: line,
+            quitByUser: AppAgentQuitMarker.exists(forSocketPath: socketPath)
+        )
     }
 
     /// Forwards one MCP request line to the app agent and returns its response line, if any.
@@ -434,6 +447,10 @@ private final class AppAgentSocketListener: @unchecked Sendable {
                 }
                 continue
             }
+
+            // A proxy that dies mid-call must not kill this shared agent when the reply is written:
+            // the write has to fail with EPIPE instead of raising SIGPIPE.
+            disableAppAgentSocketSigPipe(clientFD)
 
             // Authenticate the connecting process before it can drive the TCC-authorized agent.
             // Same-uid alone is insufficient (any user process could connect); require the peer to
@@ -671,8 +688,7 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             return nil
         }
         // A write to an agent that already died must fail with EPIPE, not kill this proxy with SIGPIPE.
-        var noSigPipe: Int32 = 1
-        _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+        disableAppAgentSocketSigPipe(fd)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)

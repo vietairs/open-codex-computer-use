@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 // Newline-delimited line I/O over the app-agent socket. Every writer ends each message with a
@@ -30,4 +31,13 @@ public func writeAppAgentLine(_ line: String, to file: UnsafeMutablePointer<FILE
     let written = output.withCString { fputs($0, file) }
     let flushed = fflush(file)
     return written >= 0 && flushed == 0
+}
+
+/// Makes a write to `fileDescriptor` fail with EPIPE once the peer is gone, instead of raising SIGPIPE
+/// and killing the writing process. Both ends of the app-agent socket need this: a proxy that dies
+/// mid-call must not take the shared agent down when the agent writes the reply.
+@discardableResult
+public func disableAppAgentSocketSigPipe(_ fileDescriptor: Int32) -> Bool {
+    var noSigPipe: Int32 = 1
+    return setsockopt(fileDescriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0
 }
