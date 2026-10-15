@@ -121,12 +121,36 @@ final class LazyWebAccessibilityTests: XCTestCase {
 
     func testOnlyBundlesUnderTrustedRootsAreListed() {
         let roots = ["/Applications", "/Users/someone/Applications"]
-        XCTAssertTrue(bundleIsUnderTrustedRoot(URL(fileURLWithPath: "/Applications/Google Chrome.app"), roots: roots))
-        XCTAssertTrue(bundleIsUnderTrustedRoot(URL(fileURLWithPath: "/Users/someone/Applications/Slack.app"), roots: roots))
-        XCTAssertFalse(bundleIsUnderTrustedRoot(URL(fileURLWithPath: "/Applications2/Slack.app"), roots: roots))
-        XCTAssertFalse(bundleIsUnderTrustedRoot(URL(fileURLWithPath: "/Users/someone/Downloads/Slack.app"), roots: roots))
-        XCTAssertFalse(bundleIsUnderTrustedRoot(URL(fileURLWithPath: "/Applications/../Users/someone/Desktop/X.app"), roots: roots))
-        XCTAssertFalse(bundleIsUnderTrustedRoot(URL(fileURLWithPath: "/Volumes/USB/X.app"), roots: roots))
+        func trusted(_ path: String) -> Bool {
+            bundleIsUnderTrustedRoot(URL(fileURLWithPath: path), roots: roots, isSymbolicLink: { _ in false })
+        }
+        XCTAssertTrue(trusted("/Applications/Google Chrome.app"))
+        XCTAssertTrue(trusted("/Users/someone/Applications/Slack.app"))
+        XCTAssertFalse(trusted("/Applications2/Slack.app"))
+        XCTAssertFalse(trusted("/Users/someone/Downloads/Slack.app"))
+        XCTAssertFalse(trusted("/Applications/../Users/someone/Desktop/X.app"))
+        XCTAssertFalse(trusted("/Volumes/USB/X.app"))
+    }
+
+    func testSymbolicLinkBelowTheRootMakesTheBundleUntrusted() {
+        let url = URL(fileURLWithPath: "/Applications/Tools/Slack.app")
+        var asked: [String] = []
+        XCTAssertTrue(bundleIsUnderTrustedRoot(url, roots: ["/Applications"], isSymbolicLink: { asked.append($0); return false }))
+        XCTAssertEqual(asked, [
+            "/Applications/Tools",
+            "/Applications/Tools/Slack.app",
+            "/Applications/Tools/Slack.app/Contents",
+            "/Applications/Tools/Slack.app/Contents/Frameworks",
+        ], "every path below the root up to the listed directory, in order")
+
+        for link in asked {
+            var checked: [String] = []
+            XCTAssertFalse(
+                bundleIsUnderTrustedRoot(url, roots: ["/Applications"], isSymbolicLink: { checked.append($0); return $0 == link }),
+                "a link at \(link) leaves the trusted root"
+            )
+            XCTAssertEqual(checked.last, link, "nothing past the first link is examined")
+        }
     }
 
     private func makeBundle(in root: URL, name: String, frameworks: [String]) throws -> URL {
@@ -159,6 +183,11 @@ final class LazyWebAccessibilityTests: XCTestCase {
         XCTAssertFalse(detector.appHasLazyWebAccessibility(bundleURL: native))
         XCTAssertFalse(detector.appHasLazyWebAccessibility(bundleURL: downloaded), "outside the trusted roots nothing is listed")
         XCTAssertFalse(detector.appHasLazyWebAccessibility(bundleURL: nil))
+
+        // A link inside the trusted root that points at a bundle elsewhere is not followed.
+        let linked = trusted.appendingPathComponent("Linked.app", isDirectory: true)
+        try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: downloaded)
+        XCTAssertFalse(detector.appHasLazyWebAccessibility(bundleURL: linked), "a symbolic link below the root is untrusted")
 
         try FileManager.default.removeItem(at: chromeLike.appendingPathComponent("Contents/Frameworks"))
         XCTAssertTrue(detector.appHasLazyWebAccessibility(bundleURL: chromeLike), "the answer is cached per bundle")

@@ -1,5 +1,6 @@
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 
 /// Chromium-derived engines (Chrome, Electron, CEF hosts) build their web accessibility tree only after the first
@@ -102,6 +103,11 @@ func waitForLazyWebArea(
 /// cannot stretch the wait.
 func liveWindowContainsWebArea(_ window: AXUIElement, limits: LazyWebWaitLimits, deadline: TimeInterval) -> Bool {
     let messagingTimeout: Float = 0.25
+    // The snapshot reuses the window element after the probe; give it back the default timeout so a slow read just
+    // after the web tree appears is not cut short.
+    defer {
+        AXUIElementSetMessagingTimeout(window, 0)
+    }
     func copy(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
         AXUIElementSetMessagingTimeout(element, messagingTimeout)
         var value: CFTypeRef?
@@ -169,12 +175,33 @@ func frameworkNamesIndicateLazyWebEngine(_ names: [String]) -> Bool {
 
 /// Pure. Only bundles under these roots have their frameworks listed. Listing a bundle in Downloads, Desktop,
 /// Documents or on a removable volume can raise a privacy prompt under the agent's identity, and a grant there would
-/// persist for the agent; such apps rely on the `AXManualAccessibility` answer instead. No file-system call is made.
-func bundleIsUnderTrustedRoot(_ bundleURL: URL, roots: [String]) -> Bool {
+/// persist for the agent; such apps rely on the `AXManualAccessibility` answer instead. A symbolic link anywhere below
+/// the root on the way to `Contents/Frameworks` (an `/Applications` entry pointing into Downloads, say) makes the
+/// bundle untrusted. `isSymbolicLink` is asked for each of those paths in order, stopping at the first link, so only
+/// paths inside the trusted root are ever examined.
+func bundleIsUnderTrustedRoot(_ bundleURL: URL, roots: [String], isSymbolicLink: (String) -> Bool) -> Bool {
     let path = bundleURL.standardizedFileURL.path
-    return roots.contains { root in
-        path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    guard let rootPrefix = roots.map({ $0.hasSuffix("/") ? $0 : $0 + "/" }).first(where: { path.hasPrefix($0) }) else {
+        return false
     }
+    var current = String(rootPrefix.dropLast())
+    for component in (path.dropFirst(rootPrefix.count) + "/Contents/Frameworks").split(separator: "/") {
+        current += "/" + component
+        if isSymbolicLink(current) {
+            return false
+        }
+    }
+    return true
+}
+
+/// Whether `path` is a symbolic link, read with `lstat` so the link is never followed. A path that cannot be read
+/// counts as a link: the caller then treats the bundle as untrusted, which only skips a framework listing.
+func pathIsSymbolicLinkOrUnreadable(_ path: String) -> Bool {
+    var status = stat()
+    guard lstat(path, &status) == 0 else {
+        return true
+    }
+    return (status.st_mode & S_IFMT) == S_IFLNK
 }
 
 func lazyWebProbeTrustedRoots() -> [String] {
@@ -194,7 +221,7 @@ final class LazyWebEngineDetector: @unchecked Sendable {
     }
 
     func appHasLazyWebAccessibility(bundleURL: URL?) -> Bool {
-        guard let bundleURL, bundleIsUnderTrustedRoot(bundleURL, roots: trustedRoots) else {
+        guard let bundleURL else {
             return false
         }
         let key = bundleURL.standardizedFileURL.path
@@ -204,6 +231,10 @@ final class LazyWebEngineDetector: @unchecked Sendable {
             return cached
         }
         lock.unlock()
+
+        guard bundleIsUnderTrustedRoot(bundleURL, roots: trustedRoots, isSymbolicLink: pathIsSymbolicLinkOrUnreadable) else {
+            return false
+        }
 
         let frameworks = bundleURL.appendingPathComponent("Contents/Frameworks", isDirectory: true)
         let names = (try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? []
