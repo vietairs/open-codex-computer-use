@@ -2,6 +2,9 @@ import CoreGraphics
 import Darwin
 import Foundation
 
+let skyClickMethodLabel = "click_method 'sky_click'"
+let skyKeyMethodLabel = "key_method 'sky_key'"
+
 struct SkyLightActivationCommand: Equatable {
     let psn: [UInt8]
     let windowID: CGWindowID
@@ -47,8 +50,30 @@ func skyLightActivationRecord(windowID: CGWindowID, focused: Bool) -> [UInt8] {
     return record
 }
 
+/// yabai's `window_manager_make_key_window` record pair. Posted to the target PSN after the target-only activation
+/// record, it makes AppKit inside the target treat `windowID` as its key window without a front-process switch or a
+/// raise. Chromium's page focus follows the key window, so this is what turns received key events into inserted text.
+func skyLightKeyWindowRecords(windowID: CGWindowID) -> [[UInt8]] {
+    var record = [UInt8](repeating: 0, count: 0xF8)
+    record[0x04] = 0xF8
+    record[0x3A] = 0x10
+    record[0x3C] = UInt8(truncatingIfNeeded: windowID)
+    record[0x3D] = UInt8(truncatingIfNeeded: windowID >> 8)
+    record[0x3E] = UInt8(truncatingIfNeeded: windowID >> 16)
+    record[0x3F] = UInt8(truncatingIfNeeded: windowID >> 24)
+    for index in 0x20..<0x30 {
+        record[index] = 0xFF
+    }
+    return [UInt8(0x01), UInt8(0x02)].map { eventKind in
+        var copy = record
+        copy[0x08] = eventKind
+        return copy
+    }
+}
+
 struct SkyLightSPICapability: Equatable, Sendable {
     let missingSymbols: [String]
+    var feature: String = "click"
 
     var isAvailable: Bool {
         missingSymbols.isEmpty
@@ -59,17 +84,25 @@ struct SkyLightSPICapability: Equatable, Sendable {
             return "available"
         }
 
-        return "missing private click symbols: \(missingSymbols.joined(separator: ", "))"
+        return "missing private \(feature) symbols: \(missingSymbols.joined(separator: ", "))"
     }
 }
 
-/// Runtime-only bridge for the private SkyLight functions used by `sky_click`.
+/// Runtime-only bridge for the private SkyLight functions used by `sky_click`
+/// and `sky_key`.
 ///
-/// The declarations and event-field recipe are derived from the MIT-licensed
-/// Cua Driver and yabai implementations. Keep all undocumented ABI in this
-/// file so a future macOS compatibility change has one review boundary.
+/// The declarations, event-field recipe and key-window records are derived
+/// from the MIT-licensed Cua Driver and yabai implementations. Keep all
+/// undocumented ABI in this file so a future macOS compatibility change has
+/// one review boundary.
 final class SkyLightSPI: @unchecked Sendable {
     static let shared = SkyLightSPI()
+
+    /// Held for every begin...end synthetic-focus sequence, whichever method runs it. Each host connection of the
+    /// shared app agent runs its calls concurrently, and two sequences that interleave would release each other's
+    /// target or make the wrong window key, so `sky_click` and `sky_key` take this one lock and never a lock of
+    /// their own.
+    static let syntheticFocusLock = NSLock()
 
     private static let frameworkPath = "/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight"
     private static let postToPidSymbol = "SLEventPostToPid"
@@ -130,7 +163,7 @@ final class SkyLightSPI: @unchecked Sendable {
 
     func postToPid(_ event: CGEvent, pid: pid_t) throws {
         guard let postToPidFunction else {
-            throw unavailableError()
+            throw unavailableError(methodLabel: skyClickMethodLabel)
         }
 
         postToPidFunction(pid, opaquePointer(for: event))
@@ -138,7 +171,7 @@ final class SkyLightSPI: @unchecked Sendable {
 
     func setIntegerField(_ event: CGEvent, field: UInt32, value: Int64) throws {
         guard let setIntegerFieldFunction else {
-            throw unavailableError()
+            throw unavailableError(methodLabel: skyClickMethodLabel)
         }
 
         setIntegerFieldFunction(opaquePointer(for: event), field, value)
@@ -146,18 +179,20 @@ final class SkyLightSPI: @unchecked Sendable {
 
     func setWindowLocation(_ event: CGEvent, point: CGPoint) throws {
         guard let setWindowLocationFunction else {
-            throw unavailableError()
+            throw unavailableError(methodLabel: skyClickMethodLabel)
         }
 
         setWindowLocationFunction(opaquePointer(for: event), point.x, point.y)
     }
 
+    /// `methodLabel` names the tool option in error text, for example `click_method 'sky_click'`.
     func beginSyntheticTargetFocus(
         targetPID: pid_t,
-        targetWindowID: CGWindowID
+        targetWindowID: CGWindowID,
+        methodLabel: String = skyClickMethodLabel
     ) throws -> SkyLightSyntheticFocusContext {
         guard let getProcessForPIDFunction else {
-            throw unavailableError()
+            throw unavailableError(methodLabel: methodLabel)
         }
 
         var targetPSN = [UInt8](repeating: 0, count: 8)
@@ -166,7 +201,7 @@ final class SkyLightSPI: @unchecked Sendable {
         }
         guard targetStatus == 0 else {
             throw ComputerUseError.message(
-                "click_method 'sky_click' could not resolve target PID \(targetPID) to a PSN (OSStatus \(targetStatus))"
+                "\(methodLabel) could not resolve target PID \(targetPID) to a PSN (OSStatus \(targetStatus))"
             )
         }
 
@@ -174,7 +209,7 @@ final class SkyLightSPI: @unchecked Sendable {
             targetPSN: targetPSN,
             targetWindowID: targetWindowID
         )
-        try postActivationCommand(plan.activateTarget)
+        try postActivationCommand(plan.activateTarget, methodLabel: methodLabel)
         Thread.sleep(forTimeInterval: 0.040)
 
         return SkyLightSyntheticFocusContext(
@@ -182,14 +217,40 @@ final class SkyLightSPI: @unchecked Sendable {
         )
     }
 
-    func endSyntheticTargetFocus(_ context: SkyLightSyntheticFocusContext) throws {
-        try postActivationCommand(context.deactivateTarget)
+    /// Makes the target window key inside the target app while it is synthetic-active. Must follow
+    /// `beginSyntheticTargetFocus`: posted the other way round, the records are ignored. `endSyntheticTargetFocus`
+    /// releases the key state again.
+    func makeSyntheticTargetWindowKey(_ context: SkyLightSyntheticFocusContext) throws {
+        guard let postEventRecordFunction else {
+            throw unavailableError(methodLabel: skyKeyMethodLabel)
+        }
+
+        let command = context.deactivateTarget
+        for record in skyLightKeyWindowRecords(windowID: command.windowID) {
+            let status = command.psn.withUnsafeBytes { psnBytes in
+                record.withUnsafeBufferPointer { recordBytes in
+                    postEventRecordFunction(psnBytes.baseAddress, recordBytes.baseAddress)
+                }
+            }
+            guard status == 0 else {
+                throw ComputerUseError.message(
+                    "\(skyKeyMethodLabel) synthetic key-window event failed (OSStatus \(status))"
+                )
+            }
+        }
+    }
+
+    func endSyntheticTargetFocus(
+        _ context: SkyLightSyntheticFocusContext,
+        methodLabel: String = skyClickMethodLabel
+    ) throws {
+        try postActivationCommand(context.deactivateTarget, methodLabel: methodLabel)
         Thread.sleep(forTimeInterval: 0.040)
     }
 
-    private func unavailableError() -> ComputerUseError {
+    private func unavailableError(methodLabel: String) -> ComputerUseError {
         ComputerUseError.message(
-            "click_method 'sky_click' is unavailable: \(capability.unavailableReason)"
+            "\(methodLabel) is unavailable: \(capability.unavailableReason)"
         )
     }
 
@@ -197,9 +258,9 @@ final class SkyLightSPI: @unchecked Sendable {
         Unmanaged.passUnretained(event).toOpaque()
     }
 
-    private func postActivationCommand(_ command: SkyLightActivationCommand) throws {
+    private func postActivationCommand(_ command: SkyLightActivationCommand, methodLabel: String) throws {
         guard let postEventRecordFunction else {
-            throw unavailableError()
+            throw unavailableError(methodLabel: methodLabel)
         }
 
         let record = skyLightActivationRecord(
@@ -213,7 +274,7 @@ final class SkyLightSPI: @unchecked Sendable {
         }
         guard status == 0 else {
             throw ComputerUseError.message(
-                "click_method 'sky_click' synthetic target-focus event failed (OSStatus \(status))"
+                "\(methodLabel) synthetic target-focus event failed (OSStatus \(status))"
             )
         }
     }
