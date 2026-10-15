@@ -50,8 +50,8 @@ enum OpenComputerUseMain {
             }
         case let .doctor(json):
             let permissions = PermissionDiagnostics.current()
-            print(try json ? permissions.jsonText() : permissions.summary)
-            if !json && !permissions.missingPermissions.isEmpty {
+            print(try json ? permissions.jsonText(source: .process) : permissions.summary)
+            if shouldPresentPermissionOnboarding(json: json, missingPermissions: permissions.missingPermissions) {
                 PermissionOnboardingApp.launch()
             }
         case .listApps:

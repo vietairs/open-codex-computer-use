@@ -41,7 +41,7 @@ enum MacOSAppAgentProxy {
 
         // A permission snapshot is a pure read: it must never launch, replace or terminate the shared
         // agent, so it takes its own path ahead of connectOrLaunchAgent.
-        if case .doctor(json: true) = command {
+        if macOSAppAgentConnectionPolicy(for: command) == .readOnlySnapshot {
             return runReadOnlyPermissionSnapshot(socketPath: socketPath, arguments: arguments)
         }
 
@@ -65,7 +65,9 @@ enum MacOSAppAgentProxy {
 
     /// Prints the permission JSON from the already-running, current agent, because the grants belong
     /// to the app bundle. With no usable agent (none running, a stale build, or a lost connection)
-    /// it reads the snapshot in this process instead of starting or terminating anything.
+    /// it reports only the app's persisted TCC record, never this process's own grants (the terminal
+    /// that started the CLI is a different app), and fails when that record cannot be read. It never
+    /// starts, replaces or terminates anything.
     @MainActor
     private static func runReadOnlyPermissionSnapshot(socketPath: String, arguments: [String]) -> Int32 {
         if let appURL = PermissionSupport.currentAppBundleURL(),
@@ -82,10 +84,12 @@ enum MacOSAppAgentProxy {
         }
 
         do {
-            FileHandle.standardOutput.write(Data((try PermissionDiagnostics.current().jsonText() + "\n").utf8))
+            let json = try PermissionDiagnostics.fromAppTCCRecord().jsonText(source: .tcc)
+            FileHandle.standardOutput.write(Data((json + "\n").utf8))
             return EXIT_SUCCESS
         } catch {
-            FileHandle.standardError.write(Data("\(error)\n".utf8))
+            let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            FileHandle.standardError.write(Data((message + "\n").utf8))
             return EXIT_FAILURE
         }
     }
@@ -617,13 +621,13 @@ private final class AppAgentConnection: @unchecked Sendable {
 
             case let .doctor(json):
                 let permissions = PermissionDiagnostics.current()
-                if !json && !permissions.missingPermissions.isEmpty {
+                if shouldPresentPermissionOnboarding(json: json, missingPermissions: permissions.missingPermissions) {
                     Task { @MainActor in
                         PermissionOnboardingApp.present()
                     }
                 }
                 return CLIProxyResponse(
-                    stdout: (try json ? permissions.jsonText() : permissions.summary) + "\n",
+                    stdout: (try json ? permissions.jsonText(source: .agent) : permissions.summary) + "\n",
                     stderr: "",
                     exitCode: EXIT_SUCCESS
                 )

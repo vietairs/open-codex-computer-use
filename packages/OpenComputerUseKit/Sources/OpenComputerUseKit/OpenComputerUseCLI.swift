@@ -39,6 +39,27 @@ public func shouldUseMacOSAppAgentProxy(
     }
 }
 
+/// How the app-agent proxy reaches the shared agent for a command.
+public enum MacOSAppAgentConnectionPolicy: Equatable {
+    /// Start the agent when it is not running and replace it when it is stale.
+    case connectOrLaunch
+    /// Never launch, replace or terminate the agent; use it only if it is already running and current.
+    case readOnlySnapshot
+}
+
+/// A permission snapshot (`doctor --json`) is a pure read, so it must not start or evict the agent.
+public func macOSAppAgentConnectionPolicy(for command: OpenComputerUseCLICommand) -> MacOSAppAgentConnectionPolicy {
+    if case .doctor(json: true) = command {
+        return .readOnlySnapshot
+    }
+    return .connectOrLaunch
+}
+
+/// Onboarding opens only for the text `doctor` when something is missing; the JSON snapshot never opens it.
+public func shouldPresentPermissionOnboarding(json: Bool, missingPermissions: [SystemPermissionKind]) -> Bool {
+    !json && !missingPermissions.isEmpty
+}
+
 /// True when `arguments` is a proxied CLI command whose whole configuration comes from the environment dictionary
 /// passed to `runOpenComputerUseCall`: today only a single `call decide_next_action`. It is the CLI counterpart of
 /// `StdioMCPServer.readsOnlyCallEnvironment(line:)`; such a call blocks on the model for seconds, so the app agent runs
@@ -89,10 +110,14 @@ public func parseOpenComputerUseCLI(arguments: [String]) throws -> OpenComputerU
     case "mcp":
         return try parseSimpleCommand(name: "mcp", arguments: Array(arguments.dropFirst()), result: .mcp)
     case "doctor":
-        if Array(arguments.dropFirst()) == ["--json"] {
+        let doctorArguments = Array(arguments.dropFirst())
+        if doctorArguments == ["--json"] {
             return .doctor(json: true)
         }
-        return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor())
+        if doctorArguments.isEmpty || doctorArguments == ["-h"] || doctorArguments == ["--help"] {
+            return try parseSimpleCommand(name: "doctor", arguments: doctorArguments, result: .doctor())
+        }
+        throw OpenComputerUseCLIError(message: "doctor accepts only the --json option", helpCommand: "doctor")
     case "list-apps":
         return try parseSimpleCommand(name: "list-apps", arguments: Array(arguments.dropFirst()), result: .listApps)
     case "call":
