@@ -88,6 +88,44 @@ func skyClickWindowMatchesTarget(
     skyKeyWindowMatchesTarget(windowInfo: windowInfo, windowID: windowID, pid: pid)
 }
 
+/// Pure. A target that the window server does not report on screen (minimized, hidden app, Stage Manager strip) is
+/// clicked only when accessibility positively reads it as not minimized: an unreadable or unlisted window could be
+/// minimized, and nobody has verified whether the activation records restore a minimized window.
+func skyClickTargetVisibilityAllowed(isOnscreen: Bool, isMinimized: Bool?) -> Bool {
+    isMinimized != true && (isOnscreen || isMinimized == false)
+}
+
+/// Pure. When the target app is frontmost no synthetic focus is used, so a click reaches the window the way a real
+/// one would: AppKit makes a non-key window key and orders it front, and ordering front a window on another Space
+/// switches Space. The window must therefore already be the app's focused window and positively on the current
+/// Space, as for `sky_key`.
+func skyClickFrontmostTargetAllowed(focusedWindowID: CGWindowID?, targetWindowID: CGWindowID, isOnCurrentSpace: Bool?) -> Bool {
+    focusedWindowID == targetWindowID && isOnCurrentSpace == true
+}
+
+/// The live reads `SkyClickDispatcher.validate` makes under the synthetic-focus lock. Production uses `.live`; unit
+/// tests replace them to drive each refusal without posting events.
+struct SkyClickValidationProbes {
+    /// Throws when the target must not receive input: hidden app, missing or foreign window, minimized window.
+    var targetWindow: (CGWindowID, pid_t) throws -> SkyLightTargetWindowState
+    var session: () -> MacSessionSnapshot
+    /// Nil when the window's Space or the current Space cannot be read.
+    var isOnCurrentSpace: (CGWindowID) -> Bool?
+    var frontmostPID: () -> pid_t?
+    /// The window id the app's `AXFocusedWindow` maps to, or nil when it cannot be read.
+    var focusedWindowID: (pid_t) -> CGWindowID?
+
+    static func live(sessionState: MacSessionStateProvider) -> SkyClickValidationProbes {
+        SkyClickValidationProbes(
+            targetWindow: { try validateSkyLightTargetWindow(windowID: $0, pid: $1, methodName: "sky_click") },
+            session: { sessionState.currentSnapshot() },
+            isOnCurrentSpace: { SkyLightWindowServerSPI.shared.windowIsOnCurrentSpace($0) },
+            frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+            focusedWindowID: SkyKeyboardDispatcher.focusedWindowID(pid:)
+        )
+    }
+}
+
 enum SkyClickDispatcher {
     private static let primerScreenPoint = CGPoint(x: -1, y: -1)
     private static let primerWindowPoint = CGPoint(x: -1, y: -1)
@@ -122,7 +160,7 @@ enum SkyClickDispatcher {
             SkyLightSPI.syntheticFocusLock.unlock()
         }
 
-        try validate(target: target, sessionState: sessionState)
+        let usesSyntheticFocus = try validate(target: target, probes: .live(sessionState: sessionState))
         let recipe = try skyClickEventRecipe(clickCount: clickCount)
         guard let source = CGEventSource(stateID: .hidSystemState) else {
             throw ComputerUseError.message("Failed to create SkyLight HID event source.")
@@ -133,15 +171,14 @@ enum SkyClickDispatcher {
         // WindowServer does not publish field 58's accepted width.
         let clickGroupID = Int64(DispatchTime.now().uptimeNanoseconds % 1_000_000_000)
 
-        let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         let focusContext: SkyLightSyntheticFocusContext?
-        if frontmostPID == target.pid {
-            focusContext = nil
-        } else {
+        if usesSyntheticFocus {
             focusContext = try spi.beginSyntheticTargetFocus(
                 targetPID: target.pid,
                 targetWindowID: target.windowID
             )
+        } else {
+            focusContext = nil
         }
 
         do {
@@ -196,7 +233,9 @@ enum SkyClickDispatcher {
         }
     }
 
-    private static func validate(target: SkyClickTarget, sessionState: MacSessionStateProvider) throws {
+    /// Every check before an event is posted, read under the shared lock right before acting. Returns whether the
+    /// click needs the target-only synthetic focus, which is the case unless the target app is frontmost.
+    static func validate(target: SkyClickTarget, probes: SkyClickValidationProbes) throws -> Bool {
         guard
             target.screenPoint.x.isFinite,
             target.screenPoint.y.isFinite,
@@ -214,21 +253,50 @@ enum SkyClickDispatcher {
         }
 
         // Hidden app, missing or foreign window, minimized window: refused before any event is posted.
-        let isOnscreen = try validateSkyLightTargetWindow(windowID: target.windowID, pid: target.pid, methodName: "sky_click")
+        let window = try probes.targetWindow(target.windowID, target.pid)
+        guard skyClickTargetVisibilityAllowed(isOnscreen: window.isOnscreen, isMinimized: window.isMinimized) else {
+            throw ComputerUseError.stateUnavailable(
+                "sky_click target window is not on screen and accessibility could not confirm that it is not minimized, "
+                    + "so it sent nothing. Run get_app_state again; sky_click does not change window visibility."
+            )
+        }
 
-        // Read under the shared lock, right before acting. The Space is read only while locked, when it matters.
-        let session = sessionState.currentSnapshot()
+        // The Space is read at most once, and only when an answer depends on it.
+        var cachedSpace: Bool??
+        func isOnCurrentSpace() -> Bool? {
+            if let cachedSpace {
+                return cachedSpace
+            }
+            let space = probes.isOnCurrentSpace(target.windowID)
+            cachedSpace = .some(space)
+            return space
+        }
+
+        let session = probes.session()
         if !sessionIsStrictlyUnlocked(session),
-           skyClickRequiresStrictUnlock(
-               isOnscreen: isOnscreen,
-               isOnCurrentSpace: SkyLightWindowServerSPI.shared.windowIsOnCurrentSpace(target.windowID)
-           )
+           skyClickRequiresStrictUnlock(isOnscreen: window.isOnscreen, isOnCurrentSpace: isOnCurrentSpace())
         {
             try requireStrictlyUnlocked(
                 session,
                 subject: "\(skyClickMethodLabel) on a window that is not on screen on the current Space"
             )
         }
+
+        guard probes.frontmostPID() == target.pid else {
+            return true
+        }
+        guard skyClickFrontmostTargetAllowed(
+            focusedWindowID: probes.focusedWindowID(target.pid),
+            targetWindowID: target.windowID,
+            isOnCurrentSpace: isOnCurrentSpace()
+        ) else {
+            throw ComputerUseError.stateUnavailable(
+                "sky_click target app is frontmost, but the snapshot's window is not its focused window on the current "
+                    + "Space. Clicking it would make it key, raise it or switch Space, so sky_click sent nothing. "
+                    + "Run get_app_state again, or use the default click method."
+            )
+        }
+        return false
     }
 
     private static func stamp(

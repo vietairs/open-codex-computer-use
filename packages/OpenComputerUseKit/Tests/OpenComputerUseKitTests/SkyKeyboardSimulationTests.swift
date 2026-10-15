@@ -305,16 +305,19 @@ final class SkyKeyboardSimulationTests: XCTestCase {
 
     // MARK: - Minimized window
 
-    func testMinimizedCheckMatchesOnlyTheTargetWindow() {
-        let windows: [(id: CGWindowID?, minimized: Bool)] = [(7, true), (42, false), (nil, true)]
-        func check(_ windows: [(id: CGWindowID?, minimized: Bool)], _ windowID: CGWindowID) -> Bool {
-            skyKeyWindowIsMinimized(windows: windows, windowID: windowID, windowIDOf: \.id, isMinimized: \.minimized)
+    func testMinimizedStateMatchesOnlyTheTargetWindow() {
+        let windows: [(id: CGWindowID?, minimized: Bool?)] = [(7, true), (42, false), (nil, true), (50, nil), (60, false), (60, nil)]
+        func state(_ windows: [(id: CGWindowID?, minimized: Bool?)], _ windowID: CGWindowID) -> Bool? {
+            skyLightWindowMinimizedState(windows: windows, windowID: windowID, windowIDOf: \.id, minimizedState: \.minimized)
         }
 
-        XCTAssertTrue(check(windows, 7))
-        XCTAssertFalse(check(windows, 42))
-        XCTAssertFalse(check(windows, 99), "a window that is not listed is left to the key-window confirmation")
-        XCTAssertFalse(check([], 7))
+        XCTAssertEqual(state(windows, 7), true)
+        XCTAssertEqual(state(windows, 42), false, "only a positive read is not minimized")
+        XCTAssertNil(state(windows, 50), "an unreadable value is unknown")
+        XCTAssertNil(state(windows, 60), "one unreadable match makes the answer unknown")
+        XCTAssertNil(state(windows, 99), "a window that is not listed is unknown")
+        XCTAssertNil(state([], 7))
+        XCTAssertEqual(state([(7, false), (7, true)], 7), true, "any match reporting minimized wins")
     }
 
     // MARK: - Delivery sequence

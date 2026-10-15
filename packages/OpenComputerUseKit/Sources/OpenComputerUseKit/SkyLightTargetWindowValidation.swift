@@ -46,11 +46,46 @@ func skyLightTargetWindowEntry(
     }
 }
 
+/// What `validateSkyLightTargetWindow` read about a window that passed its checks.
+struct SkyLightTargetWindowState: Equatable {
+    /// `kCGWindowIsOnscreen`. Windows on another Desktop report true as well.
+    let isOnscreen: Bool
+    /// The window's `AXMinimized`, nil when it could not be read or the window is not among the app's AX windows.
+    let isMinimized: Bool?
+}
+
+/// Pure. `AXMinimized` of the AX window with `windowID`: true when any matching window reports it, false only when
+/// every matching window positively reports false, and nil when no window matches or a read failed.
+func skyLightWindowMinimizedState<Window>(
+    windows: [Window],
+    windowID: CGWindowID,
+    windowIDOf: (Window) -> CGWindowID?,
+    minimizedState: (Window) -> Bool?
+) -> Bool? {
+    let states = windows.filter { windowIDOf($0) == windowID }.map(minimizedState)
+    if states.contains(true) {
+        return true
+    }
+    return states.isEmpty || states.contains(nil) ? nil : false
+}
+
+/// The window's `AXMinimized`, or nil when the read fails or returns anything but a boolean.
+func accessibilityWindowMinimizedState(_ window: AXUIElement) -> Bool? {
+    var raw: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &raw) == .success,
+          let raw, CFGetTypeID(raw) == CFBooleanGetTypeID()
+    else {
+        return nil
+    }
+    return CFBooleanGetValue(unsafeDowncast(raw, to: CFBoolean.self))
+}
+
 /// The checks `sky_click` and `sky_key` share before any record is posted: the app is not hidden, the window still
-/// exists and belongs to the snapshot's process, and it is not minimized. Returns whether the window server reports
-/// the window on screen. `methodName` (`sky_click`, `sky_key`) names the method in the error text.
+/// exists and belongs to the snapshot's process, and accessibility does not report it minimized. Returns what was
+/// read, so each method can apply its own stricter rules. `methodName` (`sky_click`, `sky_key`) names the method in
+/// the error text.
 @discardableResult
-func validateSkyLightTargetWindow(windowID: CGWindowID, pid: pid_t, methodName: String) throws -> Bool {
+func validateSkyLightTargetWindow(windowID: CGWindowID, pid: pid_t, methodName: String) throws -> SkyLightTargetWindowState {
     // A hidden app never makes its windows key or handles their events, so input would be silently dropped. Fail
     // closed instead of unhiding on the user's behalf.
     if NSRunningApplication(processIdentifier: pid)?.isHidden == true {
@@ -72,22 +107,25 @@ func validateSkyLightTargetWindow(windowID: CGWindowID, pid: pid_t, methodName: 
     // restore a minimized window, which would be a visible change.
     let windows = (skyLightCopyValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute) as? [AnyObject] ?? [])
         .compactMap { skyLightAccessibilityElement($0) }
-    let isMinimized = skyKeyWindowIsMinimized(
+    let isMinimized = skyLightWindowMinimizedState(
         windows: windows,
         windowID: windowID,
         windowIDOf: accessibilityWindowID(of:),
-        isMinimized: { window in
+        minimizedState: { window in
             AXUIElementSetMessagingTimeout(window, SkyKeyboardDispatcher.accessibilityMessagingTimeout)
-            return accessibilityWindowIsMinimized(window)
+            return accessibilityWindowMinimizedState(window)
         }
     )
-    if isMinimized {
+    if isMinimized == true {
         throw ComputerUseError.stateUnavailable(
             "\(methodName) target window is minimized, so it sent nothing. Restore the window first; \(methodName) does not change window visibility."
         )
     }
 
-    return (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false
+    return SkyLightTargetWindowState(
+        isOnscreen: (entry[kCGWindowIsOnscreen as String] as? NSNumber)?.boolValue ?? false,
+        isMinimized: isMinimized
+    )
 }
 
 /// The value as an `AXUIElement`, or nil when the target app returned anything else. The CF type is checked first,

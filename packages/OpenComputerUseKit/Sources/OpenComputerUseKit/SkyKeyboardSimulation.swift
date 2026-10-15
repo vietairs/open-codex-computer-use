@@ -44,17 +44,6 @@ func skyMenuPressNote(result: AXError, key: String) throws -> String? {
     }
 }
 
-/// Pure. Whether the AX window with `windowID` reports itself minimized. A window that is not among `windows` reads
-/// as not minimized; the key-window confirmation still refuses a window that does not become key.
-func skyKeyWindowIsMinimized<Window>(
-    windows: [Window],
-    windowID: CGWindowID,
-    windowIDOf: (Window) -> CGWindowID?,
-    isMinimized: (Window) -> Bool
-) -> Bool {
-    windows.contains { windowIDOf($0) == windowID && isMinimized($0) }
-}
-
 /// The live reads `SkyKeyboardDispatcher.deliver` makes around the synthetic-focus calls. Production always uses
 /// `.live`; unit tests replace them to drive each path of the delivery sequence.
 struct SkyKeyboardDeliveryProbes {
