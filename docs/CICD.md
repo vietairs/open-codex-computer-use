@@ -5,11 +5,12 @@ language stack.
 
 ## Current release entry points
 
-- `scripts/release-package.sh`: builds the universal `Open Computer Use.app`, cross-compiles the Linux / Windows runtimes, and stages the three existing root/alias npm packages. Every package embeds the macOS app, the Linux binaries and the Windows executables, and exposes the `open-computer-use` / `ocu` npm bin entry points. Outputs `dist/release/npm/*.tgz` and `dist/release/release-manifest.json`. CI still uses ad-hoc signing explicitly, matching the previous release path; local debug/dev builds may use the developer machine's own signing identity.
+- `scripts/release-package.sh`: builds the universal `Open Computer Use.app`, cross-compiles the Linux / Windows runtimes, and stages the three existing root/alias npm packages. Every package embeds the macOS app, the Linux binaries and the Windows executables, and exposes the `open-computer-use` / `ocu` npm bin entry points. It also calls `scripts/package-github-release-assets.sh`, so one run produces the npm tarballs, the GitHub Release direct-download assets and their manifests: `dist/release/npm/*.tgz`, `dist/release/release-manifest.json` and `dist/release/github/`. CI still uses ad-hoc signing explicitly, matching the previous release path; local debug/dev builds may use the developer machine's own signing identity.
+- `scripts/package-github-release-assets.sh`: packages the already-built universal `.app`, the two Linux binaries, the two Windows `.exe` files and the `open-computer-use` skill into `dist/release/github/`, and writes `SHA256SUMS` and `release-assets-manifest.json`. macOS must ship the whole app bundle; the executable inside the bundle is not a standalone install package.
 - `scripts/build-cursor-motion-dmg.sh`: builds `Cursor Motion.app` locally and packages `dist/release/cursor-motion/CursorMotion-<version>.dmg`. Supports `native` / `arm64` / `x86_64` / `universal`.
 - `scripts/build-open-computer-use-linux.sh`: builds the experimental Linux `open-computer-use` binary locally for `arm64` / `amd64`. The release package embeds both artifacts into the existing npm packages under `dist/linux/`.
 - `scripts/build-open-computer-use-windows.sh`: builds the experimental Windows `open-computer-use.exe` locally for `arm64` / `amd64`. The release package embeds both artifacts into the existing npm packages under `dist/windows/`.
-- `.github/workflows/release.yml`: releases automatically on a pushed semver tag, and can also be triggered manually. A tag push runs both the npm release packaging and the `Cursor Motion` DMG packaging, then uploads the `.dmg` to the matching GitHub Releases page. The `Open Computer Use` npm artifacts default to ad-hoc signing; when the `OPEN_COMPUTER_USE_CODESIGN_*` secrets are configured, the workflow first imports the `Developer ID Application` certificate and then signs the release `.app` under that identity. The `Cursor Motion` DMG reuses the same `Developer ID Application` certificate to sign the app; when the `APPLE_NOTARY_*` secrets are also configured, the `.dmg` is notarized and stapled before upload.
+- `.github/workflows/release.yml`: releases automatically on a pushed semver tag, and can also be triggered manually. A tag push builds the npm / direct-download artifacts and the `Cursor Motion` DMG in parallel; only when both build jobs succeed does the single `publish-github-release` job create or update the GitHub Release and upload the full asset set. The `Open Computer Use` npm and app artifacts default to ad-hoc signing; when the `OPEN_COMPUTER_USE_CODESIGN_*` secrets are configured, the workflow first imports the `Developer ID Application` certificate and then signs the release `.app` under that identity. The `Cursor Motion` DMG reuses the same `Developer ID Application` certificate to sign the app; when the `APPLE_NOTARY_*` secrets are also configured, the `.dmg` is notarized and stapled before upload. The direct-download app zip is packaged from the same `.app` the build script already signed, notarized and stapled, so it needs no separate notarization step; without notary secrets it is not notarized, matching the npm artifacts. For public repositories the workflow also attaches a build provenance attestation to the direct-download archives.
 
 ## Current CI gates
 
@@ -61,10 +62,17 @@ The current release pipeline produces:
 - `dist/release/npm/vietairs-open-computer-use-<version>.tgz`
 - `dist/release/npm/vietairs-open-computer-use-mcp-<version>.tgz`
 - `dist/release/npm/vietairs-open-codex-computer-use-mcp-<version>.tgz`
+- `dist/release/github/Open-Computer-Use-<version>-macOS-universal.app.zip`
+- `dist/release/github/open-computer-use-cli-<version>-linux-{arm64,amd64}.tar.gz`
+- `dist/release/github/open-computer-use-cli-<version>-windows-{arm64,amd64}.zip`
+- `dist/release/github/open-computer-use-skill.zip`
+- `dist/release/github/open-computer-use.skill`
+- `dist/release/github/SHA256SUMS`
+- `dist/release/github/release-assets-manifest.json`
 - `dist/release/cursor-motion/CursorMotion-<version>.dmg`
-- the npm release artifact uploaded from GitHub Actions
-- the tag-aligned `CursorMotion-<version>.dmg` on GitHub Releases
+- the npm and direct-download release artifacts uploaded from GitHub Actions
+- the direct-download assets above plus the tag-aligned `CursorMotion-<version>.dmg` on GitHub Releases
 
 In other words, even before the project reaches a more complex deployment
-stage, the repository already has both a real, reusable npm artifact packaging
-path and a git-tag-driven macOS app DMG delivery path.
+stage, the repository already has a real, reusable npm artifact packaging path and a
+git-tag-driven direct-download path covering macOS, Linux, Windows and the skill.

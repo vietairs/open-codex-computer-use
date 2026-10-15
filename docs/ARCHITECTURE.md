@@ -27,7 +27,7 @@ This repository has now converged from a template into a local `computer-use` pr
 - `experiments/StandaloneCursor`
   A new standalone Swift cursor viewer that directly reuses the candidate paths, scoring, and raw spring timeline converged upon in `scripts/cursor-motion-re/official_cursor_motion.py`, used to observe behavior that more closely matches the binary lift.
 - `scripts/`
-  Repository-level automation commands, including smoke tests, the `.app` packaging entry point, the Windows `.exe` / Linux binary build entry points, npm distribution scripts, and `scripts/computer-use-cli/`, a Go helper for probing the official bundled `computer-use`.
+  Repository-level automation commands, including smoke tests, the `.app` packaging entry point, the Windows `.exe` / Linux binary build entry points, npm distribution scripts, GitHub Release direct-download archive packaging, and `scripts/computer-use-cli/`, a Go helper for probing the official bundled `computer-use`.
 - `skills/`
   An installable skill for agent runtimes. Currently `skills/open-computer-use/SKILL.md` serves only as a lightweight entry point and index; details on installation, MCP/CLI usage, and troubleshooting are split out into adjacent `references/` files that load on demand; `scripts/package-skill.sh` handles validating and packaging the `.zip` / `.skill` artifacts.
 - `docs/`

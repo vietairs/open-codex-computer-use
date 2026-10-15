@@ -20,6 +20,7 @@ This document governs this repository's patch / minor release process. Its goal 
 ## Current release entry points
 
 - Local staging / tgz packaging: `./scripts/release-package.sh`
+- Re-package GitHub Release assets locally: `./scripts/package-github-release-assets.sh --version <version>`
 - Local Cursor Motion DMG build: `./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version <version>`
 - Local npm package staging directory: `node ./scripts/npm/build-packages.mjs`
 - Local publish: `node ./scripts/npm/publish-packages.mjs`
@@ -30,11 +31,12 @@ This document governs this repository's patch / minor release process. Its goal 
 
 ## Current version sources
 
-This repository currently has three release version sources:
+This repository currently has four release version sources:
 
 - npm staging package version: taken from `version` in `plugins/open-computer-use/.codex-plugin/plugin.json`.
 - GitHub Release body: taken from `docs/releases/github/<tag>.md`; the file name must exactly match the actual tag.
 - `CursorMotion-<version>.dmg` file name and the GitHub Release asset version: taken from the release tag; the workflow normalizes `vX.Y.Z` to `X.Y.Z` for the DMG file name, or you can pass `--version` explicitly for a local build.
+- Open Computer Use direct-download asset version: taken from the plugin manifest; `package-github-release-assets.sh --version` rejects a version that differs from the manifest.
 
 In other words:
 
@@ -83,14 +85,17 @@ Do not tag until every item passes. After the tag is pushed, the `release-metada
 
 ### 3. Verify locally that the version sources took effect
 
-Run at least these four steps:
+Run at least these steps:
 
 ```bash
 node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
 swift test
 node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.14
+./scripts/package-github-release-assets.sh --version 0.1.14
 ```
+
+The last command needs a built `dist/Open Computer Use.app` and the Linux / Windows binaries under `dist/` (`./scripts/release-package.sh` builds them).
 
 Then check the staging package version and DMG file name directly:
 
@@ -102,6 +107,9 @@ test -x "dist/release/npm-staging-check/open-computer-use/bin/ocu"
 node -e "const bin=require('./dist/release/npm-staging-check/open-computer-use/package.json').bin; if (bin.ocu !== 'bin/ocu') process.exit(1)"
 node -e "if (require('./dist/release/npm-staging-check/open-computer-use/package.json').optionalDependencies) process.exit(1)"
 ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
+test -f dist/release/github/Open-Computer-Use-0.1.14-macOS-universal.app.zip
+test "$(find dist/release/github -maxdepth 1 -type f -name 'open-computer-use-cli-*' | wc -l | tr -d ' ')" = 4
+(cd dist/release/github && shasum -a 256 -c SHA256SUMS)
 ```
 
 If what prints here is not the target version, or the DMG was not produced under the target version name, do not tag.
@@ -123,10 +131,12 @@ git push origin main
 git push origin v0.1.14
 ```
 
-After the tag push, `.github/workflows/release.yml` automatically does two things:
+After the tag push, `.github/workflows/release.yml` automatically does the following:
 
 - Publishes the npm packages.
-- Builds `CursorMotion-0.1.14.dmg`, and creates or updates the GitHub Release asset for the matching tag.
+- Builds the Open Computer Use macOS app, Linux / Windows CLI and skill direct-download packages.
+- Builds `CursorMotion-0.1.14.dmg`.
+- Once every build job has succeeded, creates or updates the GitHub Release for the matching tag with all assets in one step.
 
 ### 6. Check the GitHub Release notes
 
@@ -136,7 +146,7 @@ After every tag push, check the GitHub Release page; do not just confirm the wor
 gh release view v0.1.14 --json body,url
 ```
 
-The workflow creates a new Release using `docs/releases/github/<tag>.md`; if the Release already exists, it overwrites the uploaded DMG and updates the body from the same file. GitHub's auto-generated notes are no longer the source of the body, so PR titles written in Chinese do not affect the language of the public Release.
+The workflow creates a new Release using `docs/releases/github/<tag>.md`; if the Release already exists, it overwrites the uploaded macOS app, Linux / Windows CLI, skill, checksums, manifest and DMG, and updates the body from the same file. GitHub's auto-generated notes are no longer the source of the body, so PR titles written in Chinese do not affect the language of the public Release.
 
 Minimum requirements:
 
@@ -234,9 +244,9 @@ gh run view -R vietairs/open-codex-computer-use <run-id> --log-failed
   - If the log shows `GitHub Actions OIDC trusted publishing` was selected, check the npm CLI version in CI first; trusted publishing needs npm `11.5.1+`; the current release workflow's npm package job uses Node `24` and explicitly checks the npm version.
   - If the npm CLI version satisfies the requirement and this error still appears, it means the npmjs.com package side has not yet configured this GitHub repo / workflow file as a trusted publisher.
 - Build-stage failure
-  - Check `Build npm release artifacts`, `Build Cursor Motion DMG`, or Swift compilation errors first.
+  - Check `Build npm release artifacts`, the architecture / archive checks in `package-github-release-assets.sh`, `Build Cursor Motion DMG`, or Swift compilation errors first.
 - GitHub Release asset upload failure
-  - Check `Publish Cursor Motion DMG to GitHub Releases` first, confirm the tag exists, `GH_TOKEN` permissions are correct, and the generated `CursorMotion-<version>.dmg` path matches.
+  - Check the `publish-github-release` job first: confirm both upstream artifacts were uploaded, the tag exists, `GH_TOKEN` permissions are correct, and the downloaded asset paths match.
 - Publish authentication failure
   - Check `.github/workflows/release.yml`, `scripts/npm/publish-packages.mjs`, and the npm trusted publishing / token fallback configuration.
 
@@ -245,6 +255,9 @@ gh run view -R vietairs/open-codex-computer-use <run-id> --log-failed
 - `Open Computer Use` npm release artifacts still fall back to ad-hoc signing when `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` and related secrets are not configured; when configured, the workflow imports the `Developer ID Application` certificate first, then signs uniformly with that identity, and (with notary secrets also configured) notarizes and staples the app bundle.
 - `Cursor Motion`'s current release asset reuses `OPEN_COMPUTER_USE_CODESIGN_*` to sign the app with `Developer ID Application` first; if `APPLE_NOTARY_API_KEY_P8_BASE64`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_ISSUER_ID`, `APPLE_DEVELOPER_TEAM_ID` are also configured, the workflow proceeds to notarize and staple the `.dmg`.
 - If the signing secrets are missing, the workflow falls back to ad-hoc signing. If none of the notary secrets are set, notarization is skipped; a partial set fails the `package-npm` job.
+- The direct-download app zip comes from the same `.app` the build script signs and notarizes: with Developer ID signing plus all notary secrets it is notarized and stapled, otherwise it is ad-hoc signed and not notarized, and no separate notarization step runs.
+- The direct-download Linux / Windows CLI archives contain only the native CLI / MCP runtime; the Node adapter behind `ocu js` / `ocu repl` still ships through the npm packages.
+- macOS direct download must keep the whole `.app` bundle; do not distribute `Contents/MacOS/OpenComputerUse` on its own, or the app-scoped permission identity cannot be reused reliably.
 - The `open-computer-use` npm root package bundles six `os-arch` native artifacts, so the package size is larger than a macOS-only build; before releasing, confirm the staging package includes `dist/Open Computer Use.app`, `dist/linux/`, and `dist/windows/`, and confirm the launcher does not declare `optionalDependencies`.
 
 ## If the tag was already pushed wrong

@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: write
+  attestations: write
   id-token: write
 
 jobs:
@@ -165,6 +166,22 @@ jobs:
             dist/release/release-manifest.json
           if-no-files-found: error
 
+      - name: Upload direct-download release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: open-computer-use-release-artifacts
+          path: dist/release/github/*
+          if-no-files-found: error
+
+      - name: Generate build provenance for direct-download artifacts
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
+        with:
+          subject-path: |
+            dist/release/github/*.zip
+            dist/release/github/*.tar.gz
+            dist/release/github/*.skill
+
       - name: Configure npm token fallback
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -286,22 +303,49 @@ jobs:
           path: dist/release/cursor-motion/*.dmg
           if-no-files-found: error
 
-      - name: Publish Cursor Motion DMG to GitHub Releases
+  publish-github-release:
+    needs:
+      - package-npm
+      - release-cursor-motion-dmg
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Download Open Computer Use release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: open-computer-use-release-artifacts
+          path: dist/release/github
+
+      - name: Download Cursor Motion release artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: cursor-motion-release-artifact
+          path: dist/release/cursor-motion
+
+      - name: Publish all assets to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          version="${RELEASE_TAG#v}"
-          dmg_path="dist/release/cursor-motion/CursorMotion-${version}.dmg"
           notes_path="docs/releases/github/${RELEASE_TAG}.md"
+          assets=(
+            dist/release/github/*
+            dist/release/cursor-motion/*.dmg
+          )
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${dmg_path}" --clobber
+            gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
             gh release edit "${RELEASE_TAG}" \
               --title "${RELEASE_TAG}" \
               --notes-file "${notes_path}"
           else
-            gh release create "${RELEASE_TAG}" "${dmg_path}" \
+            gh release create "${RELEASE_TAG}" "${assets[@]}" \
               --title "${RELEASE_TAG}" \
               --notes-file "${notes_path}"
           fi
