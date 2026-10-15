@@ -162,7 +162,7 @@ func escapeElementSearchText(_ value: String) -> String {
 
 /// Same `x=<Int>, y=<Int>, w=<Int>, h=<Int>` text the full snapshot prints for an element frame.
 func elementSearchRenderedFrame(_ frame: CGRect) -> String {
-    "x=\(Int(frame.origin.x)), y=\(Int(frame.origin.y)), w=\(Int(frame.width)), h=\(Int(frame.height))"
+    renderedFrameText(frame)
 }
 
 /// `[<index>] <role> "<label>" id=<identifier> frame=<frame> actions=<actions>`, omitting empty parts.

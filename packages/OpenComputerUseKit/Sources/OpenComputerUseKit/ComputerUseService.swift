@@ -988,7 +988,7 @@ public final class ComputerUseService {
                             at: targetPoint,
                             button: button,
                             clickCount: clickCount,
-                            targetDescription: "x=\(Int(screenshotPoint.x)) y=\(Int(screenshotPoint.y))",
+                            targetDescription: "x=\(renderedInt(screenshotPoint.x)) y=\(renderedInt(screenshotPoint.y))",
                             snapshot: snapshot
                         )
                     }
@@ -1001,7 +1001,7 @@ public final class ComputerUseService {
                         windowPoint: point,
                         button: button,
                         clickCount: clickCount,
-                        targetDescription: "x=\(Int(screenshotPoint.x)) y=\(Int(screenshotPoint.y))",
+                        targetDescription: "x=\(renderedInt(screenshotPoint.x)) y=\(renderedInt(screenshotPoint.y))",
                         snapshot: snapshot
                     )
                 }
@@ -1121,7 +1121,7 @@ public final class ComputerUseService {
         let path = try performDragEvent(
             from: start,
             to: end,
-            targetDescription: "from=(\(Int(fromX)), \(Int(fromY))) to=(\(Int(toX)), \(Int(toY)))",
+            targetDescription: "from=(\(renderedInt(fromX)), \(renderedInt(fromY))) to=(\(renderedInt(toX)), \(renderedInt(toY)))",
             snapshot: snapshot
         )
         return appendingDragDeliveryNote(
@@ -2334,7 +2334,7 @@ public final class ComputerUseService {
             }
 
         guard let identifier = candidates.first?.identifier else {
-            throw ComputerUseError.invalidArguments("No fixture element contains coordinate (\(Int(point.x)), \(Int(point.y)))")
+            throw ComputerUseError.invalidArguments("No fixture element contains coordinate (\(renderedInt(point.x)), \(renderedInt(point.y)))")
         }
 
         return identifier
@@ -2412,16 +2412,20 @@ public final class ComputerUseService {
     private func clickDebugDescription(_ record: ElementRecord) -> String {
         let role = record.element.flatMap { stringValue(of: $0, attribute: kAXRoleAttribute) } ?? "nil"
         let actions = record.rawActions.joined(separator: ",")
-        let frame = record.localFrame.map { "x=\(Int($0.minX)) y=\(Int($0.minY)) w=\(Int($0.width)) h=\(Int($0.height))" } ?? "nil"
+        let frame = record.localFrame.map { "x=\(renderedInt($0.minX)) y=\(renderedInt($0.minY)) w=\(renderedInt($0.width)) h=\(renderedInt($0.height))" } ?? "nil"
         return "index=\(record.index) role=\(role) synthetic=\(record.isSyntheticText) actions=[\(actions)] frame=\(frame)"
     }
 
-    private func integralScrollPageCount(_ pages: Double) -> Int? {
+    /// Most times one scroll call repeats the accessibility page action. A larger request is clamped
+    /// rather than rejected, so a huge `pages` value cannot keep the shared agent busy for hours.
+    static let maxScrollPageRepeats = 100
+
+    func integralScrollPageCount(_ pages: Double) -> Int? {
         let rounded = pages.rounded(.toNearestOrAwayFromZero)
         guard abs(pages - rounded) < 0.000001 else {
             return nil
         }
-        return max(Int(rounded), 1)
+        return min(max(renderedInt(rounded), 1), Self.maxScrollPageRepeats)
     }
 
     private func performScrollEvent(

@@ -33,11 +33,16 @@ enum MacOSAppAgentProxy {
     @MainActor
     static func runProxy(command: OpenComputerUseCLICommand, arguments: [String]) throws -> Int32 {
         let socketPath = defaultSocketPath()
+        // Only a new MCP host session is an explicit request for computer use, so only it lifts an
+        // earlier menu Quit. Other CLI commands (doctor, list-apps, ...) leave the marker in place.
+        if case .mcp = command {
+            AppAgentQuitMarker.clear(forSocketPath: socketPath)
+        }
         let client = try connectOrLaunchAgent(socketPath: socketPath)
 
         switch command {
         case .mcp:
-            try proxyMCP(client: client)
+            try proxyMCP(client: client, socketPath: socketPath)
             return EXIT_SUCCESS
         default:
             let response = try sendCLIRequest(arguments: arguments, client: client)
@@ -76,8 +81,12 @@ enum MacOSAppAgentProxy {
             .path
     }
 
+    /// `allowLockedOptIn` carries the proxy's lock-screen opt-in into a freshly launched agent. The
+    /// first launch passes it through; a relaunch after an agent crash must not, so it fails closed
+    /// (lock-screen control off) until the operator quits Open Computer Use from the menu bar and
+    /// restarts the host with the opt-in.
     @MainActor
-    private static func connectOrLaunchAgent(socketPath: String) throws -> AppAgentSocketClient {
+    private static func connectOrLaunchAgent(socketPath: String, allowLockedOptIn: Bool = true) throws -> AppAgentSocketClient {
         guard let appURL = PermissionSupport.currentAppBundleURL() else {
             throw OpenComputerUseCLIError(message: "Unable to locate Open Computer Use.app for app-scoped macOS permissions.")
         }
@@ -101,7 +110,7 @@ enum MacOSAppAgentProxy {
         // trusted launch environment (set here by the operator-run proxy from its real shell
         // env), never the per-call socket channel, so a same-uid client cannot forge it against
         // an already-running, TCC-authorized agent. Fixed for the agent's lifetime.
-        if let allowLocked = ProcessInfo.processInfo.environment[MacSessionLockPolicy.environmentKey] {
+        if allowLockedOptIn, let allowLocked = ProcessInfo.processInfo.environment[MacSessionLockPolicy.environmentKey] {
             configuration.environment = [MacSessionLockPolicy.environmentKey: allowLocked]
         }
 
@@ -118,10 +127,104 @@ enum MacOSAppAgentProxy {
         throw OpenComputerUseCLIError(message: "Timed out waiting for Open Computer Use.app agent to start.")
     }
 
-    private static func proxyMCP(client: AppAgentSocketClient) throws {
-        try LocalChannelRouter().run { line in
-            try relayMCPLine(line, client: client)
+    /// Reconnects after an agent loss. A user Quit from the status menu keeps computer use stopped
+    /// (no relaunch); a crash leaves no marker and relaunches, with the lock-screen opt-in off.
+    @MainActor
+    private static func reconnectAgent(socketPath: String) throws -> AppAgentSocketClient {
+        if AppAgentQuitMarker.exists(forSocketPath: socketPath) {
+            throw AppAgentQuitByUser()
         }
+        return try connectOrLaunchAgent(socketPath: socketPath, allowLockedOptIn: false)
+    }
+
+    /// Relays MCP lines to the shared app agent for the life of the host connection. When the agent
+    /// dies mid-request the host gets an error reply for that request and the proxy stays up: the next
+    /// line reconnects (relaunching the agent if needed), so one agent crash does not close every
+    /// session's MCP connection. A request the agent may have received is never replayed; it may be
+    /// what crashed the agent, and actions are not idempotent. A request that could not even be
+    /// written is safe to resend, so it is resent once on a fresh connection.
+    @MainActor
+    private static func proxyMCP(client initialClient: AppAgentSocketClient, socketPath: String) throws {
+        var client: AppAgentSocketClient? = initialClient
+        let router = LocalChannelRouter(isStopped: { AppAgentQuitMarker.exists(forSocketPath: socketPath) })
+        try router.run { line in
+            let expectsReply = AppAgentLossResponse.expectsReply(requestLine: line)
+
+            if client == nil {
+                if expectsReply {
+                    do {
+                        client = try reconnectAgent(socketPath: socketPath)
+                    } catch is AppAgentQuitByUser {
+                        return AppAgentLossResponse.response(
+                            forRequestLine: line,
+                            message: AppAgentLossResponse.quitMessage
+                        )
+                    } catch {
+                        let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                        return AppAgentLossResponse.response(
+                            forRequestLine: line,
+                            message: "The Open Computer Use app agent is not reachable (\(reason)). The call was NOT sent; try again."
+                        )
+                    }
+                } else {
+                    // A notification has no reply to carry a failure, so it never triggers a blocking
+                    // relaunch: reuse an agent that is already up, otherwise drop it.
+                    client = AppAgentSocketClient.connect(path: socketPath)
+                }
+            }
+            guard let connected = client else {
+                return nil
+            }
+
+            do {
+                return try relayMCPLine(line, client: connected)
+            } catch is AppAgentConnectionLost {
+                client = nil
+                return connectionLostResponse(forRequestLine: line, socketPath: socketPath)
+            } catch is AppAgentRequestNotDelivered {
+                client = nil
+                guard expectsReply else {
+                    return nil
+                }
+                // The write failed, so the agent never saw this line and one resend cannot duplicate it.
+                let fresh: AppAgentSocketClient
+                do {
+                    fresh = try reconnectAgent(socketPath: socketPath)
+                } catch is AppAgentQuitByUser {
+                    return AppAgentLossResponse.response(
+                        forRequestLine: line,
+                        message: AppAgentLossResponse.quitMessage
+                    )
+                } catch {
+                    return AppAgentLossResponse.response(
+                        forRequestLine: line,
+                        message: AppAgentLossResponse.notDeliveredMessage
+                    )
+                }
+                client = fresh
+                do {
+                    return try relayMCPLine(line, client: fresh)
+                } catch is AppAgentRequestNotDelivered {
+                    client = nil
+                    return AppAgentLossResponse.response(
+                        forRequestLine: line,
+                        message: AppAgentLossResponse.notDeliveredMessage
+                    )
+                } catch is AppAgentConnectionLost {
+                    client = nil
+                    return connectionLostResponse(forRequestLine: line, socketPath: socketPath)
+                }
+            }
+        }
+    }
+
+    /// Reply for a call that was in flight when the agent went away: a menu Quit says so, anything
+    /// else reads as a crash or restart.
+    private static func connectionLostResponse(forRequestLine line: String, socketPath: String) -> String? {
+        AppAgentLossResponse.lostConnectionResponse(
+            forRequestLine: line,
+            quitByUser: AppAgentQuitMarker.exists(forSocketPath: socketPath)
+        )
     }
 
     /// Forwards one MCP request line to the app agent and returns its response line, if any.
@@ -198,8 +301,8 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         menu.copyDiagnosticsAction = { [weak self] in
             self?.copyDiagnosticsToClipboard()
         }
-        menu.quitAction = {
-            NSApp.terminate(nil)
+        menu.quitAction = { [weak self] in
+            self?.quitFromMenu()
         }
         menu.install()
         statusMenu = menu
@@ -231,6 +334,14 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         ControlActivityStore.shared.unregisterConnection(connectionID)
         statusMenu?.uninstall()
         listener?.stop()
+    }
+
+    /// The status-menu Quit: record that the user stopped computer use so a proxy does not relaunch
+    /// this agent behind their back. Restart Agent and the `terminate` request (bundle eviction)
+    /// deliberately skip this, because both expect a relaunch.
+    private func quitFromMenu() {
+        AppAgentQuitMarker.write(forSocketPath: socketPath)
+        NSApp.terminate(nil)
     }
 
     private func restartAgent() {
@@ -337,6 +448,10 @@ private final class AppAgentSocketListener: @unchecked Sendable {
                 continue
             }
 
+            // A proxy that dies mid-call must not kill this shared agent when the reply is written:
+            // the write has to fail with EPIPE instead of raising SIGPIPE.
+            disableAppAgentSocketSigPipe(clientFD)
+
             // Authenticate the connecting process before it can drive the TCC-authorized agent.
             // Same-uid alone is insufficient (any user process could connect); require the peer to
             // be code-signed by the same developer as this agent, with a same-uid dev fallback.
@@ -373,9 +488,9 @@ private final class AppAgentConnection: @unchecked Sendable {
         }
         defer { fclose(file) }
 
-        while let line = readAgentLine(file) {
+        while let line = readAppAgentLine(file) {
             let response = handle(requestLine: line)
-            writeAgentLine(response, to: file)
+            writeAgentResponse(response, to: file)
         }
     }
 
@@ -536,6 +651,21 @@ private enum AppAgentEnvironment {
     }
 }
 
+/// The agent closed its socket before answering (it crashed, was restarted, or was quit).
+/// Distinct from an error the agent reported, so the MCP proxy can reconnect instead of exiting.
+private struct AppAgentConnectionLost: LocalizedError {
+    var errorDescription: String? { "Open Computer Use.app agent closed the connection." }
+}
+
+/// The user quit Open Computer Use from its status menu, so the proxy must not relaunch the agent.
+private struct AppAgentQuitByUser: Error {}
+
+/// The request could not be written because the agent was already gone, so the agent never saw it.
+/// Unlike `AppAgentConnectionLost`, the call provably did not run and may be sent again.
+private struct AppAgentRequestNotDelivered: LocalizedError {
+    var errorDescription: String? { "Open Computer Use.app agent is not reachable." }
+}
+
 private final class AppAgentSocketClient: @unchecked Sendable {
     private let file: UnsafeMutablePointer<FILE>
 
@@ -557,6 +687,8 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             close(fd)
             return nil
         }
+        // A write to an agent that already died must fail with EPIPE, not kill this proxy with SIGPIPE.
+        disableAppAgentSocketSigPipe(fd)
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -599,12 +731,14 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             throw ComputerUseError.message("Failed to encode app-agent request.")
         }
 
-        writeAgentLine(line, to: file)
+        guard writeAppAgentLine(line, to: file) else {
+            throw AppAgentRequestNotDelivered()
+        }
 
-        guard let responseLine = readAgentLine(file),
+        guard let responseLine = readAppAgentLine(file),
               let response = try JSONSerialization.jsonObject(with: Data(responseLine.utf8)) as? [String: Any]
         else {
-            throw ComputerUseError.message("Open Computer Use.app agent closed the connection.")
+            throw AppAgentConnectionLost()
         }
 
         if let error = response["error"] as? String {
@@ -651,33 +785,10 @@ private final class AppAgentSocketClient: @unchecked Sendable {
     }
 }
 
-private func readAgentLine(_ file: UnsafeMutablePointer<FILE>) -> String? {
-    var bytes: [UInt8] = []
-
-    while true {
-        let character = fgetc(file)
-        if character == EOF {
-            return bytes.isEmpty ? nil : String(data: Data(bytes), encoding: .utf8)
-        }
-        if character == 10 {
-            return String(data: Data(bytes), encoding: .utf8)
-        }
-        bytes.append(UInt8(character))
-    }
-}
-
-private func writeAgentLine(_ object: [String: Any], to file: UnsafeMutablePointer<FILE>) {
+private func writeAgentResponse(_ object: [String: Any], to file: UnsafeMutablePointer<FILE>) {
     if let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
        let line = String(data: data, encoding: .utf8)
     {
-        writeAgentLine(line, to: file)
+        writeAppAgentLine(line, to: file)
     }
-}
-
-private func writeAgentLine(_ line: String, to file: UnsafeMutablePointer<FILE>) {
-    let output = line + "\n"
-    _ = output.withCString { pointer in
-        fputs(pointer, file)
-    }
-    fflush(file)
 }

@@ -227,7 +227,7 @@ private func elementSearchWindowCandidate(
             layer: layer,
             bounds: bounds,
             title: info[kCGWindowName as String] as? String,
-            area: Int(bounds.width * bounds.height),
+            area: renderedInt(bounds.width * bounds.height),
             frontToBackIndex: offset,
             isOnscreen: info[kCGWindowIsOnscreen as String] as? Bool ?? false
         )

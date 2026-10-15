@@ -43,7 +43,7 @@ enum ActionStep: Equatable {
                 return "click element_index=\(elementIndex)"
             }
             if let x, let y {
-                return "click x=\(Int(x)) y=\(Int(y))"
+                return "click x=\(renderedInt(x)) y=\(renderedInt(y))"
             }
             return "click"
         case .typeText:

@@ -533,6 +533,70 @@ final class LocalChannelRouterTests: XCTestCase {
         }
     }
 
+    // MARK: - Stopped by the user
+
+    func testStoppedRouterAnswersLocalToolsWithTheQuitMessageAndRunsNothing() throws {
+        var handlersBuilt = false
+        var forwarded: [String] = []
+        let router = LocalChannelRouter(
+            environment: Self.enabledEnvironment,
+            makeHandlers: {
+                handlersBuilt = true
+                return try! self.makeRig().handlers
+            },
+            isStopped: { true }
+        )
+
+        for name in Self.allLocalToolNames {
+            let output = try router.route(line: try toolCallLine(name: name, id: 5)) { line in
+                forwarded.append(line)
+                return nil
+            }
+            let result = try resultObject(of: try parse(output))
+            XCTAssertEqual(result["isError"] as? Bool, true, name)
+            let content = try XCTUnwrap(result["content"] as? [[String: Any]])
+            XCTAssertEqual(content.first?["text"] as? String, AppAgentLossResponse.quitMessage, name)
+        }
+        XCTAssertFalse(handlersBuilt, "a stopped router must not build or run the local handlers")
+        XCTAssertTrue(forwarded.isEmpty, "a local tool never reaches the forward path")
+
+        let notification = try router.route(line: try toolCallLine(name: "run_script", id: nil)) { _ in
+            XCTFail("a local tool notification must not be forwarded")
+            return nil
+        }
+        XCTAssertNil(notification)
+    }
+
+    func testStoppedRouterStillForwardsNonLocalLines() throws {
+        let router = LocalChannelRouter(
+            environment: Self.enabledEnvironment,
+            makeHandlers: { try! self.makeRig().handlers },
+            isStopped: { true }
+        )
+        let line = try toolCallLine(name: "get_app_state", id: 6)
+        var forwarded: [String] = []
+        _ = try router.route(line: line) { forwarded.append($0); return nil }
+        XCTAssertEqual(forwarded, [line])
+    }
+
+    func testRouterRunsLocalToolsAgainOnceNoLongerStopped() throws {
+        var stopped = true
+        let rig = try makeRig()
+        let router = LocalChannelRouter(
+            environment: Self.enabledEnvironment,
+            makeHandlers: { rig.handlers },
+            isStopped: { stopped }
+        )
+        let line = try toolCallLine(name: "list_shortcuts", id: 7)
+        let blocked = try resultObject(of: try parse(try router.route(line: line) { _ in nil }))
+        XCTAssertEqual(blocked["isError"] as? Bool, true)
+
+        stopped = false
+        let allowed = try resultObject(of: try parse(try router.route(line: line) { _ in nil }))
+        let text = (allowed["content"] as? [[String: Any]])?.first?["text"] as? String
+        XCTAssertNotEqual(text, AppAgentLossResponse.quitMessage)
+    }
+
     // MARK: - run_script handler
 
     func testFilterRejectionIsLoggedAndNeverSpawns() throws {

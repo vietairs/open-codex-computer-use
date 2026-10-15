@@ -324,8 +324,9 @@ enum InputSimulation {
             event.setIntegerValueField(.mouseEventNumber, value: eventNumber)
         }
         guard let delta else { return }
-        let dx = Int64(delta.width.rounded())
-        let dy = Int64(delta.height.rounded())
+        // Non-trapping: a non-finite or huge delta clamps instead of crashing the agent.
+        let dx = Int64(renderedInt(delta.width.rounded()))
+        let dy = Int64(renderedInt(delta.height.rounded()))
         event.setIntegerValueField(.mouseEventDeltaX, value: dx)
         event.setIntegerValueField(.mouseEventDeltaY, value: dy)
         event.setDoubleValueField(.mouseEventDeltaX, value: Double(dx))
@@ -351,7 +352,7 @@ enum InputSimulation {
     /// can miss, so scale step count with distance (~4px/step) within a sane range.
     static func dragStepCount(from start: CGPoint, to end: CGPoint) -> Int {
         let distance = hypot(end.x - start.x, end.y - start.y)
-        return min(max(Int((distance / 4).rounded(.up)), 10), 60)
+        return min(max(renderedInt((distance / 4).rounded(.up)), 10), 60)
     }
 
     private static func postMouseEventToPid(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int, pid: pid_t) throws {

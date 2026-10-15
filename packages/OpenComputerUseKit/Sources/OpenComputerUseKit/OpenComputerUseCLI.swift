@@ -475,7 +475,7 @@ private func parseTimeIntervalOptionValue(
 
 private func formatOpenComputerUseDelay(_ delay: TimeInterval) -> String {
     if delay.rounded() == delay {
-        return "\(Int(delay))s"
+        return "\(renderedInt(delay))s"
     }
 
     return "\(delay)s"

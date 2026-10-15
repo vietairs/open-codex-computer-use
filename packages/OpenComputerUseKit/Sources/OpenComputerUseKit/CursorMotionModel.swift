@@ -94,7 +94,7 @@ struct CursorMotionPath: Equatable {
             localT = 1
         } else {
             let scaled = clamped * CGFloat(segmentCount)
-            segmentIndex = min(Int(scaled), segmentCount - 1)
+            segmentIndex = min(renderedInt(scaled), segmentCount - 1)
             localT = scaled - CGFloat(segmentIndex)
         }
 

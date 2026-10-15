@@ -7,18 +7,22 @@ import Foundation
 /// `tools/call` for one of the five local tools is answered here and never forwarded, `initialize` and `tools/list`
 /// responses are patched, and everything else (notifications, batches, unknown or case-variant tool names) is
 /// forwarded untouched. The flag is read once from the launch environment passed to `init`, never from a request.
+/// `isStopped` is consulted before a local tool runs; when it returns true the call is answered with the quit message.
 public final class LocalChannelRouter {
     public typealias Forward = (String) throws -> String?
 
     public let isEnabled: Bool
 
     private let makeHandlers: () -> LocalChannelToolHandlers
+    private let isStopped: () -> Bool
     private var handlers: LocalChannelToolHandlers?
 
     public init(
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        makeHandlers: (() -> LocalChannelToolHandlers)? = nil
+        makeHandlers: (() -> LocalChannelToolHandlers)? = nil,
+        isStopped: @escaping () -> Bool = { false }
     ) {
+        self.isStopped = isStopped
         self.isEnabled = LocalChannelPolicy.isEnabled(environment: environment)
         self.makeHandlers = makeHandlers ?? { LocalChannelToolHandlers(environment: environment) }
     }
@@ -38,6 +42,11 @@ public final class LocalChannelRouter {
         switch object["method"] as? String {
         case "tools/call":
             if let name = params?["name"] as? String, LocalChannelToolNames.all.contains(name) {
+                // The user stopped computer use from the menu: local tools run in this process, so they
+                // honour that too instead of acting while the rest of the surface is refusing calls.
+                if isStopped() {
+                    return AppAgentLossResponse.response(forRequestLine: line, message: AppAgentLossResponse.quitMessage)
+                }
                 return callLocalTool(name: name, params: params ?? [:], id: object["id"])
             }
             return try forward(line)
