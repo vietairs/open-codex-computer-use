@@ -737,10 +737,9 @@ final class OpenComputerUseKitTests: XCTestCase {
             tools["click"]?.annotations["destructiveHint"] as? Bool,
             false
         )
-        XCTAssertEqual(
-            tools["get_app_state"]?.annotations["readOnlyHint"] as? Bool,
-            true
-        )
+        // get_app_state pins the window's visible state on macOS, a write on another app's window.
+        XCTAssertNil(tools["get_app_state"]?.annotations["readOnlyHint"])
+        XCTAssertEqual(tools["get_app_state"]?.annotations["destructiveHint"] as? Bool, false)
         XCTAssertEqual(
             tools["click"]?.inputSchema["additionalProperties"] as? Bool,
             false

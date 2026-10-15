@@ -360,14 +360,14 @@ enum WindowImageCaptureTiming: Equatable {
     case skip
 }
 
-/// Off-screen windows are never captured (the capture API cannot see them), whatever the policy. Neither are
-/// off-stage Stage Manager windows: every capture API returns only their strip thumbnail.
+/// A window that is not capturable (see `windowIsCapturable`) is never captured, whatever the policy. Neither is an
+/// off-stage Stage Manager window: every capture API returns only its strip thumbnail.
 func windowImageCaptureTiming(
     policy: SnapshotCapturePolicy,
-    isOnscreen: Bool,
+    isCapturable: Bool,
     isOffStage: Bool = false
 ) -> WindowImageCaptureTiming {
-    guard isOnscreen, !isOffStage else {
+    guard isCapturable, !isOffStage else {
         return .skip
     }
 
@@ -381,6 +381,46 @@ func windowImageCaptureTiming(
     }
 }
 
+/// Pure. Whether a window may be captured. An on-screen window always may, unless it is off stage. Any other window
+/// (on another Space, or reported off-screen for another reason) only when `offscreenCaptureAllowed` says so; it is
+/// asked only for such a window.
+func windowIsCapturable(isOnscreen: Bool, isOffStage: Bool, offscreenCaptureAllowed: () -> Bool) -> Bool {
+    guard !isOffStage else {
+        return false
+    }
+    return isOnscreen || offscreenCaptureAllowed()
+}
+
+/// Pure. An off-screen window is captured only when it is the window whose tree the snapshot reads, it is not
+/// minimized and its app is not hidden (both would return a stale or blank image), and the session is known to be
+/// unlocked: capturing windows off the current Space is new, and nobody has verified what it returns while the login
+/// window owns the screen, so `OPEN_COMPUTER_USE_ALLOW_LOCKED` does not extend to it.
+func offscreenWindowCaptureAllowed(
+    isAccessibilityRoot: Bool,
+    isMinimized: Bool,
+    appIsHidden: Bool,
+    sessionIsUnlocked: Bool
+) -> Bool {
+    isAccessibilityRoot && !isMinimized && !appIsHidden && sessionIsUnlocked
+}
+
+/// Pure. Whether WindowServer's hardware window capture may be tried before ScreenCaptureKit. Only for a window that
+/// allows sharing (`kCGWindowSharingState` present and not `kCGWindowSharingNone`, which password and banking apps
+/// set), with the Screen Recording permission granted, and with the session known to be unlocked. Any unknown answers
+/// false, and the capture falls back to ScreenCaptureKit, which applies its own rules.
+func hardwareWindowCaptureAllowed(sharingState: Int?, screenRecordingGranted: Bool, sessionIsUnlocked: Bool) -> Bool {
+    guard let sharingState, sharingState != Int(CGWindowSharingType.none.rawValue) else {
+        return false
+    }
+    return screenRecordingGranted && sessionIsUnlocked
+}
+
+/// The keep-alive a snapshot build pins its window with, and the owner the pin is held for.
+struct SnapshotKeepAlive {
+    let keeper: WindowOcclusionKeepAlive
+    let owner: UUID
+}
+
 enum SnapshotBuilder {
     static func build(
         for app: RunningAppDescriptor,
@@ -388,7 +428,8 @@ enum SnapshotBuilder {
         treeLimits: AccessibilityTreeLimits = .defaults,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
         capture: SnapshotCapturePolicy = .always,
-        imageConfig: @escaping () -> ImageCaptureConfig = { .current }
+        imageConfig: @escaping () -> ImageCaptureConfig = { .current },
+        keepAlive: SnapshotKeepAlive? = nil
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -426,7 +467,8 @@ enum SnapshotBuilder {
                 titleHint: windowTitle,
                 accessibilityWindowID: accessibilityWindowID(of: rootWindow),
                 captureImage: capture == .always,
-                imageConfig: imageConfig
+                imageConfig: imageConfig,
+                offscreenCaptureAllowed: liveOffscreenCaptureAllowance(window: rootWindow, pid: app.pid)
             )
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
@@ -440,7 +482,8 @@ enum SnapshotBuilder {
                     titleHint: windowTitle,
                     accessibilityWindowID: accessibilityWindowID(of: recoveredWindow),
                     captureImage: capture == .always,
-                    imageConfig: imageConfig
+                    imageConfig: imageConfig,
+                    offscreenCaptureAllowed: liveOffscreenCaptureAllowance(window: recoveredWindow, pid: app.pid)
                 )
             }
         }
@@ -460,8 +503,55 @@ enum SnapshotBuilder {
             textLimit: textLimit,
             treeLimits: treeLimits,
             capture: capture,
-            imageConfig: imageConfig
+            imageConfig: imageConfig,
+            keepAlive: keepAlive
         )
+    }
+
+    /// The live answer to `offscreenWindowCaptureAllowed` for the window chosen for capture, given the AX root window.
+    private static func liveOffscreenCaptureAllowance(window: AXUIElement, pid: pid_t) -> (CGWindowID) -> Bool {
+        { chosenWindowID in
+            offscreenWindowCaptureAllowed(
+                isAccessibilityRoot: chosenWindowID == accessibilityWindowID(of: window),
+                isMinimized: accessibilityWindowIsMinimized(window),
+                appIsHidden: NSRunningApplication(processIdentifier: pid)?.isHidden ?? true,
+                sessionIsUnlocked: sessionIsStrictlyUnlocked(SystemMacSessionStateProvider().currentSnapshot())
+            )
+        }
+    }
+
+    /// Pins the snapshot's window with the keep-alive when its app currently sees it as visible, and reports whether
+    /// the app sees it as visible now: either it was already pinned or every visibility check passed. Only the
+    /// window whose tree was walked is ever pinned.
+    private static func keepWindowVisible(
+        keepAlive: SnapshotKeepAlive?,
+        windowCapture: WindowCapture,
+        rootElement: AXUIElement,
+        pid: pid_t
+    ) -> Bool {
+        let windowID = windowCapture.windowID
+        guard accessibilityWindowID(of: rootElement) == windowID else {
+            return false
+        }
+        if let keepAlive, keepAlive.keeper.retainExistingPin(windowID: windowID, owner: keepAlive.owner) {
+            return true
+        }
+        let visible = windowIsVisibleToItsApp(
+            bounds: windowCapture.bounds,
+            isOnscreen: windowCapture.isOnscreen,
+            isOffStage: windowCapture.isOffStage,
+            probes: WindowVisibilityProbes(
+                isMinimized: { accessibilityWindowIsMinimized(rootElement) },
+                appIsHidden: { NSRunningApplication(processIdentifier: pid)?.isHidden ?? true },
+                sessionIsUnlocked: { sessionIsStrictlyUnlocked(SystemMacSessionStateProvider().currentSnapshot()) },
+                isOnCurrentSpace: { SkyLightWindowServerSPI.shared.windowIsOnCurrentSpace(windowID) },
+                coveringBounds: { coveringWindowBounds(above: windowID) }
+            )
+        )
+        if visible, let keepAlive {
+            keepAlive.keeper.pin(windowID: windowID, windowOwnerPID: pid, owner: keepAlive.owner)
+        }
+        return visible
     }
 
     private static func buildAccessibilitySnapshot(
@@ -475,12 +565,13 @@ enum SnapshotBuilder {
         textLimit: SnapshotTextLimit,
         treeLimits: AccessibilityTreeLimits,
         capture: SnapshotCapturePolicy,
-        imageConfig: () -> ImageCaptureConfig
+        imageConfig: () -> ImageCaptureConfig,
+        keepAlive: SnapshotKeepAlive?
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let captureTiming = windowImageCaptureTiming(
             policy: capture,
-            isOnscreen: windowCapture.isOnscreen,
+            isCapturable: windowCapture.isCapturable,
             isOffStage: windowCapture.isOffStage
         )
         let appLevelFocus = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
@@ -493,6 +584,11 @@ enum SnapshotBuilder {
 
         var renderer = TreeRenderer(context: context)
         renderer.render(rootElement)
+
+        // Pin the window's visible state (WindowServer occlusion notifications off) so covering it or switching to
+        // another Space later does not make its app hide the content.
+        _ = keepWindowVisible(keepAlive: keepAlive, windowCapture: windowCapture, rootElement: rootElement, pid: app.pid)
+
         let windowContentIsEmpty = !windowHasContentElements(renderer.records.values, windowRoot: rootElement)
 
         // A background app usually reports no app-level focus; its window's first responder can still carry AXFocused.
@@ -680,10 +776,10 @@ private func enableBestEffortAccessibilityModes(_ appElement: AXUIElement) {
 /// a snapshot without a screenshot (such as the one behind `decide_next_action`) never reads the configuration.
 func imageConfigForCapture(
     shouldCapture: Bool,
-    isOnscreen: Bool,
+    isCapturable: Bool,
     resolve: () -> ImageCaptureConfig
 ) -> ImageCaptureConfig? {
-    shouldCapture && isOnscreen ? resolve() : nil
+    shouldCapture && isCapturable ? resolve() : nil
 }
 
 private struct WindowCapture {
@@ -692,6 +788,10 @@ private struct WindowCapture {
     let bounds: CGRect
     let image: CGImage?
     let isOnscreen: Bool
+    /// See `windowIsCapturable`.
+    let isCapturable: Bool
+    /// `kCGWindowSharingState`, nil when the window server did not report it.
+    var sharingState: Int? = nil
     var isOffStage = false
     /// Image settings read once when the capture was taken, so the capture and its encoding agree. Nil until an
     /// image is captured: a snapshot that takes no screenshot never reads the configuration.
@@ -705,18 +805,21 @@ private struct WindowCapture {
             bounds: window.accessibilityFrame,
             image: nil,
             isOnscreen: false,
+            isCapturable: false,
             isOffStage: true
         )
     }
 
     /// `accessibilityWindowID` is the window-server id of the snapshot's AX root window; when it is among the
     /// candidates it is the window captured, so the screenshot and window bounds match the accessibility tree.
+    /// `offscreenCaptureAllowed` is asked, with the chosen window's id, only when that window is not on screen.
     static func resolve(
         for pid: pid_t,
         titleHint: String?,
         accessibilityWindowID: CGWindowID? = nil,
         captureImage shouldCaptureImage: Bool = true,
-        imageConfig: () -> ImageCaptureConfig = { .current }
+        imageConfig: () -> ImageCaptureConfig = { .current },
+        offscreenCaptureAllowed: (CGWindowID) -> Bool = { _ in false }
     ) -> WindowCapture? {
         // Query all windows (not just onscreen) so Stage Manager background apps are included.
         guard let infoList = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
@@ -745,7 +848,8 @@ private struct WindowCapture {
                 title: title,
                 area: area,
                 frontToBackIndex: offset,
-                isOnscreen: isOnscreen
+                isOnscreen: isOnscreen,
+                sharingState: (info[kCGWindowSharingState as String] as? NSNumber)?.intValue
             )
         }
 
@@ -765,10 +869,17 @@ private struct WindowCapture {
             return nil
         }
 
-        // Skip screenshot for off-screen windows (Stage Manager background strips):
-        // SCShareableContent only returns onscreen windows, so capture would return nil anyway.
-        let config = imageConfigForCapture(shouldCapture: shouldCaptureImage, isOnscreen: best.isOnscreen, resolve: imageConfig)
-        let image = config.flatMap { captureImage(windowID: best.windowID, bounds: best.bounds, config: $0) }
+        // A window on another Space is captured like an on-screen one; minimized windows, hidden apps' windows and
+        // Stage Manager strips are not (see `offscreenWindowCaptureAllowed`).
+        let isCapturable = windowIsCapturable(
+            isOnscreen: best.isOnscreen,
+            isOffStage: false,
+            offscreenCaptureAllowed: { offscreenCaptureAllowed(best.windowID) }
+        )
+        let config = imageConfigForCapture(shouldCapture: shouldCaptureImage, isCapturable: isCapturable, resolve: imageConfig)
+        let image = config.flatMap {
+            captureImage(windowID: best.windowID, bounds: best.bounds, config: $0, sharingState: best.sharingState)
+        }
 
         return WindowCapture(
             windowID: best.windowID,
@@ -776,14 +887,16 @@ private struct WindowCapture {
             bounds: best.bounds,
             image: image,
             isOnscreen: best.isOnscreen,
+            isCapturable: isCapturable,
+            sharingState: best.sharingState,
             imageConfig: config
         )
     }
 
     /// Returns this capture with the window image taken now, reusing the already-resolved window
-    /// id and bounds. Off-screen windows and captures that already hold an image are unchanged.
+    /// id and bounds. Windows that are not capturable and captures that already hold an image are unchanged.
     func capturingImage(imageConfig resolveConfig: () -> ImageCaptureConfig) -> WindowCapture {
-        guard isOnscreen, !isOffStage, image == nil else {
+        guard isCapturable, !isOffStage, image == nil else {
             return self
         }
 
@@ -792,21 +905,43 @@ private struct WindowCapture {
             windowID: windowID,
             layer: layer,
             bounds: bounds,
-            image: Self.captureImage(windowID: windowID, bounds: bounds, config: config),
+            image: Self.captureImage(windowID: windowID, bounds: bounds, config: config, sharingState: sharingState),
             isOnscreen: isOnscreen,
+            isCapturable: isCapturable,
+            sharingState: sharingState,
             imageConfig: config
         )
     }
 
-    private static func captureImage(windowID: CGWindowID, bounds: CGRect, config: ImageCaptureConfig) -> CGImage? {
-        try? BlockingAsyncBridge.run(timeout: config.captureTimeout) {
-            let shareableContent = try await SCShareableContent.current
+    /// WindowServer's hardware capture first when it is allowed and returns an image of the expected size (it reads
+    /// the backing store of a covered window or one on another Space in tens of milliseconds), ScreenCaptureKit
+    /// otherwise.
+    private static func captureImage(
+        windowID: CGWindowID,
+        bounds: CGRect,
+        config: ImageCaptureConfig,
+        sharingState: Int?
+    ) -> CGImage? {
+        let scaleFactor = bestEffortScaleFactor(for: bounds)
+        if hardwareWindowCaptureAllowed(
+            sharingState: sharingState,
+            screenRecordingGranted: CGPreflightScreenCaptureAccess(),
+            sessionIsUnlocked: sessionIsStrictlyUnlocked(SystemMacSessionStateProvider().currentSnapshot())
+        ),
+            let image = SkyLightWindowServerSPI.shared.hardwareCaptureWindow(windowID),
+            hardwareCaptureSizeMatches(imageWidth: image.width, imageHeight: image.height, bounds: bounds, scale: scaleFactor)
+        {
+            return image
+        }
+
+        return try? BlockingAsyncBridge.run(timeout: config.captureTimeout) {
+            // Every window, not only on-screen ones: a window on another Space is listed only this way.
+            let shareableContent = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
             guard let window = shareableContent.windows.first(where: { $0.windowID == windowID }) else {
                 return nil
             }
 
             let configuration = SCStreamConfiguration()
-            let scaleFactor = bestEffortScaleFactor(for: bounds)
             let captureSize = window.frame.isEmpty ? bounds.size : window.frame.size
             configuration.width = max(1, renderedInt(ceil(captureSize.width * scaleFactor)))
             configuration.height = max(1, renderedInt(ceil(captureSize.height * scaleFactor)))
@@ -842,6 +977,8 @@ struct WindowCaptureCandidate {
     let area: Int
     let frontToBackIndex: Int
     let isOnscreen: Bool
+    /// `kCGWindowSharingState`, nil when the window server did not report it.
+    var sharingState: Int? = nil
 }
 
 /// Picks the window to capture for a snapshot.

@@ -28,6 +28,7 @@ func computerUseServerInstructions(environment _: [String: String]) -> String {
 
 public final class StdioMCPServer {
     private let dispatcher: ComputerUseToolDispatcher
+    private let service: ComputerUseService
     /// Read per request: in the app agent each MCP line runs under the calling host's environment overrides.
     private let environment: @Sendable () -> [String: String]
 
@@ -36,6 +37,7 @@ public final class StdioMCPServer {
         environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
     ) {
         self.environment = environment
+        self.service = service
         self.dispatcher = ComputerUseToolDispatcher(service: service, environment: environment)
     }
 
@@ -46,7 +48,18 @@ public final class StdioMCPServer {
     /// closure given to `init`. That is deliberate: the flag is a security opt-in, and injected state (a test double,
     /// or a host's per-call overrides) must not be able to turn the local script tools on.
     public func run() throws {
+        defer { endSession() }
         try LocalChannelRouter().run { self.handle(line: $0) }
+    }
+
+    /// Ends this host's session: resets the visual cursor and releases the window pins this server's snapshots took.
+    /// Pins other sessions of a shared app agent hold stay in place. The app runtimes call it when the host's
+    /// connection or standard input closes. Safe to call more than once.
+    public func endSession() {
+        VisualCursorSupport.performOnMain {
+            SoftwareCursorOverlay.reset()
+        }
+        service.releaseBackgroundWindowState()
     }
 
     /// True when `line` is a request whose whole configuration comes from the environment dictionary passed to

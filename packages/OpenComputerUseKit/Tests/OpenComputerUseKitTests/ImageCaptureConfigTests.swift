@@ -373,10 +373,10 @@ final class ImageCaptureConfigTests: XCTestCase {
         var reads = 0
         let resolve = { () -> ImageCaptureConfig in reads += 1; return .defaults }
 
-        XCTAssertNil(imageConfigForCapture(shouldCapture: false, isOnscreen: true, resolve: resolve))
-        XCTAssertNil(imageConfigForCapture(shouldCapture: true, isOnscreen: false, resolve: resolve))
+        XCTAssertNil(imageConfigForCapture(shouldCapture: false, isCapturable: true, resolve: resolve))
+        XCTAssertNil(imageConfigForCapture(shouldCapture: true, isCapturable: false, resolve: resolve))
         XCTAssertEqual(reads, 0)
-        XCTAssertNotNil(imageConfigForCapture(shouldCapture: true, isOnscreen: true, resolve: resolve))
+        XCTAssertNotNil(imageConfigForCapture(shouldCapture: true, isCapturable: true, resolve: resolve))
         XCTAssertEqual(reads, 1)
     }
 

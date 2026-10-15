@@ -768,17 +768,34 @@ public final class ComputerUseService {
     /// is looked up or touched.
     private let appResolver: (String) throws -> RunningAppDescriptor
 
+    /// Holds the window pins this service's snapshots take (see `WindowOcclusionKeepAlive`). One owner per service,
+    /// so per host session of the shared app agent: a session that ends releases only its own pins.
+    let backgroundStateOwner = UUID()
+    private let windowKeepAlive: WindowOcclusionKeepAlive
+
     public init() {
         sleepHandler = { Thread.sleep(forTimeInterval: $0) }
         appResolver = { try AppDiscovery.resolve($0) }
+        windowKeepAlive = .shared
     }
 
     init(
         sleepHandler: @escaping OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
-        appResolver: @escaping (String) throws -> RunningAppDescriptor = { try AppDiscovery.resolve($0) }
+        appResolver: @escaping (String) throws -> RunningAppDescriptor = { try AppDiscovery.resolve($0) },
+        windowKeepAlive: WindowOcclusionKeepAlive = .shared
     ) {
         self.sleepHandler = sleepHandler
         self.appResolver = appResolver
+        self.windowKeepAlive = windowKeepAlive
+    }
+
+    deinit {
+        windowKeepAlive.release(owner: backgroundStateOwner)
+    }
+
+    /// Releases the window pins this service's snapshots took. Called when the host session ends.
+    func releaseBackgroundWindowState() {
+        windowKeepAlive.release(owner: backgroundStateOwner)
     }
 
     public func listApps() -> ToolCallResult {
@@ -1717,7 +1734,8 @@ public final class ComputerUseService {
             treeLimits: treeLimits,
             recoveryPolicy: recoveryPolicy,
             capture: capture,
-            imageConfig: { [self] in effectiveImageConfig }
+            imageConfig: { [self] in effectiveImageConfig },
+            keepAlive: SnapshotKeepAlive(keeper: windowKeepAlive, owner: backgroundStateOwner)
         )
 
         storeSnapshot(snapshot, query: query, app: app)

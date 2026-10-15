@@ -46,6 +46,7 @@ enum OpenComputerUseMain {
                     try MCPAppRuntime.run(server: server)
                 }
             } else {
+                defer { server.endSession() }
                 try LocalChannelRouter().run { server.handle(line: $0) }
             }
         case let .doctor(json):

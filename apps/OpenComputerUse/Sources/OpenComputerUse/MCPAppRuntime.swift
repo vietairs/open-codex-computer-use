@@ -31,6 +31,9 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
         // Register direct AppKit MCP connection (not app-agent mode)
         ControlActivityStore.shared.registerConnection(connectionID, isAppAgentMode: false)
 
+        // A previous server that was killed may have left other apps' windows pinned visible.
+        recoverOpenComputerUseBackgroundWindowState()
+
         // Install status menu — restart disabled in direct MCP mode (DoS vector)
         let menu = ControlStatusMenuController()
         menu.restartAction = nil
@@ -70,6 +73,7 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
         }
         ControlActivityStore.shared.unregisterConnection(connectionID)
         statusMenu?.uninstall()
+        releaseOpenComputerUseBackgroundWindowState()
     }
 
     private func copyDiagnosticsToClipboard() {
@@ -97,6 +101,7 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
         } catch {
             runtimeError = error
         }
+        server.endSession()
 
         DispatchQueue.main.async {
             NSApp.terminate(nil)

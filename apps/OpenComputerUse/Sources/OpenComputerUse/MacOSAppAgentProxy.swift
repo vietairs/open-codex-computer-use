@@ -340,6 +340,9 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         // Register app-agent mode connection
         ControlActivityStore.shared.registerConnection(connectionID, isAppAgentMode: true)
 
+        // A previous agent that was killed may have left other apps' windows pinned visible.
+        recoverOpenComputerUseBackgroundWindowState()
+
         // Install status menu — restart enabled in app-agent mode
         let menu = ControlStatusMenuController()
         menu.restartAction = { [weak self] in
@@ -384,6 +387,7 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         ControlActivityStore.shared.unregisterConnection(connectionID)
         statusMenu?.uninstall()
         listener?.stop()
+        releaseOpenComputerUseBackgroundWindowState()
     }
 
     /// The status-menu Quit: record that the user stopped computer use so a proxy does not relaunch
@@ -536,7 +540,11 @@ private final class AppAgentConnection: @unchecked Sendable {
             close(fileDescriptor)
             return
         }
-        defer { fclose(file) }
+        defer {
+            // This host's session is over: release its window pins, and only its own.
+            server.endSession()
+            fclose(file)
+        }
 
         while let line = readAppAgentLine(file) {
             let response = handle(requestLine: line)

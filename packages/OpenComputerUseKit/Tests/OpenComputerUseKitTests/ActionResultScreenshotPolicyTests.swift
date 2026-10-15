@@ -9,16 +9,16 @@ import XCTest
 final class ActionResultScreenshotPolicyTests: XCTestCase {
     // MARK: - Capture timing
 
-    func testCaptureTimingForOnscreenWindowFollowsPolicy() {
-        XCTAssertEqual(windowImageCaptureTiming(policy: .always, isOnscreen: true), .beforeWalk)
-        XCTAssertEqual(windowImageCaptureTiming(policy: .whenTreeEmpty, isOnscreen: true), .afterWalkIfTreeEmpty)
-        XCTAssertEqual(windowImageCaptureTiming(policy: .never, isOnscreen: true), .skip)
+    func testCaptureTimingForCapturableWindowFollowsPolicy() {
+        XCTAssertEqual(windowImageCaptureTiming(policy: .always, isCapturable: true), .beforeWalk)
+        XCTAssertEqual(windowImageCaptureTiming(policy: .whenTreeEmpty, isCapturable: true), .afterWalkIfTreeEmpty)
+        XCTAssertEqual(windowImageCaptureTiming(policy: .never, isCapturable: true), .skip)
     }
 
-    func testCaptureTimingSkipsOffscreenWindowForEveryPolicy() {
-        XCTAssertEqual(windowImageCaptureTiming(policy: .always, isOnscreen: false), .skip)
-        XCTAssertEqual(windowImageCaptureTiming(policy: .whenTreeEmpty, isOnscreen: false), .skip)
-        XCTAssertEqual(windowImageCaptureTiming(policy: .never, isOnscreen: false), .skip)
+    func testCaptureTimingSkipsUncapturableWindowForEveryPolicy() {
+        XCTAssertEqual(windowImageCaptureTiming(policy: .always, isCapturable: false), .skip)
+        XCTAssertEqual(windowImageCaptureTiming(policy: .whenTreeEmpty, isCapturable: false), .skip)
+        XCTAssertEqual(windowImageCaptureTiming(policy: .never, isCapturable: false), .skip)
     }
 
     // MARK: - Action capture policy and attach rule
