@@ -710,7 +710,7 @@ private struct WindowCapture {
             }
 
             let title = info[kCGWindowName as String] as? String
-            let area = Int(bounds.width * bounds.height)
+            let area = renderedInt(bounds.width * bounds.height)
             let isOnscreen = info[kCGWindowIsOnscreen as String] as? Bool ?? false
             return WindowCaptureCandidate(
                 windowID: CGWindowID(number.uint32Value),
@@ -772,8 +772,8 @@ private struct WindowCapture {
             let configuration = SCStreamConfiguration()
             let scaleFactor = bestEffortScaleFactor(for: bounds)
             let captureSize = window.frame.isEmpty ? bounds.size : window.frame.size
-            configuration.width = max(1, Int(ceil(captureSize.width * scaleFactor)))
-            configuration.height = max(1, Int(ceil(captureSize.height * scaleFactor)))
+            configuration.width = max(1, renderedInt(ceil(captureSize.width * scaleFactor)))
+            configuration.height = max(1, renderedInt(ceil(captureSize.height * scaleFactor)))
             configuration.showsCursor = false
             configuration.scalesToFit = false
             configuration.ignoreShadowsSingleWindow = true
@@ -927,8 +927,8 @@ private func pngData(for image: CGImage) -> Data? {
 }
 
 private func resizedCGImage(_ image: CGImage, scale: CGFloat) -> CGImage? {
-    let width = max(1, Int((CGFloat(image.width) * scale).rounded()))
-    let height = max(1, Int((CGFloat(image.height) * scale).rounded()))
+    let width = max(1, renderedInt((CGFloat(image.width) * scale).rounded()))
+    let height = max(1, renderedInt((CGFloat(image.height) * scale).rounded()))
     let colorSpace = CGColorSpaceCreateDeviceRGB()
     let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
 
@@ -2587,6 +2587,6 @@ private func quoted(_ value: String) -> String {
 
 private extension CGRect {
     var renderedLocalFrame: String {
-        "x=\(Int(origin.x)), y=\(Int(origin.y)), w=\(Int(width)), h=\(Int(height))"
+        renderedFrameText(self)
     }
 }

@@ -290,6 +290,26 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertNil(normalizedElementIndexArgument(1.5))
     }
 
+    func testElementIndexRejectsValuesOutsideIntRange() throws {
+        // 2^63 is one past Int.max and is not representable; it must be rejected, not trap in Int(_:).
+        let arguments = try readOpenComputerUseToolArguments(
+            json: #"{"app":"TextEdit","element_index":9223372036854775808}"#,
+            file: nil
+        )
+        XCTAssertNil(normalizedElementIndexArgument(arguments["element_index"]))
+        XCTAssertNil(normalizedElementIndexArgument(NSNumber(value: UInt64(9_223_372_036_854_775_808))))
+        XCTAssertNil(normalizedElementIndexArgument(1e30))
+        XCTAssertEqual(normalizedElementIndexArgument(Int.max), String(Int.max))
+    }
+
+    func testScrollPageRepeatCountIsCappedAndFractionsFallBack() {
+        let service = ComputerUseService()
+        XCTAssertEqual(service.integralScrollPageCount(3), 3)
+        XCTAssertEqual(service.integralScrollPageCount(1e12), ComputerUseService.maxScrollPageRepeats)
+        XCTAssertEqual(service.integralScrollPageCount(Double(Int.max)), ComputerUseService.maxScrollPageRepeats)
+        XCTAssertNil(service.integralScrollPageCount(1.5))
+    }
+
     func testReadToolArgumentsRejectsNonObject() {
         XCTAssertThrowsError(try readOpenComputerUseToolArguments(json: #"["TextEdit"]"#, file: nil)) { error in
             XCTAssertEqual(

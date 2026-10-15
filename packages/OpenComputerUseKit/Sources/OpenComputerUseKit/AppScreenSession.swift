@@ -26,7 +26,7 @@ public struct AppScreenSession {
             throw ComputerUseError.stateUnavailable("Coordinate action requires a screenshot. Call get_app_state first.")
         }
         guard point.x >= 0, point.y >= 0, point.x < size.width, point.y < size.height else {
-            throw ComputerUseError.stateUnavailable("Coordinate (\(Int(point.x)), \(Int(point.y))) is outside screenshot bounds (\(Int(size.width))x\(Int(size.height))).")
+            throw ComputerUseError.stateUnavailable("Coordinate (\(renderedInt(point.x)), \(renderedInt(point.y))) is outside screenshot bounds (\(renderedInt(size.width))x\(renderedInt(size.height))).")
         }
     }
 

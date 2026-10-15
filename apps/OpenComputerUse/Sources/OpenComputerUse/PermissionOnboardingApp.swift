@@ -1015,7 +1015,7 @@ final class PermissionAccessoryPanelController {
             }
 
             let appKitBounds = appKitRect(fromCGWindowBounds: bounds)
-            return (SystemSettingsWindowContext(bounds: appKitBounds, windowNumber: windowNumber), Int(appKitBounds.width * appKitBounds.height))
+            return (SystemSettingsWindowContext(bounds: appKitBounds, windowNumber: windowNumber), renderedInt(appKitBounds.width * appKitBounds.height))
         }
 
         return windows.sorted(by: { $0.1 > $1.1 }).first?.0
@@ -1212,7 +1212,10 @@ final class DraggableAppTileView: NSView, NSDraggingSource {
     }
 
     private func snapshotImage() -> NSImage {
-        let bitmap = bitmapImageRepForCachingDisplay(in: bounds) ?? NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(bounds.width), pixelsHigh: Int(bounds.height), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        // Zero or non-finite bounds yield no bitmap; fall back to an empty drag image, never a crash.
+        guard let bitmap = bitmapImageRepForCachingDisplay(in: bounds) ?? NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: renderedInt(bounds.width), pixelsHigh: renderedInt(bounds.height), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+            return NSImage()
+        }
         cacheDisplay(in: bounds, to: bitmap)
         let image = NSImage(size: bounds.size)
         image.addRepresentation(bitmap)

@@ -29,7 +29,7 @@ private func normalizedElementIndexNumber(_ value: Double) -> String? {
         return nil
     }
 
-    guard value >= Double(Int.min), value <= Double(Int.max) else {
+    guard value >= Double(Int.min), value < Double(Int.max) else {
         return nil
     }
 
