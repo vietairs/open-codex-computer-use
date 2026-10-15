@@ -7,6 +7,8 @@ $ErrorActionPreference = "Stop"
 $DefaultTextLimit = 500
 $AccessibilityTreeMaxNodeCount = 1200
 $AccessibilityTreeMaxDepth = 64
+$MinimumScreenshotDimension = 64
+$MinimumScreenshotArea = 20000
 
 # Set output encoding to UTF-8 to properly handle non-ASCII characters
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -37,6 +39,18 @@ public static class OCUWin32 {
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
+
+    [DllImport("dwmapi.dll")]
+    public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int valueSize);
 
     [DllImport("user32.dll")]
     public static extern bool ScreenToClient(IntPtr hWnd, ref POINT point);
@@ -107,6 +121,86 @@ function Get-WindowRectFrame([IntPtr]$hwnd) {
     return $null
 }
 
+function Get-VirtualScreenFrame {
+    $x = [OCUWin32]::GetSystemMetrics(76)
+    $y = [OCUWin32]::GetSystemMetrics(77)
+    $width = [OCUWin32]::GetSystemMetrics(78)
+    $height = [OCUWin32]::GetSystemMetrics(79)
+    if ($width -le 0 -or $height -le 0) {
+        return $null
+    }
+    return New-Frame $x $y $width $height
+}
+
+function Test-FrameIntersectsVirtualScreen($frame) {
+    if ($null -eq $frame) {
+        return $false
+    }
+    $virtualScreen = Get-VirtualScreenFrame
+    if ($null -eq $virtualScreen) {
+        return $false
+    }
+    return (
+        $frame.x -lt ($virtualScreen.x + $virtualScreen.width) -and
+        ($frame.x + $frame.width) -gt $virtualScreen.x -and
+        $frame.y -lt ($virtualScreen.y + $virtualScreen.height) -and
+        ($frame.y + $frame.height) -gt $virtualScreen.y
+    )
+}
+
+function Test-CapturableFrame($frame) {
+    if ($null -eq $frame) {
+        return $false
+    }
+    if ($frame.width -lt $MinimumScreenshotDimension -or $frame.height -lt $MinimumScreenshotDimension) {
+        return $false
+    }
+    if (($frame.width * $frame.height) -lt $MinimumScreenshotArea) {
+        return $false
+    }
+    return Test-FrameIntersectsVirtualScreen $frame
+}
+
+# Returns a short reason when the window cannot serve as a screenshot source,
+# or $null when it is visible, not minimized, not cloaked, and large enough.
+function Get-WindowCaptureBlocker([IntPtr]$hwnd) {
+    if ($hwnd -eq [IntPtr]::Zero) {
+        return "no main window"
+    }
+    if (-not [OCUWin32]::IsWindowVisible($hwnd)) {
+        return "window hidden"
+    }
+    if ([OCUWin32]::IsIconic($hwnd)) {
+        return "minimized"
+    }
+    try {
+        [int]$cloaked = 0
+        $result = [OCUWin32]::DwmGetWindowAttribute($hwnd, 14, [ref]$cloaked, 4)
+        if ($result -ne 0) {
+            return "visibility state unknown"
+        }
+        if ($cloaked -ne 0) {
+            return "cloaked or on another virtual desktop"
+        }
+    } catch {
+        # An unknown DWM visibility state is not a trustworthy screenshot
+        # source. Keep the accessibility tree, but fail closed for the image.
+        return "visibility state unknown"
+    }
+    $frame = Get-WindowRectFrame $hwnd
+    if (-not (Test-CapturableFrame $frame)) {
+        return "too small or off-screen"
+    }
+    return $null
+}
+
+function Get-CapturableWindowFrame([IntPtr]$hwnd) {
+    if ($null -ne (Get-WindowCaptureBlocker $hwnd)) {
+        return $null
+    }
+    return Get-WindowRectFrame $hwnd
+}
+
 function Get-ElementFrame($element, $windowBounds) {
     try {
         $rect = $element.Current.BoundingRectangle
@@ -122,13 +216,27 @@ function Get-ElementFrame($element, $windowBounds) {
     }
 }
 
-function Get-ScreenPoint($localFrame, $windowBounds) {
-    if ($null -eq $localFrame -or $null -eq $windowBounds) {
-        return $null
+function Get-ScreenPoint($localFrame, $windowBounds, [IntPtr]$hwnd) {
+    Assert-UsableWindowBounds $windowBounds $hwnd
+    if ($null -eq $localFrame) {
+        throw "No usable element frame is available for screenshot-coordinate input."
     }
     [pscustomobject]@{
         x = [int][math]::Round($windowBounds.x + $localFrame.x + ($localFrame.width / 2))
         y = [int][math]::Round($windowBounds.y + $localFrame.y + ($localFrame.height / 2))
+    }
+}
+
+# The bounds come from the last get_app_state snapshot, so the live window is
+# checked as well: it may have been minimized or moved to another virtual
+# desktop since the screenshot was taken.
+function Assert-UsableWindowBounds($windowBounds, [IntPtr]$hwnd) {
+    if (-not (Test-CapturableFrame $windowBounds)) {
+        throw "No usable screenshot coordinates are available. Restore a visible, non-minimized, on-screen window and run get_app_state again."
+    }
+    $blocker = Get-WindowCaptureBlocker $hwnd
+    if ($null -ne $blocker) {
+        throw "The target window is not capturable right now ($blocker). Restore a visible, non-minimized, on-screen window and run get_app_state again."
     }
 }
 
@@ -186,11 +294,9 @@ function Send-Drag([IntPtr]$hwnd, [int]$fromX, [int]$fromY, [int]$toX, [int]$toY
 }
 
 function Send-Scroll([IntPtr]$hwnd, [int]$screenX, [int]$screenY, [string]$direction, [double]$pages) {
-    $point = New-Object OCUWin32+POINT
-    $point.X = $screenX
-    $point.Y = $screenY
-    [void][OCUWin32]::ScreenToClient($hwnd, [ref]$point)
-    $lParam = ConvertTo-LParam $point.X $point.Y
+    # WM_MOUSEWHEEL and WM_MOUSEHWHEEL carry screen coordinates, unlike the
+    # client-relative button and move messages.
+    $lParam = ConvertTo-LParam $screenX $screenY
     $delta = [int][math]::Round(120 * $pages)
     $message = $WM_MOUSEWHEEL
     if ($direction -eq "down" -or $direction -eq "right") {
@@ -343,20 +449,7 @@ function Get-MainElement($process) {
 
 function Get-WindowBounds($process, $element) {
     $hwnd = [IntPtr]$process.MainWindowHandle
-    if ($hwnd -ne [IntPtr]::Zero) {
-        $fromWin32 = Get-WindowRectFrame $hwnd
-        if ($null -ne $fromWin32) {
-            return $fromWin32
-        }
-    }
-    try {
-        $rect = $element.Current.BoundingRectangle
-        if (-not $rect.IsEmpty -and $rect.Width -gt 0 -and $rect.Height -gt 0) {
-            return New-Frame $rect.X $rect.Y $rect.Width $rect.Height
-        }
-    } catch {
-    }
-    return $null
+    return Get-CapturableWindowFrame $hwnd
 }
 
 function Get-PatternNames($element) {
@@ -563,22 +656,26 @@ function Render-Tree($element, $windowBounds, $TextLimit = $script:DefaultTextLi
 }
 
 function Capture-WindowPngBase64($bounds) {
-    if ($null -eq $bounds -or $bounds.width -le 0 -or $bounds.height -le 0) {
+    if (-not (Test-CapturableFrame $bounds)) {
         return $null
     }
+    $bitmap = $null
+    $graphics = $null
+    $stream = $null
     try {
         $bitmap = New-Object System.Drawing.Bitmap ([int][math]::Round($bounds.width)), ([int][math]::Round($bounds.height))
         $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
         $graphics.CopyFromScreen([int][math]::Round($bounds.x), [int][math]::Round($bounds.y), 0, 0, $bitmap.Size)
         $stream = New-Object System.IO.MemoryStream
         $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-        $graphics.Dispose()
-        $bitmap.Dispose()
         $bytes = $stream.ToArray()
-        $stream.Dispose()
         return [Convert]::ToBase64String($bytes)
     } catch {
         return $null
+    } finally {
+        if ($null -ne $graphics) { $graphics.Dispose() }
+        if ($null -ne $bitmap) { $bitmap.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
     }
 }
 
@@ -643,7 +740,15 @@ function List-Apps {
         if ([string]::IsNullOrWhiteSpace($title)) {
             $title = "untitled"
         }
-        $lines.Add(("{0} -- {1} [running, pid={2}, window={3}]" -f $process.ProcessName, $process.ProcessName, $process.Id, $title))
+        # Keep apps whose window cannot be captured in the list: they still
+        # resolve for get_app_state and element-targeted actions. Annotate
+        # them so the agent knows no screenshot will be available.
+        $blocker = Get-WindowCaptureBlocker ([IntPtr]$process.MainWindowHandle)
+        $screenshotNote = ""
+        if ($null -ne $blocker) {
+            $screenshotNote = ", screenshot=unavailable ($blocker)"
+        }
+        $lines.Add(("{0} -- {1} [running, pid={2}, window={3}{4}]" -f $process.ProcessName, $process.ProcessName, $process.Id, $title, $screenshotNote))
     }
     return ($lines -join "`n")
 }
@@ -923,8 +1028,9 @@ try {
                         throw "click_method 'accessibility' could not click the requested element"
                     }
                 } elseif ($clickMethod -eq "app_post") {
+                    Assert-UsableWindowBounds $windowBounds $hwnd
                     if ($null -ne $operation.element -and $null -ne $operation.element.frame) {
-                        $point = Get-ScreenPoint $operation.element.frame $windowBounds
+                        $point = Get-ScreenPoint $operation.element.frame $windowBounds $hwnd
                     } else {
                         $point = [pscustomobject]@{
                             x = [int][math]::Round($windowBounds.x + [double]$operation.x)
@@ -942,8 +1048,9 @@ try {
                         $handled = Invoke-PreferredClick $element
                     }
                     if (-not $handled) {
+                        Assert-UsableWindowBounds $windowBounds $hwnd
                         if ($null -ne $operation.element -and $null -ne $operation.element.frame) {
-                            $point = Get-ScreenPoint $operation.element.frame $windowBounds
+                            $point = Get-ScreenPoint $operation.element.frame $windowBounds $hwnd
                         } else {
                             $point = [pscustomobject]@{
                                 x = [int][math]::Round($windowBounds.x + [double]$operation.x)
@@ -966,11 +1073,13 @@ try {
                     $handled = Invoke-Scroll $element $operation.direction ([double]$operation.pages)
                 }
                 if (-not $handled) {
-                    $point = Get-ScreenPoint $operation.element.frame $windowBounds
+                    Assert-UsableWindowBounds $windowBounds $hwnd
+                    $point = Get-ScreenPoint $operation.element.frame $windowBounds $hwnd
                     Send-Scroll $hwnd $point.x $point.y $operation.direction ([double]$operation.pages)
                 }
             }
             "drag" {
+                Assert-UsableWindowBounds $windowBounds $hwnd
                 Send-Drag $hwnd ([int][math]::Round($windowBounds.x + [double]$operation.from_x)) ([int][math]::Round($windowBounds.y + [double]$operation.from_y)) ([int][math]::Round($windowBounds.x + [double]$operation.to_x)) ([int][math]::Round($windowBounds.y + [double]$operation.to_y))
             }
             "type_text" {
