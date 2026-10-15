@@ -293,7 +293,14 @@ enum MacOSAppAgentProxy {
         // The lock-screen opt-in is deliberately excluded from the per-call channel — it is fixed
         // at agent launch (see connectOrLaunchAgent) so a per-call client cannot forge it. The
         // agent applies the same filter on receipt; this side is a courtesy, not the enforcement.
-        MacSessionLockPolicy.sanitizePeerEnvironment(ProcessInfo.processInfo.environment)
+        var environment = MacSessionLockPolicy.sanitizePeerEnvironment(ProcessInfo.processInfo.environment)
+        // The agent resolves the screenshot config file from the caller's HOME / XDG_CONFIG_HOME, not its own,
+        // so the caller's resolved path travels with the call. A malformed override is forwarded as given and
+        // rejected by the agent, which then falls back to the defaults.
+        if let url = try? OCUConfiguration.fileURL(environment: OCUConfiguration.environment) {
+            environment["OPEN_COMPUTER_USE_CONFIG_FILE"] = url.path
+        }
+        return environment
     }
 }
 
@@ -663,18 +670,18 @@ private enum AppAgentEnvironment {
     private static let lock = NSLock()
 
     static func withOverrides<T>(_ overrides: [String: String], _ body: () throws -> T) rethrows -> T {
-        guard !overrides.isEmpty else {
-            return try body()
-        }
-
         lock.lock()
         defer { lock.unlock() }
 
-        let previousValues = Dictionary(
-            uniqueKeysWithValues: overrides.keys.map { key in
-                (key, ProcessInfo.processInfo.environment[key])
-            }
-        )
+        // Image settings a call does not carry are cleared for its duration, so a value in the agent's own
+        // launch environment can never stand in for the calling host's settings.
+        let keys = Set(overrides.keys).union(OCUConfiguration.environmentKeys)
+        let previousValues = Dictionary(uniqueKeysWithValues: keys.map { key in
+            (key, getenv(key).map { String(cString: $0) })
+        })
+        for key in OCUConfiguration.environmentKeys where overrides[key] == nil {
+            unsetenv(key)
+        }
         for (key, value) in overrides {
             setenv(key, value, 1)
         }

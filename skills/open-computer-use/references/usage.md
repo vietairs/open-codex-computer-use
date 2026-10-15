@@ -225,6 +225,10 @@ The Windows runtime uses UI Automation and Win32 message fallbacks. It must run 
 
 The Linux runtime uses AT-SPI2 through the desktop session bus. It must run in a logged-in graphical session with usable accessibility services. Wayland screenshot and coordinate input support is compositor-dependent and best-effort.
 
+## Persisted screenshot settings
+
+Use `ocu config` to inspect effective values and their sources. `ocu config set image.format jpg` or `ocu config set image.maxLongEdgePixels 1024` persists macOS screenshot preferences in the user config file. Environment overrides take precedence; `ocu config reset KEY` removes a saved preference. Windows and Linux screenshot behavior is unchanged. When the settings omit a screenshot, `get_app_state` says why and coordinate `click` / `drag` are refused until one is delivered; use `element_index` actions meanwhile.
+
 ## Safety
 
 Pause and ask the user before actions that affect external systems or sensitive local state, including sending messages, submitting forms, deleting files, approving prompts, uploading files, or interacting with password managers.

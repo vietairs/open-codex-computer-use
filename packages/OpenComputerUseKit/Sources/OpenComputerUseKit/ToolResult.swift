@@ -12,6 +12,17 @@ public struct ToolResultContentItem: @unchecked Sendable {
         )
     }
 
+    /// A screenshot in whichever format the image settings chose; the MIME type follows the encoded bytes.
+    static func screenshotImage(_ data: Data) -> ToolResultContentItem {
+        ToolResultContentItem(
+            dictionary: [
+                "type": "image",
+                "data": data.base64EncodedString(),
+                "mimeType": data.starts(with: [0xff, 0xd8, 0xff]) ? "image/jpeg" : "image/png",
+            ]
+        )
+    }
+
     public static func pngImage(_ data: Data) -> ToolResultContentItem {
         ToolResultContentItem(
             dictionary: [

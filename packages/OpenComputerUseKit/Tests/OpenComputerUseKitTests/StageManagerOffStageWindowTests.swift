@@ -127,7 +127,7 @@ final class StageManagerOffStageWindowTests: XCTestCase {
             windowBounds: axFrame,
             targetWindowID: 4344,
             targetWindowLayer: 0,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .accessibility,
             treeLines: ["0 button Search"],
             treeLineOffsets: [0: 0],

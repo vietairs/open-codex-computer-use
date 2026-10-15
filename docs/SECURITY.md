@@ -9,7 +9,7 @@
 
 ## Data handling
 
-- For ordinary apps, a screenshot is by default only encoded to PNG in memory and returned directly via the MCP `image` content block; it is not persisted long-term by default.
+- For ordinary apps, a screenshot is by default only encoded to PNG (configurable to JPG) in memory and returned directly via the MCP `image` content block; it is not persisted long-term by default.
 - The Windows runtime fails closed for hidden, minimized, DWM-cloaked, off-screen, or degenerate tiny windows: it keeps the readable UI Automation tree but returns no image block, and does not run coordinate click / drag / scroll-fallback input without a valid screenshot and a window that is still visible, not minimized, and not cloaked at action time; it never upscales, pads, or substitutes a placeholder to fake a usable screenshot.
 - The Linux runtime's screenshot is best-effort; if GNOME Wayland returns a black image, the bridge omits the image block, so an invalid screenshot is not mistaken for a real frame.
 - The fixture app's synthetic state is only written to a local temporary JSON file, meant to support deterministic smoke tests; the write currently goes through an atomic replace to reduce read/write contention during tests.

@@ -274,6 +274,7 @@ Usage:
 
 Commands:
   mcp                  Start the stdio MCP server.
+  config               View or persist macOS screenshot settings.
   doctor               Print permission status and launch onboarding if needed on macOS.
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
@@ -349,6 +350,22 @@ function runInstallCommand(scriptName, scriptArgs) {
   spawnAndExit(scriptPath, scriptArgs);
 }
 
+// Config commands read and write a JSON file only; they never start the native runtime.
+function runConfigCommand(configArgs) {
+  const modulePath = path.join(packageRoot, "scripts", "ocu-config.mjs");
+  if (!fs.existsSync(modulePath)) {
+    fail(\`Missing config helper at \${modulePath}.\`);
+  }
+
+  import(require("node:url").pathToFileURL(modulePath).href)
+    .then(({ configCommand }) => {
+      console.log(configCommand(configArgs, process.env));
+    })
+    .catch((error) => {
+      fail(error.message);
+    });
+}
+
 function resolveNativeExecutable() {
   const platformKey = \`\${process.platform}-\${process.arch}\`;
   const target = platformPackages[platformKey];
@@ -401,6 +418,10 @@ if (command === "help" && (args[1] === "install-claude-mcp" || args[1] === "inst
 if (installCommands.has(command)) {
   const scriptName = installCommands.get(command);
   runInstallCommand(scriptName, args.slice(1));
+} else if (command === "config") {
+  runConfigCommand(args.slice(1));
+} else if (command === "help" && args[1] === "config") {
+  runConfigCommand(["--help"]);
 } else {
   spawnAndExit(resolveNativeExecutable(), args);
 }
@@ -568,6 +589,7 @@ function renderMetaPackageJson(packageName, version, repositoryURL) {
       "scripts/install-claude-mcp.sh",
       "scripts/install-gemini-mcp.sh",
       "scripts/install-config-helper.mjs",
+      "scripts/ocu-config.mjs",
       "scripts/install-codex-mcp.sh",
       "scripts/install-opencode-mcp.sh",
       "scripts/install-codex-plugin.sh",
@@ -582,6 +604,7 @@ function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-gemini-mcp.sh"), path.join(packageRoot, "scripts", "install-gemini-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
+  cpSync(path.join(repoRoot, "scripts", "ocu-config.mjs"), path.join(packageRoot, "scripts", "ocu-config.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));

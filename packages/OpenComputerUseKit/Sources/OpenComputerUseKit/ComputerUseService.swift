@@ -346,7 +346,7 @@ func shouldAttachScreenshot(style: SnapshotTextStyle, includeScreenshot: Bool, t
     }
 }
 
-/// Pixel dimensions from a PNG header, without decoding the image.
+/// Pixel dimensions from the image header (PNG or JPEG), without decoding the image.
 func pngPixelSize(of data: Data) -> CGSize? {
     guard
         let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
@@ -1362,7 +1362,7 @@ public final class ComputerUseService {
             needsElementFrame: elementIndex != nil,
             elementIndex: elementIndex,
             // Only an x/y click reaches here without an index; it scales by the pinned image when there is one.
-            scalesByPinnedScreenshot: elementIndex == nil && pinned.screenshotPNGData != nil
+            scalesByPinnedScreenshot: elementIndex == nil && pinned.screenshotData != nil
         )
 
         var elements = pinned.elements
@@ -1385,7 +1385,7 @@ public final class ComputerUseService {
             windowBounds: geometry.windowBounds,
             targetWindowID: pinned.targetWindowID,
             targetWindowLayer: pinned.targetWindowLayer,
-            screenshotPNGData: pinned.screenshotPNGData,
+            screenshotData: pinned.screenshotData,
             mode: pinned.mode,
             treeLines: pinned.treeLines,
             treeLineOffsets: pinned.treeLineOffsets,
@@ -1394,7 +1394,8 @@ public final class ComputerUseService {
             selectedText: pinned.selectedText,
             elements: elements,
             windowContentIsEmpty: pinned.windowContentIsEmpty,
-            isOffStage: pinned.isOffStage
+            isOffStage: pinned.isOffStage,
+            screenshotNote: pinned.screenshotNote
         )
     }
 
@@ -2322,7 +2323,8 @@ public final class ComputerUseService {
     }
 
     private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
-        screenshotPixelToWindowPoint(
+        try rejectCoordinateInputWhenScreenshotOmitted(snapshot)
+        return screenshotPixelToWindowPoint(
             point,
             screenshotPixelSize: try screenshotPixelSize(snapshot: snapshot),
             windowBounds: snapshot.windowBounds
@@ -2331,7 +2333,7 @@ public final class ComputerUseService {
 
     private func screenshotPixelSize(snapshot: AppSnapshot) throws -> CGSize? {
         try resolveScreenshotPixelSize(
-            snapshotPixelSize: snapshot.screenshotPNGData.flatMap { pngPixelSize(of: $0) },
+            snapshotPixelSize: snapshot.screenshotData.flatMap { pngPixelSize(of: $0) },
             windowID: snapshot.targetWindowID,
             windowBounds: snapshot.windowBounds,
             lastReturned: lastReturnedScreenshotFrames[snapshot.app.pid]
@@ -2610,18 +2612,22 @@ public final class ComputerUseService {
     ) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
         // The compact view exists to cut tokens; attaching the screenshot would defeat it.
-        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.windowContentIsEmpty),
-           let screenshotPNGData = snapshot.screenshotPNGData {
-            content.append(.pngImage(screenshotPNGData))
-            rememberReturnedScreenshotFrame(for: snapshot, pngData: screenshotPNGData)
+        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.windowContentIsEmpty) {
+            if let note = snapshot.screenshotNote {
+                content.append(.text(note))
+            }
+            if let screenshotData = snapshot.screenshotData {
+                content.append(.screenshotImage(screenshotData))
+                rememberReturnedScreenshotFrame(for: snapshot, imageData: screenshotData)
+            }
         }
         return ToolCallResult(content: content)
     }
 
     /// Records the frame of a screenshot handed to the caller so later x/y coordinates, read from
     /// that image, are scaled against it even when a text-only result replaced the cached snapshot.
-    private func rememberReturnedScreenshotFrame(for snapshot: AppSnapshot, pngData: Data) {
-        guard let windowBounds = snapshot.windowBounds, let pixelSize = pngPixelSize(of: pngData) else {
+    private func rememberReturnedScreenshotFrame(for snapshot: AppSnapshot, imageData: Data) {
+        guard let windowBounds = snapshot.windowBounds, let pixelSize = pngPixelSize(of: imageData) else {
             return
         }
 

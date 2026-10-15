@@ -349,7 +349,7 @@ final class ElementSearchTests: XCTestCase {
             windowBounds: bounds,
             targetWindowID: windowID,
             targetWindowLayer: 0,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: mode,
             treeLines: treeLines,
             treeLineOffsets: treeLineOffsets,
@@ -651,7 +651,7 @@ final class ElementSearchTests: XCTestCase {
         XCTAssertEqual(snapshot.targetWindowID, windowID, file: file, line: line)
         XCTAssertEqual(snapshot.treeLines, rows, file: file, line: line)
         XCTAssertTrue(snapshot.treeLineOffsets.isEmpty, file: file, line: line)
-        XCTAssertNil(snapshot.screenshotPNGData, file: file, line: line)
+        XCTAssertNil(snapshot.screenshotData, file: file, line: line)
         XCTAssertEqual(snapshot.windowTitle, "Inbox", file: file, line: line)
     }
 
