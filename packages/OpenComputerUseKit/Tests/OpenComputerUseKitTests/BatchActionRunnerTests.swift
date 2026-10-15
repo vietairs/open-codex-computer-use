@@ -4,6 +4,10 @@ import Foundation
 import XCTest
 @testable import OpenComputerUseKit
 
+private final class WaitRecorder {
+    var intervals: [TimeInterval] = []
+}
+
 private struct BatchTestUnlockedSessionProvider: MacSessionStateProvider {
     func currentSnapshot() -> MacSessionSnapshot {
         MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: ["CGSSessionScreenIsLocked"])
@@ -38,7 +42,7 @@ final class BatchActionRunnerTests: XCTestCase {
         ]
     }
 
-    private func makePinnedSnapshot(focusedElement: AXUIElement?) -> AppSnapshot {
+    private func makePinnedSnapshot(focusedElement: AXUIElement?, mode: SnapshotMode = .accessibility) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(
                 name: "Sample Chat",
@@ -51,7 +55,7 @@ final class BatchActionRunnerTests: XCTestCase {
             targetWindowID: nil,
             targetWindowLayer: nil,
             screenshotPNGData: nil,
-            mode: .accessibility,
+            mode: mode,
             treeLines: [],
             treeLineOffsets: [:],
             focusedSummary: nil,
@@ -391,14 +395,52 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertFalse(context.includeScreenshot)
     }
 
-    func testBatchStepSkipsTheReadBackSettleAndSingleActionKeepsIt() {
-        let batchStep = ActionContext.batchStep(pinned: makePinnedSnapshot(focusedElement: nil))
-        let single = ActionContext.single(includeScreenshot: false)
+    // MARK: - Settle schedule
 
-        XCTAssertEqual(readBackSettleInterval(postActionSettleInterval, context: batchStep), 0)
-        XCTAssertEqual(readBackSettleInterval(0.1, context: batchStep), 0)
-        XCTAssertEqual(readBackSettleInterval(postActionSettleInterval, context: single), postActionSettleInterval, accuracy: 1e-9)
-        XCTAssertEqual(readBackSettleInterval(0.1, context: single), 0.1, accuracy: 1e-9)
+    /// A service on a pinned fixture snapshot whose waits are recorded instead of slept.
+    private func makeRecordingService(waits: WaitRecorder) -> ComputerUseService {
+        let service = ComputerUseService(sleepHandler: { waits.intervals.append($0) })
+        let snapshot = makePinnedSnapshot(focusedElement: nil, mode: .fixture)
+        service.storeSnapshot(snapshot, query: "Sample Chat", app: snapshot.app)
+        return service
+    }
+
+    private func runBatch(_ steps: [ActionStep], waits: WaitRecorder) throws {
+        _ = try makeRecordingService(waits: waits).performActions(
+            app: "Sample Chat", steps: steps, includeScreenshot: false, checkLock: {}
+        )
+    }
+
+    func testBatchOfKeyPressesWaitsOnlyBetweenStepsAndOnceBeforeTheFinalRead() throws {
+        let waits = WaitRecorder()
+        try runBatch([.pressKey(key: "a"), .pressKey(key: "b")], waits: waits)
+
+        XCTAssertEqual(waits.intervals, [postActionSettleInterval, postActionSettleInterval])
+    }
+
+    func testSingleKeyPressBatchStillWaitsOnceBeforeTheFinalRead() throws {
+        let waits = WaitRecorder()
+        try runBatch([.pressKey(key: "a")], waits: waits)
+
+        XCTAssertEqual(waits.intervals, [postActionSettleInterval])
+    }
+
+    func testValueWritingStepKeepsItsOwnSettleInsideABatch() throws {
+        let waits = WaitRecorder()
+        try runBatch([.typeText(text: "invoice"), .pressKey(key: "Return")], waits: waits)
+
+        // type_text settle, the wait between the two steps, the wait before the final read.
+        XCTAssertEqual(waits.intervals, [postActionSettleInterval, postActionSettleInterval, postActionSettleInterval])
+    }
+
+    func testSingleActionKeepsItsSettleWait() {
+        let waits = WaitRecorder()
+        let service = makeRecordingService(waits: waits)
+
+        _ = try? service.pressKey(app: "Sample Chat", key: "a", context: .single(includeScreenshot: false))
+        _ = try? service.typeText(app: "Sample Chat", text: "x", context: .single(includeScreenshot: false))
+
+        XCTAssertEqual(waits.intervals, [postActionSettleInterval, postActionSettleInterval])
     }
 
     // MARK: - Live geometry (never the pinned values)
