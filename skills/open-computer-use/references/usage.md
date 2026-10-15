@@ -169,6 +169,33 @@ Keep the environment override scoped as narrowly as possible. While it remains e
 
 Windows returns an unsupported error for `sky_click` and `global`; Linux returns an unsupported error for `app_post` and `sky_click`. An unsupported or failed explicit method does not fall back to `auto`.
 
+## Choosing a Keyboard Method
+
+`key_method` on `type_text` and `press_key` (also inside `perform_actions` steps) is optional. Omitting it uses `auto`, which keeps the existing behavior: text goes through the focused field's accessibility value or as key events posted to the app. Explicit methods never fall back:
+
+- `sky_key`: use the macOS private SkyLight background-window path. It makes the snapshot's window the key window inside its own app, without raising it, moving the pointer, switching Spaces, or deactivating the foreground app, then sends the keys as events and releases that state again. A command chord with one character, such as `cmd+a`, `cmd+c` or `cmd+v`, presses the matching item of the target's own menu bar instead. Supported on macOS only.
+
+Use `sky_key` when a Chromium or Electron window is covered by another window and `auto` typing does not reach the page:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"Google Chrome"}'
+open-computer-use call click --args '{"app":"Google Chrome","x":420,"y":260,"click_method":"sky_click"}'
+open-computer-use call type_text --args '{"app":"Google Chrome","text":"hello","key_method":"sky_key"}'
+open-computer-use call press_key --args '{"app":"Google Chrome","key":"cmd+a","key_method":"sky_key"}'
+```
+
+- `type_text` with `sky_key` keeps the text-field focus check of `auto`: the focus line of the latest state must name a text field. The text is always sent as key events, never as an accessibility value write.
+- Call `get_app_state` for the app first: `sky_key` needs the window of a state you received in this session and fails otherwise, alone or as a `perform_actions` step.
+- `sky_key` fails closed, sending nothing, when the screen is locked or its lock state is unknown (even with `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`), when the app is hidden (`cmd+h`), when the window id is stale, when the window is minimized, when the window is a Stage Manager off-stage window, when the window does not become the app's key window (for example because a separate dialog window of the app holds key status), and when private symbols are missing.
+- A sheet attached to the window is part of that window, so `sky_key` cannot tell it apart: keys sent while a sheet is open go to the sheet. Check the latest state for an open sheet before typing.
+- A command chord fails without pressing anything when more than one enabled menu item matches it, or when the menu bar cannot be read within its time and size budget. Items of the Apple menu and of the application menu's submenus (Services) are never pressed. A chord with no matching menu item is sent as key events.
+- A menu item runs exactly what the user's own keypress would run, so `cmd+q` quits the target app and `cmd+w` closes its key window.
+- If a menu item did not confirm its press in time, the result succeeds with a note that the command may have run: call `get_app_state` and check before pressing the key again.
+- If the result carries a note that the background key-window state could not be released, the keys were delivered: do not send them again.
+- Inside `perform_actions`, these notes appear on the step's own line (`Step 2 press_key key=cmd+s: ok. Note: ...`).
+
+Windows and Linux return an unsupported error for `sky_key`.
+
 ## Drag Delivery
 
 `drag` has no method parameter. On macOS the path it takes is decided by the same process-level gate that authorizes `click_method: "global"`:
@@ -215,7 +242,7 @@ Over MCP the session keeps the state, so call `get_app_state` for Mail, then `pe
 
 `perform_actions` is macOS-only; the Windows and Linux runtimes do not have it.
 
-The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and an explicit private-SkyLight `sky_click` route. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
+The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and explicit private-SkyLight `sky_click` / `sky_key` routes. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the Open Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` and `sky_key` after macOS upgrades.
 
 ### Windows
 

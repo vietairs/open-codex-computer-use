@@ -100,7 +100,6 @@ func skyClickWindowMatchesTarget(
 enum SkyClickDispatcher {
     private static let primerScreenPoint = CGPoint(x: -1, y: -1)
     private static let primerWindowPoint = CGPoint(x: -1, y: -1)
-    private static let dispatchLock = NSLock()
 
     // Raw private event fields used by the Chromium-compatible Cua Driver path.
     private enum EventField {
@@ -126,9 +125,9 @@ enum SkyClickDispatcher {
             )
         }
 
-        dispatchLock.lock()
+        SkyLightSPI.syntheticFocusLock.lock()
         defer {
-            dispatchLock.unlock()
+            SkyLightSPI.syntheticFocusLock.unlock()
         }
 
         try validate(target: target)

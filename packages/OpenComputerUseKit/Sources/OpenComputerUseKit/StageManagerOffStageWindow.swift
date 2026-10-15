@@ -107,7 +107,7 @@ private func accessibilityWindowFrame(of window: AXUIElement) -> CGRect? {
     return CGRect(origin: position, size: size)
 }
 
-private func accessibilityWindowIsMinimized(_ window: AXUIElement) -> Bool {
+func accessibilityWindowIsMinimized(_ window: AXUIElement) -> Bool {
     var raw: CFTypeRef?
     guard AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &raw) == .success else {
         return false

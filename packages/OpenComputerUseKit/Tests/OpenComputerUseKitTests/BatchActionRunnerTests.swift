@@ -97,6 +97,7 @@ final class BatchActionRunnerTests: XCTestCase {
             perform: { index, _ in
                 performed.append(index)
                 if index == 1 { throw BatchTestBoom(message: "boom") }
+                return nil
             }
         )
 
@@ -113,7 +114,10 @@ final class BatchActionRunnerTests: XCTestCase {
             beforeEachStep: { index in
                 if index == 1 { throw ComputerUseError.stateUnavailable("macOS is locked") }
             },
-            perform: { index, _ in performed.append(index) }
+            perform: { index, _ in
+                performed.append(index)
+                return nil
+            }
         )
 
         XCTAssertEqual(report.outcomes, [.ok, .failed("macOS is locked"), .notRun, .notRun])
@@ -121,10 +125,33 @@ final class BatchActionRunnerTests: XCTestCase {
     }
 
     func testRunReportsNoFailureWhenEveryStepSucceeds() {
-        let report = BatchActionRunner.run(steps: fourSteps(), beforeEachStep: { _ in }, perform: { _, _ in })
+        let report = BatchActionRunner.run(steps: fourSteps(), beforeEachStep: { _ in }, perform: { _, _ in nil })
 
         XCTAssertEqual(report.outcomes, [.ok, .ok, .ok, .ok])
         XCTAssertFalse(report.hasFailure)
+    }
+
+    func testRunKeepsAStepNoteOnThatStepsLineAsSuccess() {
+        let note = "Note: sky_key delivered the keys. Do not send the keys again."
+        let report = BatchActionRunner.run(
+            steps: [clickStep, .typeText(text: "secret-typed-text", keyMethod: .skyKey)],
+            beforeEachStep: { _ in },
+            perform: { index, _ in index == 1 ? note : nil }
+        )
+
+        XCTAssertEqual(report.outcomes, [.ok, .okWithNote(note)])
+        XCTAssertFalse(report.hasFailure, "a note is not a failure")
+        XCTAssertEqual(report.stepLines, ["Step 1 click element_index=12: ok", "Step 2 type_text: ok. \(note)"])
+
+        let result = BatchActionRunner.result(report: report, finalState: .success(.text("STATE")), notReadReason: nil)
+        XCTAssertFalse(result.isError)
+        XCTAssertTrue((result.primaryText ?? "").contains("Step 2 type_text: ok. \(note)"), result.primaryText ?? "")
+    }
+
+    func testBatchStepNoteIsTheStepResultTextOnly() {
+        XCTAssertNil(batchStepNote(from: ToolCallResult(content: [])))
+        XCTAssertNil(batchStepNote(from: ToolCallResult(content: [.pngImage(Data([1]))])))
+        XCTAssertEqual(batchStepNote(from: ToolCallResult(content: [.text("a"), .text("b")])), "a b")
     }
 
     // MARK: - Step lines
@@ -297,6 +324,37 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertNil(BatchActionRunner.missingReceivedStateMessage(app: "Mail", steps: fourSteps(), hasReceivedState: true))
     }
 
+    func testSkyKeyStepWithoutReceivedStateFailsClosedNamingTheStep() throws {
+        let steps: [ActionStep] = [
+            .pressKey(key: "Tab"),
+            .typeText(text: "hello", keyMethod: .skyKey),
+            clickStep,
+        ]
+
+        let message = try XCTUnwrap(
+            BatchActionRunner.missingReceivedStateMessage(app: "Chrome", steps: steps, hasReceivedState: false)
+        )
+
+        XCTAssertTrue(message.hasPrefix("step 2: key_method 'sky_key' needs the state you received"), message)
+        XCTAssertTrue(message.contains("call get_app_state for Chrome before perform_actions"), message)
+        XCTAssertNil(BatchActionRunner.missingReceivedStateMessage(app: "Chrome", steps: steps, hasReceivedState: true))
+    }
+
+    func testDispatcherRefusesSkyKeyBatchWithoutReceivedStateBeforeResolvingTheApp() {
+        let result = makeUnlockedDispatcher().callToolAsResult(
+            name: "perform_actions",
+            arguments: [
+                "app": "NoSuchApp-batch-state-test",
+                "actions": [step("press_key", ["key": "Return", "key_method": "sky_key"])],
+            ]
+        )
+
+        XCTAssertTrue(result.isError)
+        let text = result.primaryText ?? ""
+        XCTAssertTrue(text.contains("step 1: key_method 'sky_key' needs the state you received"), text)
+        XCTAssertFalse(text.contains("appNotFound"), text)
+    }
+
     func testCoordinateAndKeyOnlyBatchesNeedNoReceivedState() {
         let steps: [ActionStep] = [
             .click(elementIndex: nil, x: 10, y: 20, clickCount: 1, mouseButton: "left", clickMethod: .auto),
@@ -348,6 +406,21 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertEqual(BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [auto, sky]), .readOnly)
         XCTAssertEqual(
             BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [auto, .typeText(text: "a")]), .allowActivation
+        )
+    }
+
+    func testMostRestrictiveRecoveryPolicyIsReadOnlyWhenAnyKeyStepUsesSkyKey() {
+        XCTAssertEqual(
+            BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [clickStep, .typeText(text: "a", keyMethod: .skyKey)]),
+            .readOnly
+        )
+        XCTAssertEqual(
+            BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [.pressKey(key: "Return", keyMethod: .skyKey)]),
+            .readOnly
+        )
+        XCTAssertEqual(
+            BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [.pressKey(key: "Return", keyMethod: .auto)]),
+            .allowActivation
         )
     }
 
@@ -441,6 +514,34 @@ final class BatchActionRunnerTests: XCTestCase {
         _ = try? service.typeText(app: "Sample Chat", text: "x", context: .single(includeScreenshot: false))
 
         XCTAssertEqual(waits.intervals, [postActionSettleInterval, postActionSettleInterval])
+    }
+
+    func testFixtureBatchWithASkyKeyStepIsRefusedBeforeAnyStepRuns() {
+        let waits = WaitRecorder()
+        XCTAssertThrowsError(
+            try runBatch([.pressKey(key: "a"), .typeText(text: "x", keyMethod: .skyKey)], waits: waits)
+        ) { error in
+            guard case let .invalidArguments(message)? = error as? ComputerUseError else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(message, "step 2: key_method 'sky_key' is not supported for fixture apps")
+        }
+        XCTAssertEqual(waits.intervals, [], "no step may run when a later step is invalid")
+    }
+
+    func testSingleFixtureKeyActionRefusesSkyKey() {
+        let waits = WaitRecorder()
+        let service = makeRecordingService(waits: waits)
+        let context = ActionContext.single(includeScreenshot: false)
+
+        let expected = "key_method 'sky_key' is not supported for fixture apps"
+        XCTAssertThrowsError(try service.pressKey(app: "Sample Chat", key: "a", keyMethod: .skyKey, context: context)) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, expected, "\(error)")
+        }
+        XCTAssertThrowsError(try service.typeText(app: "Sample Chat", text: "x", keyMethod: .skyKey, context: context)) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, expected, "\(error)")
+        }
+        XCTAssertEqual(waits.intervals, [])
     }
 
     // MARK: - Live geometry (never the pinned values)

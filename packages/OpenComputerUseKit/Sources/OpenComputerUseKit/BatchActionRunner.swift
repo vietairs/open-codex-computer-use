@@ -4,8 +4,8 @@ import Foundation
 /// minus `app`: the batch acts on one app.
 enum ActionStep: Equatable {
     case click(elementIndex: String?, x: Double?, y: Double?, clickCount: Int, mouseButton: String, clickMethod: ClickMethod)
-    case typeText(text: String)
-    case pressKey(key: String)
+    case typeText(text: String, keyMethod: KeyMethod = .auto)
+    case pressKey(key: String, keyMethod: KeyMethod = .auto)
     case setValue(elementIndex: String, value: String)
     case scroll(direction: String, elementIndex: String, pages: Double)
     case performSecondaryAction(elementIndex: String, action: String)
@@ -35,6 +35,14 @@ enum ActionStep: Equatable {
         }
     }
 
+    /// The keyboard method of a `type_text` or `press_key` step; nil for every other step.
+    var keyMethod: KeyMethod? {
+        switch self {
+        case let .typeText(_, keyMethod), let .pressKey(_, keyMethod): return keyMethod
+        case .click, .setValue, .scroll, .performSecondaryAction: return nil
+        }
+    }
+
     /// One short line naming the step. It never echoes typed text or set values, which may be private.
     var summary: String {
         switch self {
@@ -48,7 +56,7 @@ enum ActionStep: Equatable {
             return "click"
         case .typeText:
             return "type_text"
-        case let .pressKey(key):
+        case let .pressKey(key, _):
             return "press_key key=\(key)"
         case let .setValue(elementIndex, _):
             return "set_value element_index=\(elementIndex)"
@@ -62,6 +70,8 @@ enum ActionStep: Equatable {
 
 enum BatchStepOutcome: Equatable {
     case ok
+    /// The step ran and returned a note the caller must see, such as a `sky_key` note that the keys were sent.
+    case okWithNote(String)
     case failed(String)
     case notRun
 }
@@ -79,14 +89,15 @@ struct BatchActionReport: Equatable {
         }
     }
 
-    /// "Step 1 click element_index=12: ok" / "Step 3 press_key key=Return: failed: <message>" /
-    /// "Step 4 click element_index=40: not run"
+    /// "Step 1 click element_index=12: ok" / "Step 2 type_text: ok. Note: <note>" /
+    /// "Step 3 press_key key=Return: failed: <message>" / "Step 4 click element_index=40: not run"
     var stepLines: [String] {
         zip(steps, outcomes).enumerated().map { offset, pair in
             let (step, outcome) = pair
             let status: String
             switch outcome {
             case .ok: status = "ok"
+            case let .okWithNote(note): status = "ok. \(note)"
             case let .failed(message): status = "failed: \(message)"
             case .notRun: status = "not run"
             }
@@ -113,41 +124,49 @@ enum BatchActionRunner {
         }
     }
 
-    /// Refusal text when a step targets an `element_index` but this session holds no state for the app. Indices
-    /// only mean something against a state the agent received; a fresh build would renumber them silently.
-    /// Coordinate and key-only batches never need it. Nil when the batch may run.
+    /// Refusal text when a step targets an `element_index` or uses `sky_key` but this session holds no state for
+    /// the app. Indices only mean something against a state the agent received; a fresh build would renumber them
+    /// silently. A `sky_key` step needs the received state's window, and a fresh build could unhide a hidden app.
+    /// Coordinate and `auto` key-only batches never need it. Nil when the batch may run.
     static func missingReceivedStateMessage(app: String, steps: [ActionStep], hasReceivedState: Bool) -> String? {
-        guard !hasReceivedState, let offset = steps.firstIndex(where: { $0.elementIndex != nil }) else {
+        guard !hasReceivedState,
+              let offset = steps.firstIndex(where: { $0.elementIndex != nil || $0.keyMethod == .skyKey })
+        else {
             return nil
         }
 
-        return "step \(offset + 1): element_index needs the state you received, and none is cached for this app in this session; call get_app_state for \(app) before perform_actions"
+        let need = steps[offset].elementIndex != nil ? "element_index" : "key_method 'sky_key'"
+        return "step \(offset + 1): \(need) needs the state you received, and none is cached for this app in this session; call get_app_state for \(app) before perform_actions"
     }
 
-    /// Read-only when any click uses `sky_click`, so the final refresh never activates an app that click avoided.
+    /// Read-only when any click uses `sky_click` or any key step uses `sky_key`, so the final refresh never
+    /// activates an app those steps avoided.
     static func mostRestrictiveRecoveryPolicy(for steps: [ActionStep]) -> SnapshotRecoveryPolicy {
-        let usesSkyClick = steps.contains { step in
+        let usesBackgroundMethod = steps.contains { step in
             if case let .click(_, _, _, _, _, clickMethod) = step {
                 return clickActionSnapshotRecoveryPolicy(for: clickMethod) == .readOnly
             }
+            if let keyMethod = step.keyMethod {
+                return keyActionSnapshotRecoveryPolicy(for: keyMethod) == .readOnly
+            }
             return false
         }
-        return usesSkyClick ? .readOnly : .allowActivation
+        return usesBackgroundMethod ? .readOnly : .allowActivation
     }
 
-    /// Runs steps in order. For each one `beforeEachStep(i)` runs, then `perform(i, step)`; the first throw from
-    /// either marks step i failed with `errorText(error)` and every later step not run. Never observes state.
+    /// Runs steps in order. For each one `beforeEachStep(i)` runs, then `perform(i, step)`, which returns a note to
+    /// show on the step's line or nil; the first throw from either marks step i failed with `errorText(error)` and
+    /// every later step not run. Never observes state.
     static func run(
         steps: [ActionStep],
         beforeEachStep: (_ index: Int) throws -> Void,
-        perform: (_ index: Int, _ step: ActionStep) throws -> Void
+        perform: (_ index: Int, _ step: ActionStep) throws -> String?
     ) -> BatchActionReport {
         var outcomes = [BatchStepOutcome](repeating: .notRun, count: steps.count)
         for (index, step) in steps.enumerated() {
             do {
                 try beforeEachStep(index)
-                try perform(index, step)
-                outcomes[index] = .ok
+                outcomes[index] = try perform(index, step).map(BatchStepOutcome.okWithNote) ?? .ok
             } catch {
                 outcomes[index] = .failed(errorText(error))
                 break
