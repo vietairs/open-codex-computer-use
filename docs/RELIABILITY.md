@@ -6,6 +6,7 @@
 - Unit tests: `swift test`
 - End-to-end smoke: `./scripts/run-tool-smoke-tests.sh`
 - macOS SkyLight live-device regression: `OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`
+- Windows runtime: `(cd apps/OpenComputerUseWindows && go test ./...)`, `./scripts/build-open-computer-use-windows.sh --arch amd64`; screenshot-related changes also need verification on an interactive Windows desktop that a normal window returns an image and a 1x1, minimized, or cloaked window returns none.
 - Linux runtime: `(cd apps/OpenComputerUseLinux && go test ./...)`, `./scripts/build-open-computer-use-linux.sh --arch arm64`
 - Local diagnostics:
   - `open-computer-use doctor`
@@ -28,6 +29,7 @@
 4. If only `sky_click` fails, re-run `get_app_state` first to confirm the window is still on-screen, not hidden/minimized, and hasn't switched Space; if the error mentions `missing SkyLight symbols`, do not silently switch to an implicit fallback — re-verify the private SPI against the current macOS version. If an obscured Chromium page still has no effect, use a controlled page to distinguish renderer policy changes from coordinate/window-local mapping issues.
 5. If you only want to verify the repo baseline, run the fixture + smoke suite directly rather than troubleshooting on a complex third-party app first.
 6. When troubleshooting the Linux runtime, first confirm whether the target command is being run by the desktop user, then use `open-computer-use call list_apps` and `open-computer-use snapshot <app>` to distinguish a session/env issue from an AT-SPI tree/action issue. For Codex MCP, re-run `open-computer-use install-codex-mcp` and restart Codex, confirming the config is still `open-computer-use mcp`.
+7. When a Windows snapshot returns the accessibility tree but no image, first confirm the window is visible, not minimized, not cloaked, inside the virtual screen, and not a degenerate tiny window; without an image, do not call coordinate click / drag and prefer `element_index`.
 
 ## Lock Screen / Stale-Target / Status Menu Troubleshooting
 
