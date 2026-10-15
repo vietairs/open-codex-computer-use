@@ -4,7 +4,7 @@
 // written, nothing in the file is executed, and no key here can change a permission, lock-screen or safety policy.
 // The native reader (ImageCaptureConfig.swift) validates the same ranges again, so a hand-edited file cannot
 // widen them.
-import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, rmSync, statSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -15,7 +15,7 @@ export const settings = {
   "image.maxLongEdgePixels": { default: 1280, env: "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION", min: 1, max: 16384, integer: true, nullable: true },
   "image.scaleDownAfterMaxSize": { default: true, env: "OPEN_COMPUTER_USE_IMAGE_SCALE_DOWN_AFTER_MAX_SIZE", boolean: true },
   "image.discardBelowPixelCount": { default: 64, env: "OPEN_COMPUTER_USE_IMAGE_DISCARD_BELOW_PIXEL_COUNT", min: 0, max: 268435456, integer: true },
-  "image.captureTimeout": { default: 5, env: "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT", min: 0.01, max: 300 },
+  "image.captureTimeout": { default: 5, env: "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT", min: 0.01, max: 30 },
 };
 
 // Same bound the native reader enforces; a real file is a few hundred bytes.
@@ -50,13 +50,34 @@ export function validateSetting(key, raw, { fromText = false } = {}) {
   return value;
 }
 
+// Opens the path once without blocking and checks the descriptor, not the name, so a path swapped for a fifo or a
+// growing file after the open cannot block the reader or defeat the size limit. Returns null when there is no file.
+function readBoundedText(file) {
+  let descriptor;
+  try { descriptor = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK); }
+  catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  try {
+    const status = fstatSync(descriptor);
+    if (!status.isFile()) throw new Error(`Cannot read config ${file}: not a regular file`);
+    if (status.size > maxConfigBytes) throw new Error(`Cannot read config ${file}: larger than ${maxConfigBytes} bytes`);
+    // Read one byte past the limit so a file that grew after the check is still caught.
+    const buffer = Buffer.alloc(maxConfigBytes + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const count = readSync(descriptor, buffer, length, buffer.length - length, null);
+      if (count === 0) break;
+      length += count;
+    }
+    if (length > maxConfigBytes) throw new Error(`Cannot read config ${file}: larger than ${maxConfigBytes} bytes`);
+    return buffer.toString("utf8", 0, length);
+  } finally { closeSync(descriptor); }
+}
+
 export function readConfig(file) {
-  if (!existsSync(file)) return {};
-  const status = statSync(file);
-  if (!status.isFile()) throw new Error(`Cannot read config ${file}: not a regular file`);
-  if (status.size > maxConfigBytes) throw new Error(`Cannot read config ${file}: larger than ${maxConfigBytes} bytes`);
+  const text = readBoundedText(file);
+  if (text === null) return {};
   let value;
-  try { value = JSON.parse(readFileSync(file, "utf8")); }
+  try { value = JSON.parse(text); }
   catch (error) { throw new Error(`Cannot read config ${file}: ${error.message}`); }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Config must be a JSON object");
   if (value.image !== undefined && (!value.image || typeof value.image !== "object" || Array.isArray(value.image))) throw new Error("Config image must be an object");
@@ -83,7 +104,19 @@ export function inspectConfig(env = process.env) {
   return { path: file, values, sources, warnings };
 }
 
-function save(file, config) {
+// A config that is a symlink (for example into a dotfiles repository) is written through to its target, so the link
+// survives. A dangling link resolves to the path it points at, and the target is created in place.
+function writeTarget(file) {
+  try { return realpathSync(file); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    try { return path.resolve(path.dirname(file), readlinkSync(file)); }
+    catch { return file; }
+  }
+}
+
+function save(requested, config) {
+  const file = writeTarget(requested);
   mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${randomUUID()}.tmp`;
   try {

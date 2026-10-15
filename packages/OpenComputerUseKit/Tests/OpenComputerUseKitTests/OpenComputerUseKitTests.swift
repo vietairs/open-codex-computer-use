@@ -292,23 +292,23 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(resolvedOpenComputerUseVersion(bundle: Bundle(for: Self.self)), openComputerUseVersion)
     }
 
-    func testBoundedScreenshotPNGDataShrinksLargeScreenshots() throws {
+    func testEncodeScreenshotShrinksLargeScreenshots() throws {
         let image = try makeNoisyTestImage(width: 800, height: 600)
-        let data = try XCTUnwrap(boundedScreenshotPNGData(
-            for: image,
-            maxBytes: 50_000,
-            maxDimension: 320,
-            minScale: 0.05
-        ))
+        var config = ImageCaptureConfig.defaults
+        config.maxDimension = 320
+        let data = try XCTUnwrap(encodeScreenshot(for: image, config: config, maxBytes: 50_000, minScale: 0.05).data)
         let size = try imageSize(in: data)
 
         XCTAssertLessThanOrEqual(data.count, 50_000)
         XCTAssertLessThanOrEqual(max(size.width, size.height), 320)
     }
 
-    func testBoundedScreenshotPNGDataKeepsSmallScreenshotsAtOriginalSize() throws {
+    func testEncodeScreenshotKeepsSmallScreenshotsAtOriginalSize() throws {
         let image = try makeSolidTestImage(width: 32, height: 24)
-        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxBytes: 1_000_000, maxDimension: 320))
+        var config = ImageCaptureConfig.defaults
+        config.maxDimension = 320
+        config.discardBelowPixelCount = 0
+        let data = try XCTUnwrap(encodeScreenshot(for: image, config: config, maxBytes: 1_000_000).data)
         let size = try imageSize(in: data)
 
         XCTAssertEqual(size.width, 32)

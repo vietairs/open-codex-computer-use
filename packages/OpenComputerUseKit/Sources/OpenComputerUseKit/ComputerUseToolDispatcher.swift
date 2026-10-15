@@ -53,12 +53,24 @@ public final class ComputerUseToolDispatcher {
 
     /// `environment`, when given, is the calling host's own per-call environment and replaces the injected closure
     /// for this call. The app agent passes it so a host's configuration is never read back from the shared process
-    /// environment, where another host's overrides may be set at the same moment.
+    /// environment, where another host's overrides may be set at the same moment. The screenshot settings in it
+    /// apply to this call only, and no config file is read for them.
     public func callTool(
         name: String, arguments: [String: Any], environment callEnvironment: [String: String]? = nil
     ) throws -> ToolCallResult {
         // Activity recording MUST NOT occur before this line — record only at the MCP layer (MCPServer/runtime) after the guard passes.
         try macSessionGuard.requireUnlocked(for: name)
+        guard let callEnvironment else {
+            return try dispatch(name: name, arguments: arguments, callEnvironment: nil)
+        }
+        return try service.withForwardedImageSettings(environment: callEnvironment) {
+            try dispatch(name: name, arguments: arguments, callEnvironment: callEnvironment)
+        }
+    }
+
+    private func dispatch(
+        name: String, arguments: [String: Any], callEnvironment: [String: String]?
+    ) throws -> ToolCallResult {
         switch name {
         case "list_apps":
             return service.listApps()
@@ -380,7 +392,8 @@ public func runOpenComputerUseCall(
     service: ComputerUseService = ComputerUseService(),
     guard macSessionGuard: MacSessionGuard = MacSessionGuard(),
     sleepHandler: OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
-    environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment }
+    environment: @escaping @Sendable () -> [String: String] = { ProcessInfo.processInfo.environment },
+    callEnvironment: [String: String]? = nil
 ) throws -> OpenComputerUseCallOutput {
     let dispatcher = ComputerUseToolDispatcher(service: service, guard: macSessionGuard, environment: environment)
 
@@ -390,7 +403,7 @@ public func runOpenComputerUseCall(
             json: argumentsJSON,
             file: argumentsFile
         )
-        let result = dispatcher.callToolAsResult(name: toolName, arguments: arguments)
+        let result = dispatcher.callToolAsResult(name: toolName, arguments: arguments, environment: callEnvironment)
         return OpenComputerUseCallOutput(
             jsonObject: result.asDictionary,
             hasToolError: result.isError
@@ -402,7 +415,7 @@ public func runOpenComputerUseCall(
         var hasToolError = false
 
         for (index, call) in calls.enumerated() {
-            let result = dispatcher.callToolAsResult(name: call.tool, arguments: call.arguments)
+            let result = dispatcher.callToolAsResult(name: call.tool, arguments: call.arguments, environment: callEnvironment)
             outputs.append([
                 "tool": call.tool,
                 "result": result.asDictionary,

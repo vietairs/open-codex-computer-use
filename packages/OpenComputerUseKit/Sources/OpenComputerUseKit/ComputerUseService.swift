@@ -668,6 +668,27 @@ public final class ComputerUseService {
     /// Every settle wait of an action or batch goes through this, so tests can record the schedule.
     private let sleepHandler: OpenComputerUseSleepHandler
 
+    /// Screenshot settings a relayed call carried with it. While set, they replace the process environment and
+    /// config file for the call, so concurrent hosts of the shared app agent never read each other's settings.
+    private var callImageConfig: ImageCaptureConfig?
+
+    /// The settings the next capture uses: the current call's, else this process's own.
+    var effectiveImageConfig: ImageCaptureConfig { callImageConfig ?? .current }
+
+    /// Runs `body` with `config` as the screenshot settings, or with the process's own when `config` is nil.
+    func withImageConfig<T>(_ config: ImageCaptureConfig?, _ body: () throws -> T) rethrows -> T {
+        let previous = callImageConfig
+        callImageConfig = config
+        defer { callImageConfig = previous }
+        return try body()
+    }
+
+    /// Runs `body` with the screenshot settings a relayed call carried in `environment`. Only the validated
+    /// `OPEN_COMPUTER_USE_IMAGE_*` values count; nothing else in it is read and no config file is opened.
+    public func withForwardedImageSettings<T>(environment: [String: String], _ body: () throws -> T) rethrows -> T {
+        try withImageConfig(ImageCaptureConfig.forwarded(environment: environment), body)
+    }
+
     public init() {
         sleepHandler = { Thread.sleep(forTimeInterval: $0) }
     }
@@ -1546,7 +1567,8 @@ public final class ComputerUseService {
             textLimit: textLimit,
             treeLimits: treeLimits,
             recoveryPolicy: recoveryPolicy,
-            capture: capture
+            capture: capture,
+            imageConfig: { [self] in effectiveImageConfig }
         )
 
         storeSnapshot(snapshot, query: query, app: app)

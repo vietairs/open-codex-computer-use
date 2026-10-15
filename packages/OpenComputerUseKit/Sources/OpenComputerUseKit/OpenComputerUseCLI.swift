@@ -72,6 +72,19 @@ public func openComputerUseCLIReadsOnlyCallEnvironment(arguments: [String]) -> B
     return toolName == ToolDefinitions.decideNextAction.name
 }
 
+/// True when `arguments` is a proxied CLI command that may take a screenshot, so the proxy attaches the caller's
+/// screenshot settings to the request. List, doctor and a single `decide_next_action` never capture.
+public func openComputerUseCLIMayCaptureScreenshot(arguments: [String]) -> Bool {
+    switch try? parseOpenComputerUseCLI(arguments: arguments) {
+    case .snapshot?, .call(.sequence)?:
+        return true
+    case let .call(.single(toolName, _, _))?:
+        return StdioMCPServer.toolMayCaptureScreenshot(named: toolName)
+    default:
+        return false
+    }
+}
+
 public struct OpenComputerUseCLIError: LocalizedError, Equatable {
     public let message: String
     public let helpCommand: String?

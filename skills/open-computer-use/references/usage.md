@@ -227,7 +227,7 @@ The Linux runtime uses AT-SPI2 through the desktop session bus. It must run in a
 
 ## Persisted screenshot settings
 
-Use `ocu config` to inspect effective values and their sources. `ocu config set image.format jpg` or `ocu config set image.maxLongEdgePixels 1024` persists macOS screenshot preferences in the user config file. Environment overrides take precedence; `ocu config reset KEY` removes a saved preference. Windows and Linux screenshot behavior is unchanged. When the settings omit a screenshot, `get_app_state` says why and coordinate `click` / `drag` are refused until one is delivered; use `element_index` actions meanwhile.
+Use `ocu config` to inspect effective values and their sources. `ocu config set image.format jpg` or `ocu config set image.maxLongEdgePixels 1024` persists macOS screenshot preferences in the user config file. Environment overrides take precedence; `ocu config reset KEY` removes a saved preference. Windows and Linux screenshot behavior is unchanged. When the settings omit a screenshot, `get_app_state` says why and coordinate `click` / `drag` are refused while the app's newest snapshot carries that omission note; use `element_index` actions meanwhile.
 
 ## Safety
 

@@ -2,13 +2,17 @@ import Foundation
 import CoreGraphics
 import Darwin
 
-/// Shared path resolution for native calls and app-agent request forwarding.
+/// Shared path resolution and app-agent forwarding for the screenshot configuration.
 ///
 /// The configuration only ever carries screenshot encoding preferences. It never carries a permission,
 /// lock-screen or safety setting, and nothing read from it is executed.
+///
+/// The config file is read only by the process that owns the calling host: the CLI, an in-process server, or
+/// the proxy that relays to the app agent. The agent never opens a path a caller names; it receives the
+/// proxy's validated `OPEN_COMPUTER_USE_IMAGE_*` values with each call and applies them to that call alone.
 public enum OCUConfiguration {
-    public static let environmentKeys: Set<String> = [
-        "OPEN_COMPUTER_USE_CONFIG_FILE",
+    /// The per-call settings the proxy forwards to the app agent.
+    public static let imageEnvironmentKeys: Set<String> = [
         "OPEN_COMPUTER_USE_IMAGE_FORMAT",
         "OPEN_COMPUTER_USE_IMAGE_JPEG_QUALITY",
         "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT",
@@ -17,8 +21,47 @@ public enum OCUConfiguration {
         "OPEN_COMPUTER_USE_IMAGE_DISCARD_BELOW_PIXEL_COUNT",
     ]
 
-    /// Largest config file the agent will read. A real file holds a few hundred bytes.
+    /// Every environment key the configuration reads in the caller's own process.
+    public static let environmentKeys: Set<String> = imageEnvironmentKeys.union([configFileKey])
+
+    /// Names the config file in the caller's own process. It never crosses the app-agent socket.
+    public static let configFileKey = "OPEN_COMPUTER_USE_CONFIG_FILE"
+
+    /// Largest config file that is read. A real file holds a few hundred bytes.
     static let maxFileBytes: off_t = 64 * 1024
+
+    /// Upper bound of `captureTimeout`, in seconds. A stalled capture holds its call for at most this long.
+    static let maxCaptureTimeout: Double = 30
+
+    /// The part of a peer's per-call environment that has to be set on the agent process for the call. The
+    /// screenshot settings are excluded: they travel with the call and are never written to the shared process
+    /// environment, so a call that carries only those needs no process-wide lock.
+    public static func processOverrides(from environment: [String: String]) -> [String: String] {
+        environment.filter { !environmentKeys.contains($0.key) }
+    }
+
+    /// The per-call environment a proxy relays to the agent: the sanitized process environment, with the raw
+    /// screenshot keys and the config file path removed and `imageSettings` (already validated, or nil when the
+    /// call takes no screenshot) put in their place.
+    public static func relayedEnvironment(
+        processEnvironment: [String: String],
+        imageSettings: [String: String]?
+    ) -> [String: String] {
+        var environment = MacSessionLockPolicy.sanitizePeerEnvironment(processEnvironment)
+        for key in environmentKeys {
+            environment.removeValue(forKey: key)
+        }
+        for (key, value) in imageSettings ?? [:] where imageEnvironmentKeys.contains(key) {
+            environment[key] = value
+        }
+        return environment
+    }
+
+    /// The caller's resolved settings (environment over file over defaults) as validated `IMAGE_*` values, ready
+    /// to travel with a relayed call. The proxy runs this in the calling host's own process.
+    public static func forwardedImageEnvironment() -> [String: String] {
+        ImageCaptureConfig.current.environmentValues
+    }
 
     /// The process environment restricted to the keys that decide where the file is and what overrides it.
     public static var environment: [String: String] {
@@ -29,7 +72,7 @@ public enum OCUConfiguration {
     }
 
     public static func fileURL(environment: [String: String]) throws -> URL {
-        if let override = environment["OPEN_COMPUTER_USE_CONFIG_FILE"], !override.isEmpty {
+        if let override = environment[configFileKey], !override.isEmpty {
             guard override.hasPrefix("/") else { throw ConfigError.invalidPath }
             return URL(fileURLWithPath: override)
         }
@@ -69,8 +112,32 @@ struct ImageCaptureConfig: Equatable {
     var maxDimension: CGFloat? = 1280
     static let defaults = ImageCaptureConfig()
 
+    /// The settings of this process: its environment over the config file over the defaults.
     static var current: ImageCaptureConfig {
         load(environment: OCUConfiguration.environment, warning: warn)
+    }
+
+    /// The settings a relayed call carries. Only the validated `IMAGE_*` values count; no config file is read and
+    /// no path is followed, whatever else the call's environment holds. A missing or invalid value falls back to
+    /// the default.
+    static func forwarded(environment: [String: String]) -> ImageCaptureConfig {
+        resolve(
+            image: [:],
+            environment: environment.filter { OCUConfiguration.imageEnvironmentKeys.contains($0.key) },
+            warning: warn
+        )
+    }
+
+    /// The canonical `IMAGE_*` form of these settings, accepted back by `forwarded(environment:)` unchanged.
+    var environmentValues: [String: String] {
+        [
+            "OPEN_COMPUTER_USE_IMAGE_FORMAT": format.rawValue,
+            "OPEN_COMPUTER_USE_IMAGE_JPEG_QUALITY": String(jpegQuality),
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": String(captureTimeout),
+            "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": maxDimension.map { String(renderedInt($0)) } ?? "null",
+            "OPEN_COMPUTER_USE_IMAGE_SCALE_DOWN_AFTER_MAX_SIZE": scaleDownAfterMaxSize ? "true" : "false",
+            "OPEN_COMPUTER_USE_IMAGE_DISCARD_BELOW_PIXEL_COUNT": String(discardBelowPixelCount),
+        ]
     }
 
     static func load(environment: [String: String], warning: (String) -> Void = { _ in }) -> ImageCaptureConfig {
@@ -90,17 +157,39 @@ struct ImageCaptureConfig: Equatable {
         return resolve(image: document, environment: environment, warning: warning)
     }
 
-    /// Returns nil when the file does not exist. Refuses anything that is not a small regular file, so a
-    /// fifo or device handed over through the config path cannot block or exhaust the agent.
+    /// Returns nil when the file does not exist. The path is opened once without blocking and every check runs on
+    /// that descriptor, so a path swapped for a fifo or a growing file after the open cannot block the reader or
+    /// defeat the size limit. Only a regular file of at most `maxFileBytes` is read.
     private static func readConfigFile(at path: String) throws -> Data? {
-        var status = stat()
-        guard stat(path, &status) == 0 else {
+        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else {
             if errno == ENOENT { return nil }
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer { close(descriptor) }
+
+        var status = stat()
+        guard fstat(descriptor, &status) == 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
         guard (status.st_mode & S_IFMT) == S_IFREG else { throw OCUConfiguration.ConfigError.notRegularFile }
         guard status.st_size <= OCUConfiguration.maxFileBytes else { throw OCUConfiguration.ConfigError.tooLarge }
-        return try Data(contentsOf: URL(fileURLWithPath: path))
+
+        // Read one byte past the limit so a file that grew after the fstat is still caught.
+        let limit = Int(OCUConfiguration.maxFileBytes) + 1
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while data.count < limit {
+            let count = read(descriptor, &buffer, min(buffer.count, limit - data.count))
+            if count < 0 {
+                if errno == EINTR { continue }
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+            if count == 0 { break }
+            data.append(buffer, count: count)
+        }
+        guard data.count <= Int(OCUConfiguration.maxFileBytes) else { throw OCUConfiguration.ConfigError.tooLarge }
+        return data
     }
 
     static func resolve(
@@ -161,7 +250,7 @@ struct ImageCaptureConfig: Equatable {
             else { warning("Invalid OPEN_COMPUTER_USE_IMAGE_FORMAT; using file/default") }
         }
         result.jpegQuality = layered("jpegQuality", "OPEN_COMPUTER_USE_IMAGE_JPEG_QUALITY", 0.8, min: 0, max: 1)
-        result.captureTimeout = layered("captureTimeout", "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT", 5, min: 0.01, max: 300)
+        result.captureTimeout = layered("captureTimeout", "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT", 5, min: 0.01, max: OCUConfiguration.maxCaptureTimeout)
         result.scaleDownAfterMaxSize = boolean("scaleDownAfterMaxSize", "OPEN_COMPUTER_USE_IMAGE_SCALE_DOWN_AFTER_MAX_SIZE", true)
         result.discardBelowPixelCount = Int(layered(
             "discardBelowPixelCount", "OPEN_COMPUTER_USE_IMAGE_DISCARD_BELOW_PIXEL_COUNT", 64,

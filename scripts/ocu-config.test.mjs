@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, statSync, cpSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, statSync, lstatSync, cpSync, mkdirSync, symlinkSync, readlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { configCommand, configPath, inspectConfig } from "./ocu-config.mjs";
@@ -111,6 +111,39 @@ test("explicit resize/drop settings, pixel-count threshold and nullable limits",
   assert.equal(values["image.maxLongEdgePixels"], null);
   assert.throws(() => configCommand(["set", "image.scaleDownAfterMaxSize", "yes"], env), /true or false/);
   assert.throws(() => configCommand(["set", "image.captureTimeout", "null"], env));
+});
+
+test("capture timeout is capped at 30 seconds", t => {
+  const env = fixture(t);
+  configCommand(["set", "image.captureTimeout", "30"], env);
+  assert.equal(inspectConfig(env).values["image.captureTimeout"], 30);
+  assert.throws(() => configCommand(["set", "image.captureTimeout", "31"], env), /between 0.01 and 30/);
+  assert.equal(inspectConfig({ ...env, OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT: "300" }).values["image.captureTimeout"], 30);
+});
+
+test("a symlinked config is written through and the link survives", t => {
+  const env = fixture(t);
+  const target = path.join(env.HOME, "dotfiles", "ocu-config.json");
+  mkdirSync(path.dirname(target));
+  writeFileSync(target, JSON.stringify({ image: { format: "jpg" }, future: "keep" }));
+  symlinkSync(target, env.OPEN_COMPUTER_USE_CONFIG_FILE);
+  configCommand(["set", "image.maxLongEdgePixels", "640"], env);
+  assert.ok(lstatSync(env.OPEN_COMPUTER_USE_CONFIG_FILE).isSymbolicLink());
+  assert.equal(readlinkSync(env.OPEN_COMPUTER_USE_CONFIG_FILE), target);
+  const saved = JSON.parse(readFileSync(target, "utf8"));
+  assert.equal(saved.image.maxLongEdgePixels, 640);
+  assert.equal(saved.image.format, "jpg");
+  assert.equal(saved.future, "keep");
+});
+
+test("a dangling symlinked config is created at its target", t => {
+  const env = fixture(t);
+  const target = path.join(env.HOME, "dotfiles", "later.json");
+  mkdirSync(path.dirname(target));
+  symlinkSync(target, env.OPEN_COMPUTER_USE_CONFIG_FILE);
+  configCommand(["set", "image.format", "jpg"], env);
+  assert.ok(lstatSync(env.OPEN_COMPUTER_USE_CONFIG_FILE).isSymbolicLink());
+  assert.equal(JSON.parse(readFileSync(target, "utf8")).image.format, "jpg");
 });
 
 test("staged npm launcher persists config without starting a native runtime", t => {

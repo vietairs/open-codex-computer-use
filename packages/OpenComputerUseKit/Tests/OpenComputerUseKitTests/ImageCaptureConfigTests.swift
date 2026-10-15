@@ -151,6 +151,26 @@ final class ImageCaptureConfigTests: XCTestCase {
         XCTAssertTrue(warnings.first?.contains("tooLarge") ?? false)
     }
 
+    func testLoadRefusesAFifoWithoutBlocking() throws {
+        let fifo = scratch.appendingPathComponent("config.fifo")
+        XCTAssertEqual(mkfifo(fifo.path, 0o600), 0)
+        var warnings: [String] = []
+        let config = ImageCaptureConfig.load(
+            environment: ["OPEN_COMPUTER_USE_CONFIG_FILE": fifo.path],
+            warning: { warnings.append($0) }
+        )
+        XCTAssertEqual(config, ImageCaptureConfig.defaults)
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertTrue(warnings.first?.contains("notRegularFile") ?? false)
+    }
+
+    func testLoadFollowsASymlinkToARegularFile() throws {
+        let target = try writeConfig(#"{"image":{"format":"jpg"}}"#)
+        let link = scratch.appendingPathComponent("link.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        XCTAssertEqual(ImageCaptureConfig.load(environment: ["OPEN_COMPUTER_USE_CONFIG_FILE": link.path]).format, .jpg)
+    }
+
     func testMissingFileIsSilentlyTheDefaults() {
         var warnings: [String] = []
         let config = ImageCaptureConfig.load(
@@ -172,6 +192,152 @@ final class ImageCaptureConfigTests: XCTestCase {
             try OCUConfiguration.fileURL(environment: ["XDG_CONFIG_HOME": "/settings"]).path,
             "/settings/ocu/config.json"
         )
+    }
+
+    func testCaptureTimeoutIsCappedAtThirtySeconds() {
+        XCTAssertEqual(
+            ImageCaptureConfig.resolve(image: [:], environment: ["OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": "30"]).captureTimeout,
+            30
+        )
+        var warnings: [String] = []
+        let config = ImageCaptureConfig.resolve(
+            image: ["captureTimeout": 31],
+            environment: [:],
+            warning: { warnings.append($0) }
+        )
+        XCTAssertEqual(config.captureTimeout, ImageCaptureConfig.defaults.captureTimeout)
+        XCTAssertEqual(warnings.count, 1)
+    }
+
+    // MARK: - Settings relayed to the app agent
+
+    func testForwardedSettingsReadNoConfigFileAndNoAgentEnvironment() throws {
+        let file = try writeConfig(#"{"image":{"format":"jpg","maxLongEdgePixels":512}}"#)
+        setenv("OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION", "555", 1)
+        addTeardownBlock { unsetenv("OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION") }
+
+        // A path in the call and a value in the agent's own environment both have no effect.
+        let config = ImageCaptureConfig.forwarded(environment: [
+            "OPEN_COMPUTER_USE_CONFIG_FILE": file.path,
+            "HOME": scratch.path,
+        ])
+        XCTAssertEqual(config, ImageCaptureConfig.defaults)
+    }
+
+    func testForwardedSettingsApplyOnlyValidValues() {
+        var expected = ImageCaptureConfig.defaults
+        expected.format = .jpg
+        let config = ImageCaptureConfig.forwarded(environment: [
+            "OPEN_COMPUTER_USE_IMAGE_FORMAT": "jpg",
+            "OPEN_COMPUTER_USE_IMAGE_JPEG_QUALITY": "not a number",
+            "OPEN_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT": "9000",
+            "OPEN_COMPUTER_USE_ALLOW_LOCKED": "1",
+        ])
+        XCTAssertEqual(config, expected)
+    }
+
+    func testResolvedSettingsRoundTripThroughTheForwardedForm() throws {
+        let file = try writeConfig(
+            #"{"image":{"format":"jpg","jpegQuality":0.35,"captureTimeout":7.5,"scaleDownAfterMaxSize":false,"discardBelowPixelCount":12}}"#
+        )
+        for maxDimension in ["640", "null"] {
+            let resolved = ImageCaptureConfig.load(environment: [
+                "OPEN_COMPUTER_USE_CONFIG_FILE": file.path,
+                "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": maxDimension,
+            ])
+            let values = resolved.environmentValues
+            XCTAssertEqual(Set(values.keys), OCUConfiguration.imageEnvironmentKeys)
+            XCTAssertEqual(ImageCaptureConfig.forwarded(environment: values), resolved, maxDimension)
+        }
+        // An invalid file value is replaced by a valid one before it is forwarded.
+        let invalid = try writeConfig(#"{"image":{"format":"webp"}}"#)
+        let values = ImageCaptureConfig.load(environment: ["OPEN_COMPUTER_USE_CONFIG_FILE": invalid.path]).environmentValues
+        XCTAssertEqual(values["OPEN_COMPUTER_USE_IMAGE_FORMAT"], "png")
+    }
+
+    func testProcessOverridesDropEveryScreenshotKeyAndKeepTheRest() {
+        var environment = Dictionary(uniqueKeysWithValues: OCUConfiguration.environmentKeys.map { ($0, "x") })
+        // Image settings alone leave nothing to set on the shared process, so such a call takes no lock.
+        XCTAssertTrue(OCUConfiguration.processOverrides(from: environment).isEmpty)
+
+        environment["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS"] = "1"
+        XCTAssertEqual(
+            OCUConfiguration.processOverrides(from: environment),
+            ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]
+        )
+    }
+
+    func testRelayedEnvironmentCarriesValidatedSettingsInPlaceOfRawOnes() {
+        let process = [
+            "OPEN_COMPUTER_USE_CONFIG_FILE": "/tmp/config.json",
+            "OPEN_COMPUTER_USE_IMAGE_FORMAT": "webp",
+            "OPEN_COMPUTER_USE_ALLOW_LOCKED": "1",
+            "OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1",
+            "PATH": "/usr/bin",
+        ]
+        // A call that takes no screenshot carries no screenshot setting and no path.
+        XCTAssertEqual(
+            OCUConfiguration.relayedEnvironment(processEnvironment: process, imageSettings: nil),
+            ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]
+        )
+        var validated = ImageCaptureConfig.defaults.environmentValues
+        validated["OPEN_COMPUTER_USE_ALLOW_LOCKED"] = "1"
+        validated["OPEN_COMPUTER_USE_CONFIG_FILE"] = "/tmp/other.json"
+        let relayed = OCUConfiguration.relayedEnvironment(processEnvironment: process, imageSettings: validated)
+        XCTAssertEqual(relayed["OPEN_COMPUTER_USE_IMAGE_FORMAT"], "png")
+        XCTAssertEqual(relayed["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS"], "1")
+        XCTAssertNil(relayed["OPEN_COMPUTER_USE_CONFIG_FILE"])
+        XCTAssertNil(relayed["OPEN_COMPUTER_USE_ALLOW_LOCKED"])
+        XCTAssertNil(relayed["PATH"])
+        XCTAssertEqual(relayed.count, OCUConfiguration.imageEnvironmentKeys.count + 1)
+    }
+
+    func testPeerEnvironmentNeverCarriesTheConfigFilePath() {
+        let sanitized = MacSessionLockPolicy.sanitizePeerEnvironment([
+            "OPEN_COMPUTER_USE_CONFIG_FILE": "/tmp/chosen-by-a-peer.json",
+            "OPEN_COMPUTER_USE_IMAGE_FORMAT": "jpg",
+        ])
+        XCTAssertEqual(sanitized, ["OPEN_COMPUTER_USE_IMAGE_FORMAT": "jpg"])
+    }
+
+    func testCallSettingsReplaceTheProcessSettingsForOneCallOnly() {
+        let service = ComputerUseService()
+        let outside = service.effectiveImageConfig
+        XCTAssertEqual(outside, ImageCaptureConfig.current)
+
+        service.withForwardedImageSettings(environment: ["OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": "777"]) {
+            XCTAssertEqual(service.effectiveImageConfig.maxDimension, 777)
+        }
+        XCTAssertEqual(service.effectiveImageConfig, outside)
+    }
+
+    func testOnlyScreenshotTakingRequestsCarryTheSettings() {
+        func line(_ tool: String) -> String {
+            #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"\#(tool)","arguments":{}}}"#
+        }
+        XCTAssertTrue(StdioMCPServer.mayCaptureScreenshot(line: line("get_app_state")))
+        XCTAssertTrue(StdioMCPServer.mayCaptureScreenshot(line: line("click")))
+        XCTAssertFalse(StdioMCPServer.mayCaptureScreenshot(line: line("list_apps")))
+        XCTAssertFalse(StdioMCPServer.mayCaptureScreenshot(line: line(ToolDefinitions.decideNextAction.name)))
+        XCTAssertFalse(StdioMCPServer.mayCaptureScreenshot(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#))
+        XCTAssertFalse(StdioMCPServer.mayCaptureScreenshot(line: "not json"))
+
+        XCTAssertTrue(openComputerUseCLIMayCaptureScreenshot(arguments: ["snapshot", "Mail"]))
+        XCTAssertTrue(openComputerUseCLIMayCaptureScreenshot(arguments: ["call", "get_app_state", "--args", #"{"app":"Mail"}"#]))
+        XCTAssertFalse(openComputerUseCLIMayCaptureScreenshot(arguments: ["list-apps"]))
+        XCTAssertFalse(openComputerUseCLIMayCaptureScreenshot(arguments: ["call", ToolDefinitions.decideNextAction.name, "--args", #"{"app":"Mail","goal":"x"}"#]))
+        XCTAssertFalse(openComputerUseCLIMayCaptureScreenshot(arguments: []))
+    }
+
+    func testSnapshotWithoutAScreenshotNeverReadsTheConfiguration() {
+        var reads = 0
+        let resolve = { () -> ImageCaptureConfig in reads += 1; return .defaults }
+
+        XCTAssertNil(imageConfigForCapture(shouldCapture: false, isOnscreen: true, resolve: resolve))
+        XCTAssertNil(imageConfigForCapture(shouldCapture: true, isOnscreen: false, resolve: resolve))
+        XCTAssertEqual(reads, 0)
+        XCTAssertNotNil(imageConfigForCapture(shouldCapture: true, isOnscreen: true, resolve: resolve))
+        XCTAssertEqual(reads, 1)
     }
 
     // MARK: - Safety boundary
@@ -310,6 +476,23 @@ final class ImageCaptureConfigTests: XCTestCase {
         }
     }
 
+    func testProductionByteCapAppliesToPngAndJpegByDefault() throws {
+        XCTAssertEqual(screenshotResultMaxBytes, 900_000)
+        let image = try makeRandomImage(width: 1200, height: 900)
+        for format in [ScreenshotFormat.png, .jpg] {
+            var config = ImageCaptureConfig.defaults
+            config.format = format
+            config.jpegQuality = 1
+            config.maxDimension = nil
+            let unbounded = try XCTUnwrap(encodeScreenshot(for: image, config: config, maxBytes: Int.max).data)
+            XCTAssertGreaterThan(unbounded.count, screenshotResultMaxBytes, format.rawValue)
+
+            // Default parameters: the cap comes from the production constant, not from the test.
+            let bounded = try XCTUnwrap(encodeScreenshot(for: image, config: config).data)
+            XCTAssertLessThanOrEqual(bounded.count, screenshotResultMaxBytes, format.rawValue)
+        }
+    }
+
     func testInvalidLongEdgeConfigurationOmitsInsteadOfEncoding() throws {
         var config = ImageCaptureConfig.defaults
         config.maxDimension = 0
@@ -329,6 +512,39 @@ final class ImageCaptureConfigTests: XCTestCase {
         XCTAssertNoThrow(try rejectCoordinateInputWhenScreenshotOmitted(makeSnapshot(data: nil, note: nil)))
         let delivered = try XCTUnwrap(encodeScreenshot(for: try makeImage(width: 20, height: 20), config: .defaults).data)
         XCTAssertNoThrow(try rejectCoordinateInputWhenScreenshotOmitted(makeSnapshot(data: delivered, note: nil)))
+    }
+
+    func testServiceRefusesCoordinateClickAndDragBeforeAnyInputWhenTheScreenshotWasOmitted() {
+        let omitted = makeSnapshot(data: nil, note: "Screenshot omitted: 7×9 has fewer than 64 pixels")
+        let service = ComputerUseService()
+        service.storeSnapshot(omitted, query: "Mail", app: omitted.app)
+
+        func assertRefused(_ body: () throws -> ToolCallResult, _ label: String) {
+            XCTAssertThrowsError(try body(), label) { error in
+                guard case ComputerUseError.stateUnavailable(let message) = error else {
+                    return XCTFail("\(label): unexpected error \(error)")
+                }
+                XCTAssertTrue(message.contains("coordinate input requires a delivered screenshot"), label)
+            }
+        }
+        assertRefused({
+            try service.click(app: "Mail", elementIndex: nil, x: 10, y: 10, clickCount: 1, mouseButton: "left")
+        }, "click")
+        assertRefused({
+            try service.drag(app: "Mail", fromX: 1, fromY: 1, toX: 20, toY: 20)
+        }, "drag")
+    }
+
+    func testSearchMergeKeepsTheOmittedScreenshotNote() throws {
+        let note = "Screenshot omitted: long edge 2000 exceeds maxLongEdgePixels 1280; scaleDownAfterMaxSize is false"
+        let cached = makeSnapshot(data: nil, note: note)
+        let window: ElementSearchWindowInfo = (
+            windowID: 1, layer: 0, bounds: CGRect(x: 0, y: 0, width: 400, height: 300), title: "Inbox",
+            focusedElement: nil, isOffStage: false
+        )
+        let merged = mergeElementSearchHits([], rows: [], into: cached, window: window, app: cached.app)
+        XCTAssertEqual(merged.screenshotNote, note)
+        XCTAssertThrowsError(try rejectCoordinateInputWhenScreenshotOmitted(merged))
     }
 
     // MARK: - Helpers
@@ -364,6 +580,21 @@ final class ImageCaptureConfigTests: XCTestCase {
                 pixels[offset + 1] = UInt8((x * 11 + y * 43) & 0xFF)
                 pixels[offset + 2] = UInt8((x * 71 + y * 5) & 0xFF)
             }
+        }
+        return try makeCGImage(width: width, height: height, pixels: pixels)
+    }
+
+    /// Incompressible pixels from a fixed seed, so the encoded size does not depend on a lucky pattern.
+    private func makeRandomImage(width: Int, height: Int) throws -> CGImage {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        var pixels = [UInt8](repeating: 255, count: width * height * 4)
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            state ^= state << 13
+            state ^= state >> 7
+            state ^= state << 17
+            pixels[offset] = UInt8(truncatingIfNeeded: state)
+            pixels[offset + 1] = UInt8(truncatingIfNeeded: state >> 16)
+            pixels[offset + 2] = UInt8(truncatingIfNeeded: state >> 32)
         }
         return try makeCGImage(width: width, height: height, pixels: pixels)
     }

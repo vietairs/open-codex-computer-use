@@ -5,7 +5,6 @@ import Foundation
 /// Default ceiling on an encoded screenshot. Encodes above it are shrunk step by step, because a very large
 /// image block makes some MCP hosts drop the whole tool result.
 let screenshotResultMaxBytes = 900_000
-let screenshotResultMaxDimension: CGFloat = 1280
 /// The byte-ceiling shrink never goes below this fraction of the captured size.
 let screenshotResultMinScale: CGFloat = 0.25
 
@@ -83,23 +82,6 @@ func rejectCoordinateInputWhenScreenshotOmitted(_ snapshot: AppSnapshot) throws 
     if snapshot.screenshotData == nil, let note = snapshot.screenshotNote {
         throw ComputerUseError.stateUnavailable(note + "; coordinate input requires a delivered screenshot")
     }
-}
-
-func boundedScreenshotData(for image: CGImage, config: ImageCaptureConfig) -> Data? {
-    encodeScreenshot(for: image, config: config).data
-}
-
-/// PNG-only form with an explicit byte ceiling, kept for callers that size a screenshot without a user config.
-func boundedScreenshotPNGData(
-    for image: CGImage,
-    maxBytes: Int = screenshotResultMaxBytes,
-    maxDimension: CGFloat = screenshotResultMaxDimension,
-    minScale: CGFloat = screenshotResultMinScale
-) -> Data? {
-    var config = ImageCaptureConfig.defaults
-    config.discardBelowPixelCount = 0
-    config.maxDimension = maxDimension
-    return encodeScreenshot(for: image, config: config, maxBytes: maxBytes, minScale: minScale).data
 }
 
 private func pngData(for image: CGImage) -> Data? {
