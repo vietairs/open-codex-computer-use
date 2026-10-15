@@ -119,6 +119,13 @@ function npmPackageVersionExists(packageName, version, env) {
   return false;
 }
 
+// npm answers E409 while an earlier publish of the same version is still propagating
+// through the registry; `npm view` reports 404 for it until then.
+function isStagedVersionConflict(stderr) {
+  const output = stderr ?? "";
+  return output.includes("E409") && output.includes("previously staged version");
+}
+
 function publishEnvCandidates(baseEnv) {
   const candidates = [];
 
@@ -173,11 +180,20 @@ function publishWithRetry(args, npmEnvCandidates, packageName, version) {
     for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
       const result = spawnSync("npm", publishArgs, {
         cwd: repoRoot,
-        stdio: "inherit",
+        encoding: "utf-8",
+        stdio: ["inherit", "inherit", "pipe"],
         env,
       });
+      process.stderr.write(result.stderr ?? "");
 
       if (result.status === 0) {
+        return;
+      }
+
+      if (isStagedVersionConflict(result.stderr)) {
+        process.stdout.write(
+          `${packageName}@${version} is already staged on npm and not yet visible; treating it as published.\n`
+        );
         return;
       }
 
