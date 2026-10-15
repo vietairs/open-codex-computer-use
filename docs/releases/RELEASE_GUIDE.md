@@ -95,7 +95,9 @@ node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/package-github-release-assets.sh --version 0.1.14
 ```
 
-The last command needs a built `dist/Open Computer Use.app` and the Linux / Windows binaries under `dist/` (`./scripts/release-package.sh` builds them).
+The last command only re-packages: it needs an already built and signed `dist/Open Computer Use.app` plus the Linux / Windows binaries under `dist/`, and it refuses an `--output-dir` that is not a subdirectory of the repository or that contains those build inputs. `./scripts/release-package.sh` builds the inputs and already runs it, so a full release package run needs no separate call. `release-package.sh` fails on an unsigned local build (`OPEN_COMPUTER_USE_CODESIGN_MODE=none`) because the packaging step verifies the app signature; use ad-hoc or identity signing for a local run.
+
+`SHA256SUMS` lists only the Open Computer Use direct-download assets; it does not cover `CursorMotion-<version>.dmg`.
 
 Then check the staging package version and DMG file name directly:
 
@@ -153,6 +155,15 @@ Minimum requirements:
 - The release body must match the target notes file in the repository.
 - `What's Changed` must list 1-3 user-facing changes in English for this release.
 - The `Full Changelog` link must be preserved.
+
+## Gatekeeper note for direct downloads
+
+A macOS app zip downloaded in a browser carries the quarantine attribute. When the release is ad-hoc signed or not notarized (this fork's CI has no signing or notary secrets, so its app zip is both), Gatekeeper blocks the first launch. Tell users to either:
+
+- open System Settings > Privacy & Security and choose Open Anyway for `Open Computer Use.app` after the first blocked launch, or
+- clear the attribute before launching: `xattr -dr com.apple.quarantine "/Applications/Open Computer Use.app"`.
+
+Downloading with `curl` or `gh release download` does not set the quarantine attribute.
 
 ## Notarization
 

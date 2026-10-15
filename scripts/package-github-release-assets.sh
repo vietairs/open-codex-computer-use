@@ -97,11 +97,57 @@ if [[ " ${app_archs} " != *" arm64 "* || " ${app_archs} " != *" x86_64 "* ]]; th
 fi
 codesign --verify --deep --strict "${app_path}"
 
+# The output directory is wiped before packaging, so refuse anything that is not
+# a strict subdirectory of the repository, anything containing parent-directory
+# segments, and anything that is, or contains, a build input (the dist directory,
+# the app bundle or the native runtimes).
+path_is_within() {
+  local child="$1"
+  local parent="$2"
+  [[ "${child}" == "${parent}"/* ]]
+}
+
+refuse_output_dir() {
+  echo "Refusing --output-dir ${output_dir}: $1" >&2
+  exit 1
+}
+
+canonical_repo_root="$(cd "${repo_root}" && pwd -P)"
+
+case "/${output_dir}/" in
+  */../*|*/./*) refuse_output_dir "path must not contain . or .. segments" ;;
+esac
+if ! path_is_within "${output_dir%/}" "${repo_root}"; then
+  refuse_output_dir "path must be a subdirectory of ${repo_root}"
+fi
+
+mkdir -p "${output_dir}"
+canonical_output_dir="$(cd "${output_dir}" && pwd -P)"
+if ! path_is_within "${canonical_output_dir}" "${canonical_repo_root}"; then
+  refuse_output_dir "resolves outside the repository"
+fi
+for build_input in "${dist_dir}" "${app_path}" "${linux_arm64}" "${linux_amd64}" "${windows_arm64}" "${windows_amd64}"; do
+  canonical_input="$(cd "$(dirname "${build_input}")" && pwd -P)/$(basename "${build_input}")"
+  if [[ "${canonical_output_dir}" == "${canonical_input}" ]] || path_is_within "${canonical_input}" "${canonical_output_dir}"; then
+    refuse_output_dir "it is, or contains, the build input ${build_input}"
+  fi
+done
+
 rm -rf "${output_dir}"
 mkdir -p "${output_dir}"
 
 app_archive="${output_dir}/Open-Computer-Use-${version}-macOS-universal.app.zip"
 ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${app_archive}"
+
+# Temp work directories created by the packaging helpers, removed on any exit.
+work_dirs=()
+cleanup_work_dirs() {
+  local dir
+  for dir in ${work_dirs[@]+"${work_dirs[@]}"}; do
+    rm -rf "${dir}"
+  done
+}
+trap cleanup_work_dirs EXIT
 
 package_unix_cli() {
   local source_path="$1"
@@ -110,10 +156,10 @@ package_unix_cli() {
   local archive_path="${output_dir}/open-computer-use-cli-${version}-${platform}-${arch}.tar.gz"
   local work_dir
   work_dir="$(mktemp -d "${TMPDIR:-/tmp}/open-computer-use-release.XXXXXX")"
+  work_dirs+=("${work_dir}")
   cp "${source_path}" "${work_dir}/open-computer-use"
   chmod +x "${work_dir}/open-computer-use"
-  COPYFILE_DISABLE=1 tar -czf "${archive_path}" -C "${work_dir}" open-computer-use
-  rm -rf "${work_dir}"
+  tar --no-xattrs --no-mac-metadata -czf "${archive_path}" -C "${work_dir}" open-computer-use
 }
 
 package_windows_cli() {
@@ -122,12 +168,12 @@ package_windows_cli() {
   local archive_path="${output_dir}/open-computer-use-cli-${version}-windows-${arch}.zip"
   local work_dir
   work_dir="$(mktemp -d "${TMPDIR:-/tmp}/open-computer-use-release.XXXXXX")"
+  work_dirs+=("${work_dir}")
   cp "${source_path}" "${work_dir}/open-computer-use.exe"
   (
     cd "${work_dir}"
     zip -q -X "${archive_path}" open-computer-use.exe
   )
-  rm -rf "${work_dir}"
 }
 
 package_unix_cli "${linux_arm64}" linux arm64

@@ -19,13 +19,13 @@ on:
         type: string
 
 permissions:
-  contents: write
-  attestations: write
-  id-token: write
+  contents: read
 
 jobs:
   release-metadata:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
@@ -45,6 +45,12 @@ jobs:
   package-npm:
     needs: release-metadata
     runs-on: macos-26
+    # id-token backs npm trusted publishing and the provenance attestation;
+    # attestations stores that attestation. Nothing here writes repository contents.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
 
     steps:
       - name: Check out repository
@@ -174,7 +180,7 @@ jobs:
           if-no-files-found: error
 
       - name: Generate build provenance for direct-download artifacts
-        if: ${{ !github.event.repository.private }}
+        if: ${{ github.event_name == 'push' && !github.event.repository.private }}
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32
         with:
           subject-path: |
@@ -209,6 +215,8 @@ jobs:
     needs: release-metadata
     if: ${{ github.event_name == 'push' }}
     runs-on: macos-26
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
