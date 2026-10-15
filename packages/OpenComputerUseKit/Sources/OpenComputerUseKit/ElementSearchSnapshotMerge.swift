@@ -81,7 +81,7 @@ func mergeElementSearchHits(
             windowBounds: cached.windowBounds,
             targetWindowID: cached.targetWindowID,
             targetWindowLayer: cached.targetWindowLayer,
-            screenshotPNGData: cached.screenshotPNGData,
+            screenshotData: cached.screenshotData,
             mode: cached.mode,
             treeLines: cached.treeLines,
             treeLineOffsets: cached.treeLineOffsets,
@@ -90,7 +90,8 @@ func mergeElementSearchHits(
             selectedText: cached.selectedText,
             elements: cached.elements.merging(hitsByIndex, uniquingKeysWith: { _, hit in hit }),
             windowContentIsEmpty: cached.windowContentIsEmpty,
-            isOffStage: cached.isOffStage
+            isOffStage: cached.isOffStage,
+            screenshotNote: cached.screenshotNote
         )
     }
 
@@ -100,7 +101,7 @@ func mergeElementSearchHits(
         windowBounds: window.bounds,
         targetWindowID: window.windowID,
         targetWindowLayer: window.layer,
-        screenshotPNGData: nil,
+        screenshotData: nil,
         mode: .accessibility,
         treeLines: rows,
         treeLineOffsets: [:],

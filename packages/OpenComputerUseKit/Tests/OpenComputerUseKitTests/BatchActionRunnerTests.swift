@@ -54,7 +54,7 @@ final class BatchActionRunnerTests: XCTestCase {
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: mode,
             treeLines: [],
             treeLineOffsets: [:],

@@ -99,10 +99,6 @@ public struct SnapshotTextLimit: Equatable, Sendable {
 
 let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
 let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
-let screenshotCaptureTimeout: TimeInterval = 5
-let screenshotResultMaxPNGBytes = 900_000
-let screenshotResultMaxDimension: CGFloat = 1280
-let screenshotResultMinScale: CGFloat = 0.25
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 private let axContentsAttribute = "AXContents"
@@ -118,7 +114,14 @@ public struct AppSnapshot {
     public let windowBounds: CGRect?
     let targetWindowID: CGWindowID?
     let targetWindowLayer: Int?
-    public let screenshotPNGData: Data?
+    /// The encoded window screenshot, PNG unless the user configured JPG.
+    public let screenshotData: Data?
+    /// The screenshot only when it is PNG, and nil for JPEG data. Read `screenshotData` and sniff its format instead.
+    @available(*, deprecated, message: "Use screenshotData; screenshots may be JPEG")
+    public var screenshotPNGData: Data? {
+        guard let data = screenshotData, data.starts(with: [0x89, 0x50, 0x4e, 0x47]) else { return nil }
+        return data
+    }
     let mode: SnapshotMode
     let treeLines: [String]
     /// Position of each element's own row inside `treeLines`, keyed by element index.
@@ -134,6 +137,9 @@ public struct AppSnapshot {
     let windowContentIsEmpty: Bool
     /// True when Stage Manager holds the window off stage: no screenshot, and x/y coordinates are refused.
     var isOffStage: Bool = false
+    /// Why a captured screenshot was left out under the user's image settings. Nil when the image was delivered
+    /// or never captured; coordinate input is refused while it is set, because there is no image to read x/y from.
+    var screenshotNote: String? = nil
 
     public var renderedText: String {
         renderedText(style: .fullState)
@@ -381,7 +387,8 @@ enum SnapshotBuilder {
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
-        capture: SnapshotCapturePolicy = .always
+        capture: SnapshotCapturePolicy = .always,
+        imageConfig: @escaping () -> ImageCaptureConfig = { .current }
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -418,7 +425,8 @@ enum SnapshotBuilder {
                 for: app.pid,
                 titleHint: windowTitle,
                 accessibilityWindowID: accessibilityWindowID(of: rootWindow),
-                captureImage: capture == .always
+                captureImage: capture == .always,
+                imageConfig: imageConfig
             )
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,
@@ -431,7 +439,8 @@ enum SnapshotBuilder {
                     for: app.pid,
                     titleHint: windowTitle,
                     accessibilityWindowID: accessibilityWindowID(of: recoveredWindow),
-                    captureImage: capture == .always
+                    captureImage: capture == .always,
+                    imageConfig: imageConfig
                 )
             }
         }
@@ -450,7 +459,8 @@ enum SnapshotBuilder {
             systemWide: systemWide,
             textLimit: textLimit,
             treeLimits: treeLimits,
-            capture: capture
+            capture: capture,
+            imageConfig: imageConfig
         )
     }
 
@@ -464,7 +474,8 @@ enum SnapshotBuilder {
         systemWide: AXUIElement,
         textLimit: SnapshotTextLimit,
         treeLimits: AccessibilityTreeLimits,
-        capture: SnapshotCapturePolicy
+        capture: SnapshotCapturePolicy,
+        imageConfig: () -> ImageCaptureConfig
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let captureTiming = windowImageCaptureTiming(
@@ -503,11 +514,11 @@ enum SnapshotBuilder {
 
         // The image was captured before the walk for .beforeWalk; for .afterWalkIfTreeEmpty it is
         // taken now, only when the window itself had nothing to act on (menu-bar items do not count).
-        let screenshotPNGData: Data?
+        let screenshot: ScreenshotEncodingResult
         if captureTiming == .afterWalkIfTreeEmpty, windowContentIsEmpty, !windowCapture.isOffStage {
-            screenshotPNGData = windowCapture.capturingImage().pngDataIfAvailable()
+            screenshot = windowCapture.capturingImage(imageConfig: imageConfig).screenshotResult()
         } else {
-            screenshotPNGData = windowCapture.pngDataIfAvailable()
+            screenshot = windowCapture.screenshotResult()
         }
 
         return AppSnapshot(
@@ -516,7 +527,7 @@ enum SnapshotBuilder {
             windowBounds: windowBounds,
             targetWindowID: windowCapture.windowID,
             targetWindowLayer: windowCapture.layer,
-            screenshotPNGData: screenshotPNGData,
+            screenshotData: screenshot.data,
             mode: .accessibility,
             treeLines: renderer.buffer.lines,
             treeLineOffsets: renderer.buffer.offsets,
@@ -525,7 +536,8 @@ enum SnapshotBuilder {
             selectedText: selectedText,
             elements: renderer.records,
             windowContentIsEmpty: windowContentIsEmpty,
-            isOffStage: windowCapture.isOffStage
+            isOffStage: windowCapture.isOffStage,
+            screenshotNote: screenshot.note
         )
     }
 
@@ -643,7 +655,7 @@ enum SnapshotBuilder {
             windowBounds: state.windowBounds.cgRect,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .fixture,
             treeLines: buffer.lines,
             treeLineOffsets: buffer.offsets,
@@ -664,6 +676,16 @@ private func enableBestEffortAccessibilityModes(_ appElement: AXUIElement) {
     _ = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
 }
 
+/// The settings to read for a window capture, or nil when no image is taken now. `resolve` runs only when one is, so
+/// a snapshot without a screenshot (such as the one behind `decide_next_action`) never reads the configuration.
+func imageConfigForCapture(
+    shouldCapture: Bool,
+    isOnscreen: Bool,
+    resolve: () -> ImageCaptureConfig
+) -> ImageCaptureConfig? {
+    shouldCapture && isOnscreen ? resolve() : nil
+}
+
 private struct WindowCapture {
     let windowID: CGWindowID
     let layer: Int
@@ -671,6 +693,9 @@ private struct WindowCapture {
     let image: CGImage?
     let isOnscreen: Bool
     var isOffStage = false
+    /// Image settings read once when the capture was taken, so the capture and its encoding agree. Nil until an
+    /// image is captured: a snapshot that takes no screenshot never reads the configuration.
+    var imageConfig: ImageCaptureConfig?
 
     /// An off-stage window: bounds are its AX frame, so element frames stay window-relative, and there is no image.
     static func offStage(_ window: OffStageWindow) -> WindowCapture {
@@ -690,7 +715,8 @@ private struct WindowCapture {
         for pid: pid_t,
         titleHint: String?,
         accessibilityWindowID: CGWindowID? = nil,
-        captureImage shouldCaptureImage: Bool = true
+        captureImage shouldCaptureImage: Bool = true,
+        imageConfig: () -> ImageCaptureConfig = { .current }
     ) -> WindowCapture? {
         // Query all windows (not just onscreen) so Stage Manager background apps are included.
         guard let infoList = CGWindowListCopyWindowInfo([], kCGNullWindowID) as? [[String: Any]] else {
@@ -741,29 +767,39 @@ private struct WindowCapture {
 
         // Skip screenshot for off-screen windows (Stage Manager background strips):
         // SCShareableContent only returns onscreen windows, so capture would return nil anyway.
-        let image = shouldCaptureImage && best.isOnscreen ? captureImage(windowID: best.windowID, bounds: best.bounds) : nil
+        let config = imageConfigForCapture(shouldCapture: shouldCaptureImage, isOnscreen: best.isOnscreen, resolve: imageConfig)
+        let image = config.flatMap { captureImage(windowID: best.windowID, bounds: best.bounds, config: $0) }
 
-        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image, isOnscreen: best.isOnscreen)
+        return WindowCapture(
+            windowID: best.windowID,
+            layer: best.layer,
+            bounds: best.bounds,
+            image: image,
+            isOnscreen: best.isOnscreen,
+            imageConfig: config
+        )
     }
 
     /// Returns this capture with the window image taken now, reusing the already-resolved window
     /// id and bounds. Off-screen windows and captures that already hold an image are unchanged.
-    func capturingImage() -> WindowCapture {
+    func capturingImage(imageConfig resolveConfig: () -> ImageCaptureConfig) -> WindowCapture {
         guard isOnscreen, !isOffStage, image == nil else {
             return self
         }
 
+        let config = imageConfig ?? resolveConfig()
         return WindowCapture(
             windowID: windowID,
             layer: layer,
             bounds: bounds,
-            image: Self.captureImage(windowID: windowID, bounds: bounds),
-            isOnscreen: isOnscreen
+            image: Self.captureImage(windowID: windowID, bounds: bounds, config: config),
+            isOnscreen: isOnscreen,
+            imageConfig: config
         )
     }
 
-    private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
-        try? BlockingAsyncBridge.run(timeout: screenshotCaptureTimeout) {
+    private static func captureImage(windowID: CGWindowID, bounds: CGRect, config: ImageCaptureConfig) -> CGImage? {
+        try? BlockingAsyncBridge.run(timeout: config.captureTimeout) {
             let shareableContent = try await SCShareableContent.current
             guard let window = shareableContent.windows.first(where: { $0.windowID == windowID }) else {
                 return nil
@@ -789,12 +825,12 @@ private struct WindowCapture {
             ?? 1
     }
 
-    func pngDataIfAvailable() -> Data? {
+    func screenshotResult() -> ScreenshotEncodingResult {
         guard let image else {
-            return nil
+            return ScreenshotEncodingResult(data: nil, note: nil)
         }
 
-        return boundedScreenshotPNGData(for: image)
+        return encodeScreenshot(for: image, config: imageConfig ?? .defaults)
     }
 }
 
@@ -882,71 +918,6 @@ private func liveNonModalAccessibilityWindowIDs(pid: pid_t) -> Set<CGWindowID> {
     return nonModalAccessibilityWindowIDs(windows.map { window in
         (windowID: accessibilityWindowID(of: window), isModal: boolValue(of: window, attribute: kAXModalAttribute))
     })
-}
-
-func boundedScreenshotPNGData(
-    for image: CGImage,
-    maxBytes: Int = screenshotResultMaxPNGBytes,
-    maxDimension: CGFloat = screenshotResultMaxDimension,
-    minScale: CGFloat = screenshotResultMinScale
-) -> Data? {
-    guard image.width > 0, image.height > 0, maxBytes > 0 else {
-        return nil
-    }
-
-    let original = pngData(for: image)
-    let largestDimension = CGFloat(max(image.width, image.height))
-    var scale = min(1, maxDimension / largestDimension)
-
-    if scale >= 1, let original, original.count <= maxBytes {
-        return original
-    }
-
-    var best = original
-    while scale >= minScale {
-        guard let resized = resizedCGImage(image, scale: scale),
-              let data = pngData(for: resized)
-        else {
-            break
-        }
-
-        best = data
-        if data.count <= maxBytes {
-            return data
-        }
-
-        scale *= 0.85
-    }
-
-    return best
-}
-
-private func pngData(for image: CGImage) -> Data? {
-    let bitmap = NSBitmapImageRep(cgImage: image)
-    return bitmap.representation(using: .png, properties: [:])
-}
-
-private func resizedCGImage(_ image: CGImage, scale: CGFloat) -> CGImage? {
-    let width = max(1, renderedInt((CGFloat(image.width) * scale).rounded()))
-    let height = max(1, renderedInt((CGFloat(image.height) * scale).rounded()))
-    let colorSpace = CGColorSpaceCreateDeviceRGB()
-    let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
-
-    guard let context = CGContext(
-        data: nil,
-        width: width,
-        height: height,
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: bitmapInfo
-    ) else {
-        return nil
-    }
-
-    context.interpolationQuality = .medium
-    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-    return context.makeImage()
 }
 
 private final class AsyncResultBox<T>: @unchecked Sendable {

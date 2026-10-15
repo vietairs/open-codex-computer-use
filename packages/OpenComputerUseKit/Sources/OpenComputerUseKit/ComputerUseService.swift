@@ -346,7 +346,7 @@ func shouldAttachScreenshot(style: SnapshotTextStyle, includeScreenshot: Bool, t
     }
 }
 
-/// Pixel dimensions from a PNG header, without decoding the image.
+/// Pixel dimensions from the image header (PNG or JPEG), without decoding the image.
 func pngPixelSize(of data: Data) -> CGSize? {
     guard
         let imageSource = CGImageSourceCreateWithData(data as CFData, nil),
@@ -668,12 +668,42 @@ public final class ComputerUseService {
     /// Every settle wait of an action or batch goes through this, so tests can record the schedule.
     private let sleepHandler: OpenComputerUseSleepHandler
 
-    public init() {
-        sleepHandler = { Thread.sleep(forTimeInterval: $0) }
+    /// Screenshot settings a relayed call carried with it. While set, they replace the process environment and
+    /// config file for the call, so concurrent hosts of the shared app agent never read each other's settings.
+    private var callImageConfig: ImageCaptureConfig?
+
+    /// The settings the next capture uses: the current call's, else this process's own.
+    var effectiveImageConfig: ImageCaptureConfig { callImageConfig ?? .current }
+
+    /// Runs `body` with `config` as the screenshot settings, or with the process's own when `config` is nil.
+    func withImageConfig<T>(_ config: ImageCaptureConfig?, _ body: () throws -> T) rethrows -> T {
+        let previous = callImageConfig
+        callImageConfig = config
+        defer { callImageConfig = previous }
+        return try body()
     }
 
-    init(sleepHandler: @escaping OpenComputerUseSleepHandler) {
+    /// Runs `body` with the screenshot settings a relayed call carried in `environment`. Only the validated
+    /// `OPEN_COMPUTER_USE_IMAGE_*` values count; nothing else in it is read and no config file is opened.
+    public func withForwardedImageSettings<T>(environment: [String: String], _ body: () throws -> T) rethrows -> T {
+        try withImageConfig(ImageCaptureConfig.forwarded(environment: environment), body)
+    }
+
+    /// Resolves the app a snapshot refresh targets. Tests replace it to observe or stop a refresh before any app
+    /// is looked up or touched.
+    private let appResolver: (String) throws -> RunningAppDescriptor
+
+    public init() {
+        sleepHandler = { Thread.sleep(forTimeInterval: $0) }
+        appResolver = { try AppDiscovery.resolve($0) }
+    }
+
+    init(
+        sleepHandler: @escaping OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
+        appResolver: @escaping (String) throws -> RunningAppDescriptor = { try AppDiscovery.resolve($0) }
+    ) {
         self.sleepHandler = sleepHandler
+        self.appResolver = appResolver
     }
 
     public func listApps() -> ToolCallResult {
@@ -1362,7 +1392,7 @@ public final class ComputerUseService {
             needsElementFrame: elementIndex != nil,
             elementIndex: elementIndex,
             // Only an x/y click reaches here without an index; it scales by the pinned image when there is one.
-            scalesByPinnedScreenshot: elementIndex == nil && pinned.screenshotPNGData != nil
+            scalesByPinnedScreenshot: elementIndex == nil && pinned.screenshotData != nil
         )
 
         var elements = pinned.elements
@@ -1385,7 +1415,7 @@ public final class ComputerUseService {
             windowBounds: geometry.windowBounds,
             targetWindowID: pinned.targetWindowID,
             targetWindowLayer: pinned.targetWindowLayer,
-            screenshotPNGData: pinned.screenshotPNGData,
+            screenshotData: pinned.screenshotData,
             mode: pinned.mode,
             treeLines: pinned.treeLines,
             treeLineOffsets: pinned.treeLineOffsets,
@@ -1394,7 +1424,8 @@ public final class ComputerUseService {
             selectedText: pinned.selectedText,
             elements: elements,
             windowContentIsEmpty: pinned.windowContentIsEmpty,
-            isOffStage: pinned.isOffStage
+            isOffStage: pinned.isOffStage,
+            screenshotNote: pinned.screenshotNote
         )
     }
 
@@ -1539,13 +1570,14 @@ public final class ComputerUseService {
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
         capture: SnapshotCapturePolicy = .always
     ) throws -> AppSnapshot {
-        let app = try AppDiscovery.resolve(query)
+        let app = try appResolver(query)
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,
             treeLimits: treeLimits,
             recoveryPolicy: recoveryPolicy,
-            capture: capture
+            capture: capture,
+            imageConfig: { [self] in effectiveImageConfig }
         )
 
         storeSnapshot(snapshot, query: query, app: app)
@@ -2322,7 +2354,8 @@ public final class ComputerUseService {
     }
 
     private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
-        screenshotPixelToWindowPoint(
+        try rejectCoordinateInputWhenScreenshotOmitted(snapshot)
+        return screenshotPixelToWindowPoint(
             point,
             screenshotPixelSize: try screenshotPixelSize(snapshot: snapshot),
             windowBounds: snapshot.windowBounds
@@ -2331,7 +2364,7 @@ public final class ComputerUseService {
 
     private func screenshotPixelSize(snapshot: AppSnapshot) throws -> CGSize? {
         try resolveScreenshotPixelSize(
-            snapshotPixelSize: snapshot.screenshotPNGData.flatMap { pngPixelSize(of: $0) },
+            snapshotPixelSize: snapshot.screenshotData.flatMap { pngPixelSize(of: $0) },
             windowID: snapshot.targetWindowID,
             windowBounds: snapshot.windowBounds,
             lastReturned: lastReturnedScreenshotFrames[snapshot.app.pid]
@@ -2610,18 +2643,22 @@ public final class ComputerUseService {
     ) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
         // The compact view exists to cut tokens; attaching the screenshot would defeat it.
-        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.windowContentIsEmpty),
-           let screenshotPNGData = snapshot.screenshotPNGData {
-            content.append(.pngImage(screenshotPNGData))
-            rememberReturnedScreenshotFrame(for: snapshot, pngData: screenshotPNGData)
+        if shouldAttachScreenshot(style: style, includeScreenshot: includeScreenshot, treeIsEmpty: snapshot.windowContentIsEmpty) {
+            if let note = snapshot.screenshotNote {
+                content.append(.text(note))
+            }
+            if let screenshotData = snapshot.screenshotData {
+                content.append(.screenshotImage(screenshotData))
+                rememberReturnedScreenshotFrame(for: snapshot, imageData: screenshotData)
+            }
         }
         return ToolCallResult(content: content)
     }
 
     /// Records the frame of a screenshot handed to the caller so later x/y coordinates, read from
     /// that image, are scaled against it even when a text-only result replaced the cached snapshot.
-    private func rememberReturnedScreenshotFrame(for snapshot: AppSnapshot, pngData: Data) {
-        guard let windowBounds = snapshot.windowBounds, let pixelSize = pngPixelSize(of: pngData) else {
+    private func rememberReturnedScreenshotFrame(for snapshot: AppSnapshot, imageData: Data) {
+        guard let windowBounds = snapshot.windowBounds, let pixelSize = pngPixelSize(of: imageData) else {
             return
         }
 

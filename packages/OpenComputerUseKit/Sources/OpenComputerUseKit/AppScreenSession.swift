@@ -91,7 +91,7 @@ public final class AppScreenSessionValidator {
     // Build SnapshotIdentity from AppSnapshot during get_app_state
     // This is called once per snapshot capture, not per action
     public func buildIdentity(from snapshot: AppSnapshot, captureGeneration: UInt64) -> SnapshotIdentity {
-        let pixelSize = snapshot.screenshotPNGData.flatMap { Self.pngPixelSize(from: $0) }
+        let pixelSize = snapshot.screenshotData.flatMap { Self.pngPixelSize(from: $0) }
         return SnapshotIdentity(
             pid: snapshot.app.pid,
             bundleIdentifier: snapshot.app.bundleIdentifier,

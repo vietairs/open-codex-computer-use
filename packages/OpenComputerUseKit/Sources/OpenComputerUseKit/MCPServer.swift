@@ -60,6 +60,22 @@ public final class StdioMCPServer {
         return params["name"] as? String == ToolDefinitions.decideNextAction.name
     }
 
+    /// True when `line` is a `tools/call` for a tool that may take a screenshot, so the proxy attaches the caller's
+    /// screenshot settings to it. Other requests never read them.
+    public static func mayCaptureScreenshot(line: String) -> Bool {
+        guard let payload = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+              payload["method"] as? String == "tools/call",
+              let params = payload["params"] as? [String: Any],
+              let name = params["name"] as? String
+        else { return false }
+        return toolMayCaptureScreenshot(named: name)
+    }
+
+    /// Every tool except the listing and the advisory one reads app state, and so may take a screenshot.
+    static func toolMayCaptureScreenshot(named name: String) -> Bool {
+        name != ToolDefinitions.decideNextAction.name && name != "list_apps"
+    }
+
     /// `environment`, when given, is the calling host's per-call environment: it decides whether the advisory tool is
     /// listed (with its cascade guide in the description) and where `decide_next_action` sends its request. When
     /// nil, the injected environment closure is read instead.

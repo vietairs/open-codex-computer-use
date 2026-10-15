@@ -270,7 +270,7 @@ enum MacOSAppAgentProxy {
         let response = try client.request([
             "kind": "mcp",
             "line": line,
-            "environment": proxiedEnvironment(),
+            "environment": proxiedEnvironment(forwardingImageSettings: StdioMCPServer.mayCaptureScreenshot(line: line)),
         ])
         return response["response"] as? String
     }
@@ -279,7 +279,9 @@ enum MacOSAppAgentProxy {
         let response = try client.request([
             "kind": "cli",
             "arguments": arguments,
-            "environment": proxiedEnvironment(),
+            "environment": proxiedEnvironment(
+                forwardingImageSettings: openComputerUseCLIMayCaptureScreenshot(arguments: arguments)
+            ),
         ])
 
         return CLIProxyResponse(
@@ -289,11 +291,20 @@ enum MacOSAppAgentProxy {
         )
     }
 
-    private static func proxiedEnvironment() -> [String: String] {
+    /// `forwardingImageSettings` attaches the caller's screenshot settings (environment over config file over
+    /// defaults), resolved and validated here in the calling host's own process. The config file path itself never
+    /// travels: the agent applies the values to this call and opens no screenshot config file a caller names (a proxied
+    /// `call --args-file` / `--calls-file` path is still read by the agent).
+    private static func proxiedEnvironment(forwardingImageSettings: Bool) -> [String: String] {
         // The lock-screen opt-in is deliberately excluded from the per-call channel — it is fixed
         // at agent launch (see connectOrLaunchAgent) so a per-call client cannot forge it. The
         // agent applies the same filter on receipt; this side is a courtesy, not the enforcement.
-        MacSessionLockPolicy.sanitizePeerEnvironment(ProcessInfo.processInfo.environment)
+        // Raw screenshot settings never travel: they are replaced by their validated form, or dropped when the
+        // call takes no screenshot.
+        OCUConfiguration.relayedEnvironment(
+            processEnvironment: ProcessInfo.processInfo.environment,
+            imageSettings: forwardingImageSettings ? OCUConfiguration.forwardedImageEnvironment() : nil
+        )
     }
 }
 
@@ -559,12 +570,13 @@ private final class AppAgentConnection: @unchecked Sendable {
                 // The per-call environment is also passed explicitly, so settings such as the decision-model URL come
                 // from this host alone, never from another host's overrides that are set on the shared process
                 // environment at the same moment. decide_next_action reads nothing else from the environment and
-                // blocks on the model for seconds, so it skips the process-wide override lock entirely.
+                // blocks on the model for seconds, so it skips the process-wide override lock entirely. The
+                // screenshot settings travel only with the call, so a call whose only values are those takes no lock.
                 let response: String?
                 if StdioMCPServer.readsOnlyCallEnvironment(line: line) {
                     response = server.handle(line: line, environment: environment)
                 } else {
-                    response = AppAgentEnvironment.withOverrides(environment) {
+                    response = AppAgentEnvironment.withOverrides(OCUConfiguration.processOverrides(from: environment)) {
                         server.handle(line: line, environment: environment)
                     }
                 }
@@ -581,7 +593,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                 if openComputerUseCLIReadsOnlyCallEnvironment(arguments: arguments) {
                     response = runCLI(arguments: arguments, environment: environment)
                 } else {
-                    response = AppAgentEnvironment.withOverrides(environment) {
+                    response = AppAgentEnvironment.withOverrides(OCUConfiguration.processOverrides(from: environment)) {
                         runCLI(arguments: arguments, environment: environment)
                     }
                 }
@@ -638,11 +650,13 @@ private final class AppAgentConnection: @unchecked Sendable {
 
             case let .snapshot(app, textLimit, treeLimits):
                 let service = ComputerUseService()
-                let text = try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits).primaryText ?? ""
+                let text = try service.withForwardedImageSettings(environment: environment) {
+                    try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits).primaryText ?? ""
+                }
                 return CLIProxyResponse(stdout: text + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .call(invocation):
-                let output = try runOpenComputerUseCall(invocation, environment: { environment })
+                let output = try runOpenComputerUseCall(invocation, callEnvironment: environment)
                 return CLIProxyResponse(
                     stdout: try output.jsonText() + "\n",
                     stderr: "",
