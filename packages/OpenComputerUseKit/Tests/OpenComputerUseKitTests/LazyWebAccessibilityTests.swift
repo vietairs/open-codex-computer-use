@@ -92,8 +92,22 @@ final class LazyWebAccessibilityTests: XCTestCase {
             probe: { _ in probes += 1; return false }
         )
         XCTAssertFalse(found)
-        XCTAssertLessThanOrEqual(clock, LazyWebWaitLimits.standard.timeBudget + LazyWebWaitLimits.standard.pollInterval)
-        XCTAssertLessThanOrEqual(probes, 21)
+        let limits = LazyWebWaitLimits.standard
+        XCTAssertLessThanOrEqual(clock, limits.timeBudget + limits.pollInterval)
+        XCTAssertLessThanOrEqual(probes, Int((limits.timeBudget / limits.pollInterval).rounded(.up)) + 1)
+    }
+
+    /// A freshly launched Chrome can take a little over two seconds to build its web area after the first request;
+    /// the standard wait must still find it.
+    func testStandardWaitOutlastsASlowChromeWebTree() {
+        var clock: TimeInterval = 0
+        let found = waitForLazyWebArea(
+            limits: .standard,
+            now: { clock },
+            sleep: { clock += $0 },
+            probe: { _ in clock >= 2.5 }
+        )
+        XCTAssertTrue(found)
     }
 
     func testExhaustedWindowsAreRememberedAndBounded() {

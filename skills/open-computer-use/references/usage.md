@@ -119,7 +119,7 @@ Under Stage Manager, a macOS window that is off stage (shown in the left strip) 
 
 - When a state is read while the window is visible to its app (on screen, on the current Space, not minimized, app not hidden, Mac unlocked), the window stays visible to its app for the rest of the session: Chrome, Electron and Safari keep the page rendered and its content in the tree after the user covers the window or switches Desktop. Nothing is activated, raised or moved; the window is released when the session ends.
 - A window on another Desktop is captured for the screenshot while the Mac is unlocked.
-- Chrome, Electron and other Chromium-based apps build their page tree only after the first request; `get_app_state` waits up to two seconds for it while the window is visible. Action results do not wait.
+- Chrome, Electron and other Chromium-based apps build their page tree only after the first request; `get_app_state` waits up to three seconds for it while the window is visible. Action results do not wait.
 - A Chromium-based window that was already covered, minimized or on another Desktop when first read has no page content; the result says so. Bring the window into view once and call `get_app_state` again; covering it afterwards keeps working.
 - `sky_click` and `sky_key` work on a covered or other-Space window of the latest state, as long as its app is not the frontmost app; in the frontmost app they only target the window that is already focused (and, for `sky_click`, on the current Desktop).
 

@@ -4,9 +4,9 @@ import Darwin
 import Foundation
 
 /// Chromium-derived engines (Chrome, Electron, CEF hosts) build their web accessibility tree only after the first
-/// accessibility request, which can take Chrome about two seconds, and drop it while their window is hidden. A
-/// snapshot of such a window waits briefly for the web area while the window is visible, and says why it is missing
-/// while the window is hidden.
+/// accessibility request, which takes a freshly launched Chrome about two seconds and sometimes more, and drop it
+/// while their window is hidden. A snapshot of such a window waits briefly for the web area while the window is
+/// visible, and says why it is missing while the window is hidden.
 
 /// What a snapshot does about a missing web area.
 enum LazyWebRewalkDecision: Equatable {
@@ -54,7 +54,9 @@ struct LazyWebWaitLimits: Equatable {
     var probeMaxDepth: Int
     var probeMaxNodes: Int
 
-    static let standard = LazyWebWaitLimits(timeBudget: 2.0, pollInterval: 0.1, probeMaxDepth: 10, probeMaxNodes: 400)
+    /// A freshly launched Chrome produced its web area about 1.9 seconds after the first request, and once took
+    /// longer than two seconds; the budget keeps a margin over that, and is spent once per window at most.
+    static let standard = LazyWebWaitLimits(timeBudget: 3.0, pollInterval: 0.1, probeMaxDepth: 10, probeMaxNodes: 400)
 }
 
 /// Pure. Breadth-first search for a web-area role, bounded by depth, node count and a deadline.
