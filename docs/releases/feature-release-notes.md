@@ -4,6 +4,7 @@
 
 | Date | Feature Area | User Value | Change Summary |
 | --- | --- | --- | --- |
+| 2026-10-15 | Windows screenshot reliability | Tiny, minimized, hidden, cloaked, or off-screen windows no longer hand the model an unusable PNG; the accessibility tree is still readable, and actions that depend on screenshot coordinates are explicitly refused. | The Windows bridge validates window state, virtual-screen intersection, and minimum size before capturing, and the Go layer re-checks the PNG header; with no valid screenshot the image block is omitted and coordinate click / drag fail closed, with no upscaling, padding, or placeholder image. |
 | 2026-10-15 | Shared agent crash fix and self-healing MCP proxies | One bad accessibility frame no longer takes down every Claude and Codex session at once: the shared app agent no longer traps on NaN or infinite coordinates, and an MCP proxy now survives an agent loss and reconnects on the next call. A menu Quit keeps computer use stopped. | Released `0.3.11-vietairs.1`: non-trapping integer rendering of accessibility frames and caller-supplied coordinates, an error reply (never a replay) for a call in flight when the agent dies, lazy reconnect with lock-screen control off after a relaunch, SIGPIPE-safe agent sockets, a capped scroll page count, and a menu-Quit marker that the proxy and the scripting tools honour (#29). |
 
 ## 2026-09
