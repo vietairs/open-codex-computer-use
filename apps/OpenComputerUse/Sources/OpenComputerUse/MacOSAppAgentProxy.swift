@@ -38,6 +38,13 @@ enum MacOSAppAgentProxy {
         if case .mcp = command {
             AppAgentQuitMarker.clear(forSocketPath: socketPath)
         }
+
+        // A permission snapshot is a pure read: it must never launch, replace or terminate the shared
+        // agent, so it takes its own path ahead of connectOrLaunchAgent.
+        if case .doctor(json: true) = command {
+            return runReadOnlyPermissionSnapshot(socketPath: socketPath, arguments: arguments)
+        }
+
         let client = try connectOrLaunchAgent(socketPath: socketPath)
 
         switch command {
@@ -53,6 +60,33 @@ enum MacOSAppAgentProxy {
                 FileHandle.standardError.write(Data(response.stderr.utf8))
             }
             return response.exitCode
+        }
+    }
+
+    /// Prints the permission JSON from the already-running, current agent, because the grants belong
+    /// to the app bundle. With no usable agent (none running, a stale build, or a lost connection)
+    /// it reads the snapshot in this process instead of starting or terminating anything.
+    @MainActor
+    private static func runReadOnlyPermissionSnapshot(socketPath: String, arguments: [String]) -> Int32 {
+        if let appURL = PermissionSupport.currentAppBundleURL(),
+           let client = AppAgentSocketClient.connect(path: socketPath),
+           (try? client.isCurrentAgent(for: appURL)) == true,
+           let response = try? sendCLIRequest(arguments: arguments, client: client) {
+            if !response.stdout.isEmpty {
+                FileHandle.standardOutput.write(Data(response.stdout.utf8))
+            }
+            if !response.stderr.isEmpty {
+                FileHandle.standardError.write(Data(response.stderr.utf8))
+            }
+            return response.exitCode
+        }
+
+        do {
+            FileHandle.standardOutput.write(Data((try PermissionDiagnostics.current().jsonText() + "\n").utf8))
+            return EXIT_SUCCESS
+        } catch {
+            FileHandle.standardError.write(Data("\(error)\n".utf8))
+            return EXIT_FAILURE
         }
     }
 
@@ -581,14 +615,18 @@ private final class AppAgentConnection: @unchecked Sendable {
                 }
                 return CLIProxyResponse(stdout: "", stderr: "", exitCode: EXIT_SUCCESS)
 
-            case .doctor:
+            case let .doctor(json):
                 let permissions = PermissionDiagnostics.current()
-                if !permissions.missingPermissions.isEmpty {
+                if !json && !permissions.missingPermissions.isEmpty {
                     Task { @MainActor in
                         PermissionOnboardingApp.present()
                     }
                 }
-                return CLIProxyResponse(stdout: permissions.summary + "\n", stderr: "", exitCode: EXIT_SUCCESS)
+                return CLIProxyResponse(
+                    stdout: (try json ? permissions.jsonText() : permissions.summary) + "\n",
+                    stderr: "",
+                    exitCode: EXIT_SUCCESS
+                )
 
             case .listApps:
                 let service = ComputerUseService()

@@ -383,3 +383,13 @@ func shortTempDir(t *testing.T) string {
 	})
 	return path
 }
+
+func TestDoctorJSONRejectsUnsupportedPermissionDiagnostics(t *testing.T) {
+	var out bytes.Buffer
+	if err := runCLI([]string{"doctor", "--json"}, &out); err == nil {
+		t.Fatal("expected unsupported permission diagnostics error")
+	}
+	if out.Len() != 0 {
+		t.Fatal("unsupported JSON mode must not emit text on stdout")
+	}
+}

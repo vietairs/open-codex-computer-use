@@ -307,3 +307,13 @@ func findToolDefinition(t *testing.T, name string) toolDefinition {
 	t.Fatalf("missing tool definition %q", name)
 	return toolDefinition{}
 }
+
+func TestDoctorJSONRejectsUnsupportedPermissionDiagnostics(t *testing.T) {
+	var out bytes.Buffer
+	if err := runCLI([]string{"doctor", "--json"}, &out); err == nil {
+		t.Fatal("expected unsupported permission diagnostics error")
+	}
+	if out.Len() != 0 {
+		t.Fatal("unsupported JSON mode must not emit text on stdout")
+	}
+}
