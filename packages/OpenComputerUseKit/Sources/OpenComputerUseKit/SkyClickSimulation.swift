@@ -77,24 +77,15 @@ func skyClickEventRecipe(clickCount: Int) throws -> [SkyClickEventStep] {
     return steps
 }
 
+/// Owner check for click targets, the same as for keyboard targets: a covered window or one on another Space is a
+/// valid target as long as it still exists and belongs to the snapshot's process. Events are addressed to the pid and
+/// carry the window number, so they reach the window wherever it is.
 func skyClickWindowMatchesTarget(
     windowInfo: [[String: Any]],
     windowID: CGWindowID,
     pid: pid_t
 ) -> Bool {
-    windowInfo.contains { info in
-        guard
-            let number = info[kCGWindowNumber as String] as? NSNumber,
-            number.uint32Value == windowID,
-            let ownerPID = info[kCGWindowOwnerPID as String] as? NSNumber,
-            ownerPID.int32Value == pid,
-            let onScreen = info[kCGWindowIsOnscreen as String] as? NSNumber
-        else {
-            return false
-        }
-
-        return onScreen.boolValue
-    }
+    skyKeyWindowMatchesTarget(windowInfo: windowInfo, windowID: windowID, pid: pid)
 }
 
 enum SkyClickDispatcher {
@@ -117,7 +108,8 @@ enum SkyClickDispatcher {
     static func click(
         target: SkyClickTarget,
         clickCount: Int,
-        spi: SkyLightSPI = .shared
+        spi: SkyLightSPI = .shared,
+        sessionState: MacSessionStateProvider = SystemMacSessionStateProvider()
     ) throws {
         guard spi.capability.isAvailable else {
             throw ComputerUseError.message(
@@ -130,7 +122,7 @@ enum SkyClickDispatcher {
             SkyLightSPI.syntheticFocusLock.unlock()
         }
 
-        try validate(target: target)
+        try validate(target: target, sessionState: sessionState)
         let recipe = try skyClickEventRecipe(clickCount: clickCount)
         guard let source = CGEventSource(stateID: .hidSystemState) else {
             throw ComputerUseError.message("Failed to create SkyLight HID event source.")
@@ -204,7 +196,7 @@ enum SkyClickDispatcher {
         }
     }
 
-    private static func validate(target: SkyClickTarget) throws {
+    private static func validate(target: SkyClickTarget, sessionState: MacSessionStateProvider) throws {
         guard
             target.screenPoint.x.isFinite,
             target.screenPoint.y.isFinite,
@@ -221,17 +213,20 @@ enum SkyClickDispatcher {
             throw ComputerUseError.message("sky_click target is outside the snapshot window bounds")
         }
 
-        let windowInfo = CGWindowListCopyWindowInfo(
-            [.optionIncludingWindow],
-            target.windowID
-        ) as? [[String: Any]] ?? []
-        guard skyClickWindowMatchesTarget(
-            windowInfo: windowInfo,
-            windowID: target.windowID,
-            pid: target.pid
-        ) else {
-            throw ComputerUseError.stateUnavailable(
-                "sky_click target window is stale, off-screen, or no longer owned by the target app. Run get_app_state again."
+        // Hidden app, missing or foreign window, minimized window: refused before any event is posted.
+        let isOnscreen = try validateSkyLightTargetWindow(windowID: target.windowID, pid: target.pid, methodName: "sky_click")
+
+        // Read under the shared lock, right before acting. The Space is read only while locked, when it matters.
+        let session = sessionState.currentSnapshot()
+        if !sessionIsStrictlyUnlocked(session),
+           skyClickRequiresStrictUnlock(
+               isOnscreen: isOnscreen,
+               isOnCurrentSpace: SkyLightWindowServerSPI.shared.windowIsOnCurrentSpace(target.windowID)
+           )
+        {
+            try requireStrictlyUnlocked(
+                session,
+                subject: "\(skyClickMethodLabel) on a window that is not on screen on the current Space"
             )
         }
     }

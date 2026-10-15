@@ -2771,7 +2771,7 @@ public final class ComputerUseService {
         case .skyClick:
             guard let windowBounds = snapshot.windowBounds, let windowID = snapshot.targetWindowID else {
                 throw ComputerUseError.stateUnavailable(
-                    "click_method 'sky_click' requires a current on-screen target window. Run get_app_state again."
+                    "click_method 'sky_click' requires the snapshot's target window. Run get_app_state again."
                 )
             }
             debugClickDecision("requested=sky_click executed=skylight_pid_post target=\(targetDescription)")
