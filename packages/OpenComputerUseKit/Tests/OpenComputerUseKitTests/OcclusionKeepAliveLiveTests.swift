@@ -5,9 +5,18 @@ import XCTest
 @testable import OpenComputerUseKit
 
 /// Opt-in live regression: a snapshot taken while an isolated Chrome window is visible pins its visible state, so
-/// after the fixture app fully covers it the next snapshot still holds the web content and the page stays visible.
-/// Releasing the session's owner unpins the window. Run from Terminal.app with Accessibility and Screen Recording
-/// granted to the test runner:
+/// after the fixture app fully covers it the next snapshot still holds the web content and a screenshot, and the page
+/// stays visible. Releasing the session's owner unpins the window.
+///
+/// Requirements:
+/// - The app running the tests (Terminal.app, say) has Accessibility and Screen Recording. Without Screen Recording
+///   the window list carries no window names, so the test cannot find its windows and fails up front.
+/// - Stage Manager is off. Under Stage Manager the fixture's window moves Chrome off stage instead of covering it,
+///   and an off-stage window has no screenshot by design, so the test skips.
+/// - Google Chrome is installed and the fixture is built (`swift build --product OpenComputerUseFixture`).
+///
+/// The test launches its own Chrome profile and the fixture, moves the fixture over Chrome with accessibility, and
+/// quits both. Run from the repository root:
 /// `OPEN_COMPUTER_USE_RUN_OCCLUSION_LIVE_TEST=1 swift test --filter OcclusionKeepAliveLiveTests`
 @MainActor
 final class OcclusionKeepAliveLiveTests: XCTestCase {
@@ -28,6 +37,10 @@ final class OcclusionKeepAliveLiveTests: XCTestCase {
         guard FileManager.default.isExecutableFile(atPath: LiveWindowTestSupport.fixtureExecutable.path) else {
             throw XCTSkip("Build OpenComputerUseFixture before running the live test")
         }
+        guard !LiveWindowTestSupport.stageManagerIsOn else {
+            throw XCTSkip("Turn off Stage Manager: it moves Chrome off stage instead of letting the fixture cover it")
+        }
+        try LiveWindowTestSupport.requirePermissions()
         let originalFrontApp = NSWorkspace.shared.frontmostApplication
         defer {
             if let originalFrontApp {
@@ -64,14 +77,11 @@ final class OcclusionKeepAliveLiveTests: XCTestCase {
         defer {
             LiveWindowTestSupport.stop(cover)
         }
-        _ = try LiveWindowTestSupport.waitForWindow(
-            pid: cover.processIdentifier, nameContaining: "OpenComputerUseFixture", onScreenOnly: true
+        // The fixture opens wherever AppKit places it; move it over Chrome so the cover does not depend on the screen.
+        _ = try LiveWindowTestSupport.coverWindow(
+            pid: cover.processIdentifier, windowNamed: "OpenComputerUseFixture", over: window.bounds
         )
         RunLoop.current.run(until: Date().addingTimeInterval(2.5))
-        let coverBounds = try LiveWindowTestSupport.waitForWindow(
-            pid: cover.processIdentifier, nameContaining: "OpenComputerUseFixture", onScreenOnly: true
-        ).bounds
-        XCTAssertTrue(coverBounds.contains(window.bounds), "the fixture must fully cover Chrome")
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid)
 
         let pageTitle = try LiveWindowTestSupport.waitForWindow(
@@ -84,7 +94,8 @@ final class OcclusionKeepAliveLiveTests: XCTestCase {
         )
         XCTAssertTrue(coveredSnapshot.treeLines.contains { $0.contains("sky probe") }, "covered snapshot must still include the web content")
         XCTAssertNil(coveredSnapshot.hiddenWebContentNote)
-        XCTAssertNotNil(coveredSnapshot.screenshotData)
+        XCTAssertFalse(coveredSnapshot.isOffStage, "a covered window is not off stage")
+        XCTAssertNotNil(coveredSnapshot.screenshotData, "a covered window is still captured")
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid, "snapshots must not activate Chrome")
 
         keepAlive.release(owner: owner)

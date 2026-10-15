@@ -30,6 +30,15 @@ A code review of the branch found gaps between the code and its own docs. Change
 - The lazy-web framework listing refuses a bundle with a symbolic link below the trusted root, and the probe restores the window element's default AX messaging timeout.
 - Docs corrected: lock release paths, the "never leaves notifications off" claim, rendering after release (until the next real occlusion change), and which processes replay journals.
 
+## Live test follow-up
+
+Request (condensed): diagnose and fix the two opt-in live tests that failed on macOS 27.2, without switching the user's Desktops. Findings and changes:
+
+- The first `get_app_state` of a freshly launched Chrome sometimes missed the page: Chrome built its web area about 1.9 seconds after the first request, against a two-second wait, and once took longer. The wait is now three seconds (`LazyWebWaitLimits.standard`), with a unit test for a web area that appears after 2.5 seconds.
+- The fixture window did not cover Chrome: its default frame depends on the screen, and under Stage Manager launching it moves Chrome off stage, where a snapshot has no screenshot by design. `OcclusionKeepAliveLiveTests` now moves the fixture over Chrome through accessibility, skips while Stage Manager is on, and asserts the covered window is not off stage.
+- `SLSManagedDisplaySetCurrentSpace` from the test process did not switch Desktops. `CrossSpaceLiveTests` no longer switches: the user starts it on the Desktop where Chrome should open and switches to another Desktop when it beeps; the test waits for that switch.
+- Both live tests fail up front when the runner lacks Accessibility or Screen Recording (without Screen Recording window names are empty and every window wait timed out). The procedures are in the window visibility reference note and `RELIABILITY.md`.
+
 ## Design notes
 
 - The keep-alive is on by default but pins only what the app already sees as visible, so it never makes a hidden window look visible and never has to guess: every unknown answers "do not pin".
@@ -40,5 +49,5 @@ A code review of the branch found gaps between the code and its own docs. Change
 
 ## Notes
 
-- Not verified live in this fork: the two opt-in live tests were not run here, before or after the review follow-up. Whether the hardware capture's option value returns an image whose size matches the window is also unmeasured. Upstream verified the occlusion and cross-Space behavior on macOS 27.0.
+- Verified live on macOS 27.2 with Stage Manager on: the visible snapshot of a fresh Chrome window holds the page and pins it, the page stays visible after another app takes the stage, and the hardware capture returns a size-matched image (600 x 420 points as 1200 x 840 pixels). Not yet run live: the covered path with Stage Manager off and `CrossSpaceLiveTests` with its manual Desktop switch. Upstream verified the occlusion and cross-Space behavior on macOS 27.0.
 - Not ported: the agent display (`window_placement`), timing logs, benchmarks and the app matrix.

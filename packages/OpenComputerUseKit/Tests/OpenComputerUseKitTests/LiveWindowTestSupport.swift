@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import XCTest
@@ -103,6 +104,62 @@ enum LiveWindowTestSupport {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         throw ComputerUseError.message("Timed out waiting for a window title containing \(marker)")
+    }
+
+    /// Fails the live test up front when the process running it (Terminal, say) lacks Accessibility or Screen
+    /// Recording. Without Screen Recording the window list has no window names, so every `waitForWindow` would time out.
+    static func requirePermissions() throws {
+        guard AXIsProcessTrusted() else {
+            throw ComputerUseError.message("Grant Accessibility to the app running the tests, then run the test again")
+        }
+        guard CGPreflightScreenCaptureAccess() else {
+            throw ComputerUseError.message(
+                "Grant Screen Recording to the app running the tests: without it window names are not readable, "
+                    + "so the test cannot find its windows"
+            )
+        }
+    }
+
+    /// Whether Stage Manager is turned on. Under Stage Manager another app's window moves the previous app off stage
+    /// instead of covering it.
+    static var stageManagerIsOn: Bool {
+        UserDefaults(suiteName: "com.apple.WindowManager")?.bool(forKey: "GloballyEnabled") ?? false
+    }
+
+    /// Moves the app's first window over `target` with a margin, growing it when it is smaller, through
+    /// accessibility; then waits until the window server reports the window covering `target`.
+    static func coverWindow(pid: pid_t, windowNamed marker: String, over target: CGRect) throws -> LiveWindowRecord {
+        let margin: CGFloat = 20
+        let current = try waitForWindow(pid: pid, nameContaining: marker, onScreenOnly: true)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(AXUIElementCreateApplication(pid), kAXWindowsAttribute as CFString, &value) == .success,
+              let window = (value as? [AXUIElement])?.first
+        else {
+            throw ComputerUseError.message("Could not read the accessibility window of pid \(pid)")
+        }
+        var origin = CGPoint(x: target.minX - margin, y: target.minY - margin)
+        var size = CGSize(
+            width: max(current.bounds.width, target.width + 2 * margin),
+            height: max(current.bounds.height, target.height + 2 * margin)
+        )
+        guard let originValue = AXValueCreate(.cgPoint, &origin), let sizeValue = AXValueCreate(.cgSize, &size) else {
+            throw ComputerUseError.message("Could not build the accessibility frame values")
+        }
+        let sizeResult = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        let originResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue)
+        guard sizeResult == .success, originResult == .success else {
+            throw ComputerUseError.message("Could not move the window of pid \(pid): size \(sizeResult.rawValue), position \(originResult.rawValue)")
+        }
+        let deadline = Date().addingTimeInterval(5)
+        var moved = current
+        while Date() < deadline {
+            moved = try waitForWindow(pid: pid, nameContaining: marker, onScreenOnly: true)
+            if moved.bounds.contains(target) {
+                return moved
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        throw ComputerUseError.message("The window of pid \(pid) at \(moved.bounds) does not cover \(target)")
     }
 
     static func descriptor(for pid: pid_t) throws -> RunningAppDescriptor {

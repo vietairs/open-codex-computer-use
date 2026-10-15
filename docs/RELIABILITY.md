@@ -6,7 +6,7 @@
 - Unit tests: `swift test`
 - End-to-end smoke: `./scripts/run-tool-smoke-tests.sh`
 - macOS SkyLight live-device regression: `OPEN_COMPUTER_USE_RUN_SKY_CLICK_LIVE_TEST=1 swift test --filter SkyClickLiveTests`
-- macOS covered and other-Space window regression (opt-in, isolated Chrome, run from Terminal.app): `OPEN_COMPUTER_USE_RUN_OCCLUSION_LIVE_TEST=1 swift test --filter OcclusionKeepAliveLiveTests`; `OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST=1 swift test --filter CrossSpaceLiveTests` also needs a second Desktop created in Mission Control.
+- macOS covered and other-Space window regression (opt-in, isolated Chrome, run from Terminal.app with Accessibility and Screen Recording granted to it): `OPEN_COMPUTER_USE_RUN_OCCLUSION_LIVE_TEST=1 swift test --filter OcclusionKeepAliveLiveTests` needs Stage Manager off; `OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST=1 swift test --filter CrossSpaceLiveTests` needs a second Desktop and one manual Desktop switch when the test beeps. Procedures: `docs/references/macos-window-visibility-and-spaces.md`.
 - Windows runtime: `(cd apps/OpenComputerUseWindows && go test ./...)`, `./scripts/build-open-computer-use-windows.sh --arch amd64`; screenshot-related changes also need verification on an interactive Windows desktop that a normal window returns an image and a 1x1, minimized, or cloaked window returns none.
 - Linux runtime: `(cd apps/OpenComputerUseLinux && go test ./...)`, `./scripts/build-open-computer-use-linux.sh --arch arm64`
 - Local diagnostics:

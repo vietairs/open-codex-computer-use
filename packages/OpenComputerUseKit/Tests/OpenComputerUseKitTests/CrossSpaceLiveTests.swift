@@ -4,19 +4,33 @@ import Foundation
 import XCTest
 @testable import OpenComputerUseKit
 
-/// Opt-in live regression: a Chrome window on a second Desktop can be snapshotted (tree and screenshot), clicked with
-/// `sky_click` and typed into with `sky_key` from the first Desktop, without switching Spaces or activating Chrome.
-/// Needs a second Desktop (create it in Mission Control first). Third-party processes cannot move another app's
-/// window between Spaces, so the test switches to Desktop 2, launches Chrome there and switches back. Run from
-/// Terminal.app with Accessibility and Screen Recording granted to the test runner:
-/// `OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST=1 swift test --filter CrossSpaceLiveTests`
+/// Opt-in live regression: a Chrome window on another Desktop can be snapshotted (tree and screenshot), clicked with
+/// `sky_click` and typed into with `sky_key` from the Desktop the user is on, without switching Spaces or activating
+/// Chrome.
+///
+/// The test never switches Desktops itself: `SLSManagedDisplaySetCurrentSpace` from a third-party process does not
+/// switch on macOS 27.2, and the test must not move the user's display around anyway. The user does the one switch:
+/// 1. Create a second Desktop in Mission Control.
+/// 2. On the Desktop where Chrome should open (Desktop 2, say), run from the repository root in Terminal.app:
+///    `OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST=1 swift test --filter CrossSpaceLiveTests`
+/// 3. The test opens an isolated Chrome window on that Desktop and reads it once. When it beeps and prints
+///    "switch to another Desktop now", switch to any other Desktop (Control-Left Arrow, say) within 60 seconds and
+///    leave Chrome behind. Do not click anything until the test ends.
+/// 4. The test opens the fixture on the Desktop you switched to, runs the checks against the Chrome window left on
+///    the other Desktop, quits Chrome and the fixture, and reactivates the app that was frontmost when it started,
+///    which brings that app's Desktop back.
+///
+/// The app running the tests needs Accessibility and Screen Recording; without Screen Recording the window list has
+/// no window names, so the test cannot find its windows and fails up front.
 @MainActor
 final class CrossSpaceLiveTests: XCTestCase {
     private typealias MainConnection = @convention(c) () -> UInt32
     private typealias CopyManagedDisplaySpaces = @convention(c) (UInt32) -> Unmanaged<CFArray>?
     private typealias ActiveSpace = @convention(c) (UInt32) -> UInt64
     private typealias CopySpacesForWindows = @convention(c) (UInt32, Int32, CFArray) -> Unmanaged<CFArray>?
-    private typealias SetCurrentSpace = @convention(c) (UInt32, CFString, UInt64) -> Void
+
+    /// How long the test waits for the user to switch Desktops.
+    private static let desktopSwitchTimeout: TimeInterval = 60
 
     func testWindowOnAnotherSpaceIsReadableClickableAndTypable() throws {
         guard ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST"] == "1" else {
@@ -30,7 +44,6 @@ final class CrossSpaceLiveTests: XCTestCase {
               let mainPointer = dlsym(skyLight, "SLSMainConnectionID"),
               let copyPointer = dlsym(skyLight, "SLSCopyManagedDisplaySpaces"),
               let activePointer = dlsym(skyLight, "SLSGetActiveSpace"),
-              let setCurrentPointer = dlsym(skyLight, "SLSManagedDisplaySetCurrentSpace"),
               let spacesPointer = dlsym(skyLight, "SLSCopySpacesForWindows")
         else {
             throw XCTSkip("Space SPIs unavailable")
@@ -38,11 +51,9 @@ final class CrossSpaceLiveTests: XCTestCase {
         let connection = unsafeBitCast(mainPointer, to: MainConnection.self)()
         let copySpaces = unsafeBitCast(copyPointer, to: CopyManagedDisplaySpaces.self)
         let activeSpace = unsafeBitCast(activePointer, to: ActiveSpace.self)
-        let setCurrentSpace = unsafeBitCast(setCurrentPointer, to: SetCurrentSpace.self)
         let copySpacesForWindows = unsafeBitCast(spacesPointer, to: CopySpacesForWindows.self)
 
         let displays = copySpaces(connection)?.takeRetainedValue() as? [[String: Any]] ?? []
-        let displayIdentifier = displays.first?["Display Identifier"] as? String ?? ""
         let userSpaces = displays.flatMap { display in
             ((display["Spaces"] as? [[String: Any]]) ?? []).compactMap { space -> UInt64? in
                 guard (space["type"] as? NSNumber)?.intValue == 0 else { return nil }
@@ -60,22 +71,22 @@ final class CrossSpaceLiveTests: XCTestCase {
         guard FileManager.default.isExecutableFile(atPath: LiveWindowTestSupport.fixtureExecutable.path) else {
             throw XCTSkip("Build OpenComputerUseFixture before running the live test")
         }
-        let homeSpace = activeSpace(connection)
-        guard let otherSpace = userSpaces.first(where: { $0 != homeSpace }) else {
+        guard userSpaces.count >= 2 else {
             throw XCTSkip("Create a second Desktop in Mission Control to run the cross-Space live test")
         }
+        let chromeSpace = activeSpace(connection)
+        guard userSpaces.contains(chromeSpace) else {
+            throw XCTSkip("Start the cross-Space live test from a Desktop, not a full-screen Space")
+        }
+        try LiveWindowTestSupport.requirePermissions()
         let originalFrontApp = NSWorkspace.shared.frontmostApplication
         defer {
-            setCurrentSpace(connection, displayIdentifier as CFString, homeSpace)
             if let originalFrontApp {
                 _ = originalFrontApp.activate(options: [.activateAllWindows])
             }
         }
 
-        setCurrentSpace(connection, displayIdentifier as CFString, otherSpace)
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        XCTAssertEqual(activeSpace(connection), otherSpace, "test setup must switch to the second Desktop")
-
+        // Chrome opens on the Desktop the test was started from.
         let paths = try LiveWindowTestSupport.makeChromeTestRoot(prefix: "ocu-cross-space", html: Self.liveTestHTML, testCase: self)
         let chrome = try LiveWindowTestSupport.launchChrome(profile: paths.profile, page: paths.page)
         defer {
@@ -85,7 +96,7 @@ final class CrossSpaceLiveTests: XCTestCase {
         let descriptor = try LiveWindowTestSupport.descriptor(for: window.pid)
         _ = descriptor.runningApplication.activate(options: [.activateAllWindows])
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        XCTAssertEqual(spacesOfWindow(window.id), [otherSpace], "Chrome must have opened on the second Desktop")
+        XCTAssertEqual(spacesOfWindow(window.id), [chromeSpace], "Chrome must open on the Desktop the test started from")
 
         let owner = UUID()
         let keepAlive = WindowOcclusionKeepAlive.shared
@@ -94,17 +105,34 @@ final class CrossSpaceLiveTests: XCTestCase {
         }
         let session = SnapshotKeepAlive(keeper: keepAlive, owner: owner)
 
-        // Visible on the second Desktop: the snapshot sees the web content and pins the window.
+        // Visible on its Desktop: the snapshot sees the web content and pins the window.
         let visibleSnapshot = try SnapshotBuilder.build(
             for: descriptor, recoveryPolicy: .readOnly, keepAlive: session, waitsForLazyWebContent: true
         )
         XCTAssertTrue(visibleSnapshot.treeLines.contains { $0.contains("sky probe") }, "visible snapshot must include web content")
         XCTAssertTrue(keepAlive.isPinned(windowID: window.id))
+        XCTAssertEqual(activeSpace(connection), chromeSpace, "stay on Chrome's Desktop until the test beeps")
 
-        // Back on the first Desktop with the fixture in front.
-        setCurrentSpace(connection, displayIdentifier as CFString, homeSpace)
+        // The user switches Desktops; the test only waits for it.
+        FileHandle.standardError.write(Data(
+            "CrossSpaceLiveTests: switch to another Desktop now (Control-Left Arrow, say); waiting up to \(Int(Self.desktopSwitchTimeout)) seconds\n".utf8
+        ))
+        NSSound.beep()
+        let switchDeadline = Date().addingTimeInterval(Self.desktopSwitchTimeout)
+        var homeSpace = activeSpace(connection)
+        while homeSpace == chromeSpace || !userSpaces.contains(homeSpace) {
+            guard Date() < switchDeadline else {
+                throw ComputerUseError.message(
+                    "Timed out waiting for a switch to another Desktop; switch within \(Int(Self.desktopSwitchTimeout)) seconds of the beep"
+                )
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            homeSpace = activeSpace(connection)
+        }
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-        XCTAssertEqual(activeSpace(connection), homeSpace)
+        XCTAssertEqual(activeSpace(connection), homeSpace, "stay on the Desktop you switched to until the test ends")
+
+        // On the other Desktop with the fixture in front.
         let fixture = try LiveWindowTestSupport.launch(executable: LiveWindowTestSupport.fixtureExecutable)
         defer {
             LiveWindowTestSupport.stop(fixture)
@@ -112,7 +140,7 @@ final class CrossSpaceLiveTests: XCTestCase {
         _ = try LiveWindowTestSupport.waitForWindow(pid: fixture.processIdentifier, nameContaining: "OpenComputerUseFixture", onScreenOnly: true)
         RunLoop.current.run(until: Date().addingTimeInterval(1.0))
         let parked = try LiveWindowTestSupport.waitForWindow(pid: window.pid, nameContaining: "ocu-space-", onScreenOnly: false)
-        XCTAssertEqual(spacesOfWindow(window.id), [otherSpace], "the window must stay on the other Space")
+        XCTAssertEqual(spacesOfWindow(window.id), [chromeSpace], "the window must stay on its Desktop")
         XCTAssertEqual(SkyLightWindowServerSPI.shared.windowIsOnCurrentSpace(window.id), false)
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid)
         // Evidence for the docs: what the window server reports as on screen for a window on another Desktop.
@@ -159,7 +187,7 @@ final class CrossSpaceLiveTests: XCTestCase {
 
         XCTAssertEqual(activeSpace(connection), homeSpace, "actions must not switch Spaces")
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid, "actions must not activate Chrome")
-        XCTAssertEqual(spacesOfWindow(window.id), [otherSpace], "the window must stay on the other Space")
+        XCTAssertEqual(spacesOfWindow(window.id), [chromeSpace], "the window must stay on its Desktop")
     }
 
     private static let liveTestHTML = #"""
