@@ -351,6 +351,21 @@ final class BatchActionRunnerTests: XCTestCase {
         )
     }
 
+    func testMostRestrictiveRecoveryPolicyIsReadOnlyWhenAnyKeyStepUsesSkyKey() {
+        XCTAssertEqual(
+            BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [clickStep, .typeText(text: "a", keyMethod: .skyKey)]),
+            .readOnly
+        )
+        XCTAssertEqual(
+            BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [.pressKey(key: "Return", keyMethod: .skyKey)]),
+            .readOnly
+        )
+        XCTAssertEqual(
+            BatchActionRunner.mostRestrictiveRecoveryPolicy(for: [.pressKey(key: "Return", keyMethod: .auto)]),
+            .allowActivation
+        )
+    }
+
     // MARK: - Live focus (a batch must never use the pinned focus)
 
     func testBatchStepReadsFocusLiveAndIgnoresPinnedFocus() throws {
@@ -441,6 +456,29 @@ final class BatchActionRunnerTests: XCTestCase {
         _ = try? service.typeText(app: "Sample Chat", text: "x", context: .single(includeScreenshot: false))
 
         XCTAssertEqual(waits.intervals, [postActionSettleInterval, postActionSettleInterval])
+    }
+
+    func testFixtureBatchWithASkyKeyStepIsRefusedBeforeAnyStepRuns() {
+        let waits = WaitRecorder()
+        XCTAssertThrowsError(
+            try runBatch([.pressKey(key: "a"), .typeText(text: "x", keyMethod: .skyKey)], waits: waits)
+        ) { error in
+            guard case let .invalidArguments(message)? = error as? ComputerUseError else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertEqual(message, "step 2: key_method 'sky_key' is not supported for fixture apps")
+        }
+        XCTAssertEqual(waits.intervals, [], "no step may run when a later step is invalid")
+    }
+
+    func testSingleFixtureKeyActionRefusesSkyKey() {
+        let waits = WaitRecorder()
+        let service = makeRecordingService(waits: waits)
+        let context = ActionContext.single(includeScreenshot: false)
+
+        XCTAssertThrowsError(try service.pressKey(app: "Sample Chat", key: "a", keyMethod: .skyKey, context: context))
+        XCTAssertThrowsError(try service.typeText(app: "Sample Chat", text: "x", keyMethod: .skyKey, context: context))
+        XCTAssertEqual(waits.intervals, [])
     }
 
     // MARK: - Live geometry (never the pinned values)

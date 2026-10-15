@@ -113,6 +113,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "key": stringProperty(description: "Key or key combination to press"),
+                    "key_method": keyMethodProperty(),
                     "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "key"]
@@ -155,6 +156,7 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "text": stringProperty(description: "Literal text to type"),
+                    "key_method": keyMethodProperty(),
                     "include_screenshot": booleanProperty(description: includeScreenshotPropertyDescription),
                 ],
                 required: ["app", "text"]
@@ -290,6 +292,13 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
     }
 
     return property
+}
+
+private func keyMethodProperty() -> [String: Any] {
+    stringProperty(
+        description: "Keyboard delivery: auto (default) or sky_key. sky_key (macOS) makes the snapshot's window key inside its app through the SkyLight background path without changing the foreground app, then sends the keys. It never falls back.",
+        enumValues: KeyMethod.allCases.map(\.rawValue)
+    )
 }
 
 private let includeScreenshotPropertyDescription = "Attach a window screenshot to the result. Defaults to false: action results are text-only unless the window exposes no accessibility elements."

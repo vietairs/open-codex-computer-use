@@ -393,3 +393,55 @@ func TestDoctorJSONRejectsUnsupportedPermissionDiagnostics(t *testing.T) {
 		t.Fatal("unsupported JSON mode must not emit text on stdout")
 	}
 }
+
+func TestLinuxKeyMethodSchemaAndUnsupportedSkyKey(t *testing.T) {
+	for _, name := range []string{"type_text", "press_key"} {
+		tool := findToolDefinition(t, name)
+		properties := tool.InputSchema["properties"].(map[string]any)
+		method := properties["key_method"].(map[string]any)
+		values := method["enum"].([]string)
+		if strings.Join(values, ",") != "auto,sky_key" {
+			t.Fatalf("%s key_method enum = %#v", name, values)
+		}
+	}
+
+	for input, want := range map[string]string{"": "auto", " AUTO ": "auto", " SKY_KEY ": "sky_key"} {
+		got, err := parseKeyMethod(input)
+		if err != nil || got != want {
+			t.Fatalf("parseKeyMethod(%q) = %q, %v", input, got, err)
+		}
+	}
+	if _, err := parseKeyMethod("global"); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, sky_key") {
+		t.Fatalf("parseKeyMethod(global) error = %v", err)
+	}
+
+	service := newService()
+	want := "key_method 'sky_key' is not supported on Linux"
+	result := service.typeText("Text Editor", "hello", "sky_key")
+	if !result.IsError || result.Content[0].Text != want {
+		t.Fatalf("type_text sky_key result = %#v", result)
+	}
+	result = service.pressKey("Text Editor", "Return", "sky_key")
+	if !result.IsError || result.Content[0].Text != want {
+		t.Fatalf("press_key sky_key result = %#v", result)
+	}
+	result = service.callTool("press_key", map[string]any{"app": "Text Editor", "key": "Return", "key_method": "sky_key"})
+	if !result.IsError || result.Content[0].Text != want {
+		t.Fatalf("press_key sky_key through callTool = %#v", result)
+	}
+}
+
+func TestLinuxKeyMethodRejectsNonStringAndUnknownValues(t *testing.T) {
+	for _, value := range []any{1, true, []any{"sky_key"}} {
+		for _, tool := range []string{"type_text", "press_key"} {
+			result := newService().callTool(tool, map[string]any{"app": "Text Editor", "text": "x", "key": "a", "key_method": value})
+			if !result.IsError || !strings.Contains(result.Content[0].Text, "key_method must be a string") {
+				t.Fatalf("%s key_method %#v result = %#v", tool, value, result)
+			}
+		}
+	}
+	result := newService().callTool("type_text", map[string]any{"app": "Text Editor", "text": "x", "key_method": "fast"})
+	if !result.IsError || !strings.Contains(result.Content[0].Text, "Invalid key_method") {
+		t.Fatalf("unknown key_method result = %#v", result)
+	}
+}

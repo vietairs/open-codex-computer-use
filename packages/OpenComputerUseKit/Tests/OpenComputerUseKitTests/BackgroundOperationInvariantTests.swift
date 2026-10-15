@@ -8,6 +8,8 @@ import XCTest
 /// - `InputSimulation.prepareAppForGlobalPointerInput`: only reached through the global pointer paths gated by
 ///   `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`. The one allowed `.activate(` site.
 /// - `click_method=sky_click`: SkyLight synthetic focus records, no activation call.
+/// - `key_method=sky_key`: the same synthetic focus records plus key-window records inside the target app, and an
+///   `AXPress` on the target's own menu item for a command chord; no activation call.
 /// - `perform_secondary_action` with an explicit Raise: an accessibility action the caller asked for.
 ///
 /// No default path raises a window or makes one main or focused, including a click on a window element.

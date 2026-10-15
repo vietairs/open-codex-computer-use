@@ -129,12 +129,14 @@ public final class ComputerUseToolDispatcher {
             return try service.typeText(
                 app: requireString("app", in: arguments),
                 text: requireString("text", in: arguments),
+                keyMethod: try optionalKeyMethod(in: arguments),
                 includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "press_key":
             return try service.pressKey(
                 app: requireString("app", in: arguments),
                 key: requireString("key", in: arguments),
+                keyMethod: try optionalKeyMethod(in: arguments),
                 includeScreenshot: try optionalBool("include_screenshot", in: arguments) ?? false
             )
         case "set_value":
@@ -202,6 +204,20 @@ public final class ComputerUseToolDispatcher {
 
     private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {
         arguments[key] as? String
+    }
+
+    /// `key_method`, defaulting to auto when absent. A present value that is not a string is an error rather than a
+    /// silent auto: a caller that asked for the background path must not get the default one without being told.
+    private func optionalKeyMethod(in arguments: [String: Any]) throws -> KeyMethod {
+        guard let value = arguments["key_method"] else {
+            return .auto
+        }
+        guard let string = value as? String else {
+            throw ComputerUseError.invalidArguments(
+                "key_method must be a string: one of \(KeyMethod.allCases.map(\.rawValue).joined(separator: ", "))"
+            )
+        }
+        return try parseKeyMethod(string)
     }
 
     private func optionalTextLimit(_ key: String, in arguments: [String: Any]) throws -> SnapshotTextLimit? {
@@ -587,9 +603,9 @@ extension ComputerUseToolDispatcher {
                 clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
             )
         case "type_text":
-            return .typeText(text: try requireString("text", in: arguments))
+            return .typeText(text: try requireString("text", in: arguments), keyMethod: try optionalKeyMethod(in: arguments))
         case "press_key":
-            return .pressKey(key: try requireString("key", in: arguments))
+            return .pressKey(key: try requireString("key", in: arguments), keyMethod: try optionalKeyMethod(in: arguments))
         case "set_value":
             return .setValue(
                 elementIndex: try requireElementIndex(in: arguments),

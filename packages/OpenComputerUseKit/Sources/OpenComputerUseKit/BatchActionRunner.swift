@@ -4,8 +4,8 @@ import Foundation
 /// minus `app`: the batch acts on one app.
 enum ActionStep: Equatable {
     case click(elementIndex: String?, x: Double?, y: Double?, clickCount: Int, mouseButton: String, clickMethod: ClickMethod)
-    case typeText(text: String)
-    case pressKey(key: String)
+    case typeText(text: String, keyMethod: KeyMethod = .auto)
+    case pressKey(key: String, keyMethod: KeyMethod = .auto)
     case setValue(elementIndex: String, value: String)
     case scroll(direction: String, elementIndex: String, pages: Double)
     case performSecondaryAction(elementIndex: String, action: String)
@@ -35,6 +35,14 @@ enum ActionStep: Equatable {
         }
     }
 
+    /// The keyboard method of a `type_text` or `press_key` step; nil for every other step.
+    var keyMethod: KeyMethod? {
+        switch self {
+        case let .typeText(_, keyMethod), let .pressKey(_, keyMethod): return keyMethod
+        case .click, .setValue, .scroll, .performSecondaryAction: return nil
+        }
+    }
+
     /// One short line naming the step. It never echoes typed text or set values, which may be private.
     var summary: String {
         switch self {
@@ -48,7 +56,7 @@ enum ActionStep: Equatable {
             return "click"
         case .typeText:
             return "type_text"
-        case let .pressKey(key):
+        case let .pressKey(key, _):
             return "press_key key=\(key)"
         case let .setValue(elementIndex, _):
             return "set_value element_index=\(elementIndex)"
@@ -124,15 +132,19 @@ enum BatchActionRunner {
         return "step \(offset + 1): element_index needs the state you received, and none is cached for this app in this session; call get_app_state for \(app) before perform_actions"
     }
 
-    /// Read-only when any click uses `sky_click`, so the final refresh never activates an app that click avoided.
+    /// Read-only when any click uses `sky_click` or any key step uses `sky_key`, so the final refresh never
+    /// activates an app those steps avoided.
     static func mostRestrictiveRecoveryPolicy(for steps: [ActionStep]) -> SnapshotRecoveryPolicy {
-        let usesSkyClick = steps.contains { step in
+        let usesBackgroundMethod = steps.contains { step in
             if case let .click(_, _, _, _, _, clickMethod) = step {
                 return clickActionSnapshotRecoveryPolicy(for: clickMethod) == .readOnly
             }
+            if let keyMethod = step.keyMethod {
+                return keyActionSnapshotRecoveryPolicy(for: keyMethod) == .readOnly
+            }
             return false
         }
-        return usesSkyClick ? .readOnly : .allowActivation
+        return usesBackgroundMethod ? .readOnly : .allowActivation
     }
 
     /// Runs steps in order. For each one `beforeEachStep(i)` runs, then `perform(i, step)`; the first throw from

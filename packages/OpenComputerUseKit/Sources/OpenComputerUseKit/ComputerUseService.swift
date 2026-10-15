@@ -143,6 +143,66 @@ func validateSkyClickArguments(
     }
 }
 
+/// Keyboard delivery for `type_text` and `press_key`. `auto` posts key events to the target process; `sky_key`
+/// makes the snapshot's window key inside its app through the SkyLight background path first, and never falls back.
+public enum KeyMethod: String, CaseIterable, Sendable {
+    case auto
+    case skyKey = "sky_key"
+}
+
+func keyActionSnapshotRecoveryPolicy(for method: KeyMethod) -> SnapshotRecoveryPolicy {
+    method == .skyKey ? .readOnly : .allowActivation
+}
+
+func parseKeyMethod(_ rawValue: String?) throws -> KeyMethod {
+    let normalized = rawValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased() ?? KeyMethod.auto.rawValue
+
+    guard let method = KeyMethod(rawValue: normalized) else {
+        let expected = KeyMethod.allCases.map(\.rawValue).joined(separator: ", ")
+        throw ComputerUseError.message(
+            "Invalid key_method '\(rawValue ?? "")'. Expected one of: \(expected)"
+        )
+    }
+
+    return method
+}
+
+func requireAutoKeyMethodForFixture(_ method: KeyMethod) throws {
+    guard method == .auto else {
+        throw ComputerUseError.message("key_method '\(method.rawValue)' is not supported for fixture apps")
+    }
+}
+
+/// The `sky_key` target for a snapshot. A Stage Manager off-stage window is refused: making it key could pull it
+/// onto the stage, which is the visible change `sky_key` exists to avoid.
+func skyKeyTarget(windowID: CGWindowID?, isOffStage: Bool, pid: pid_t) throws -> SkyKeyboardTarget {
+    guard let windowID else {
+        throw ComputerUseError.stateUnavailable(
+            "key_method 'sky_key' needs the window of the app state you received, and none is known. Run get_app_state again."
+        )
+    }
+    guard !isOffStage else {
+        throw ComputerUseError.stateUnavailable(
+            "key_method 'sky_key' does not send keys to a Stage Manager off-stage window, because making it key could bring it onto the stage. Use key_method auto, or bring the window onto the stage first."
+        )
+    }
+    return SkyKeyboardTarget(windowID: windowID, pid: pid)
+}
+
+/// Adds the release warning of a `sky_key` delivery to an action result, before any image. The action itself
+/// succeeded, so the result keeps its error flag.
+func appendingSkyKeyReleaseWarning(to result: ToolCallResult, delivery: SkyKeyboardDelivery) -> ToolCallResult {
+    guard let warning = delivery.releaseWarning else {
+        return result
+    }
+    var content = result.content
+    let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
+    content.insert(.text(skyKeyReleaseWarningNote(warning)), at: insertIndex)
+    return ToolCallResult(content: content, isError: result.isError)
+}
+
 struct VisualCursorScreenMapping: Equatable {
     let screenStateFrame: CGRect
     let appKitFrame: CGRect
@@ -1169,13 +1229,19 @@ public final class ComputerUseService {
         )
     }
 
-    public func typeText(app query: String, text: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
-        try typeText(app: query, text: text, context: .single(includeScreenshot: includeScreenshot))
+    public func typeText(
+        app query: String,
+        text: String,
+        keyMethod: KeyMethod = .auto,
+        includeScreenshot: Bool = false
+    ) throws -> ToolCallResult {
+        try typeText(app: query, text: text, keyMethod: keyMethod, context: .single(includeScreenshot: includeScreenshot))
     }
 
-    func typeText(app query: String, text: String, context: ActionContext) throws -> ToolCallResult {
+    func typeText(app query: String, text: String, keyMethod: KeyMethod = .auto, context: ActionContext) throws -> ToolCallResult {
         let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
+            try requireAutoKeyMethodForFixture(keyMethod)
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
             sleepHandler(postActionSettleInterval)
             return try finishAction(query: query, context: context)
@@ -1187,10 +1253,29 @@ public final class ComputerUseService {
             snapshotFocus: snapshot.focusedElement,
             liveFocus: { liveFocusedElement(pinned: snapshot) }
         )
+        let focus = try typeTextFocus(of: focusedElement)
+
+        if keyMethod == .skyKey {
+            let target = try skyKeyTarget(
+                windowID: snapshot.targetWindowID, isOffStage: snapshot.isOffStage, pid: snapshot.app.pid
+            )
+            // The same text-focus gate as auto, but the text always goes as keys through SkyLight: an accessibility
+            // value write would skip the key window that sky_key was asked for.
+            guard typeTextRoute(focus: focus) != .refuse else {
+                throw ComputerUseError.message(typeTextNeedsTextFocusMessage(appName: snapshot.app.name))
+            }
+            let delivery = try InputSimulation.typeTextWithSkyLight(text, windowID: target.windowID, pid: target.pid)
+            return appendingSkyKeyReleaseWarning(
+                to: try finishAction(
+                    query: query, context: context, recoveryPolicy: keyActionSnapshotRecoveryPolicy(for: keyMethod)
+                ),
+                delivery: delivery
+            )
+        }
 
         // Never activates the target: without a confirmed text focus the call fails instead of guessing.
         let route = try deliverTypedText(
-            focus: try typeTextFocus(of: focusedElement),
+            focus: focus,
             appName: snapshot.app.name,
             setValue: { try typeTextBySettingFocusedValueIfAvailable(text, focusedElement: focusedElement) },
             postKeys: { try InputSimulation.typeText(text, pid: snapshot.app.pid) }
@@ -1201,16 +1286,35 @@ public final class ComputerUseService {
         return try finishAction(query: query, context: context)
     }
 
-    public func pressKey(app query: String, key: String, includeScreenshot: Bool = false) throws -> ToolCallResult {
-        try pressKey(app: query, key: key, context: .single(includeScreenshot: includeScreenshot))
+    public func pressKey(
+        app query: String,
+        key: String,
+        keyMethod: KeyMethod = .auto,
+        includeScreenshot: Bool = false
+    ) throws -> ToolCallResult {
+        try pressKey(app: query, key: key, keyMethod: keyMethod, context: .single(includeScreenshot: includeScreenshot))
     }
 
-    func pressKey(app query: String, key: String, context: ActionContext) throws -> ToolCallResult {
+    func pressKey(app query: String, key: String, keyMethod: KeyMethod = .auto, context: ActionContext) throws -> ToolCallResult {
         let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
+            try requireAutoKeyMethodForFixture(keyMethod)
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
             pauseBeforeReadBack(postActionSettleInterval, context: context)
             return try finishAction(query: query, context: context)
+        }
+
+        if keyMethod == .skyKey {
+            let target = try skyKeyTarget(
+                windowID: snapshot.targetWindowID, isOffStage: snapshot.isOffStage, pid: snapshot.app.pid
+            )
+            let delivery = try InputSimulation.pressKeyWithSkyLight(key, windowID: target.windowID, pid: target.pid)
+            return appendingSkyKeyReleaseWarning(
+                to: try finishAction(
+                    query: query, context: context, recoveryPolicy: keyActionSnapshotRecoveryPolicy(for: keyMethod)
+                ),
+                delivery: delivery
+            )
         }
 
         try InputSimulation.pressKey(key, pid: snapshot.app.pid)
@@ -1285,6 +1389,14 @@ public final class ComputerUseService {
 
         // Validate every step before any of them runs, so a bad step never leaves a half-applied batch.
         for (offset, step) in steps.enumerated() {
+            if pinned.mode == .fixture, let keyMethod = step.keyMethod {
+                do {
+                    try requireAutoKeyMethodForFixture(keyMethod)
+                } catch {
+                    throw ComputerUseError.invalidArguments("step \(offset + 1): \(BatchActionRunner.errorText(error))")
+                }
+            }
+
             guard case let .click(elementIndex, _, _, clickCount, mouseButton, clickMethod) = step else {
                 continue
             }
@@ -1355,10 +1467,10 @@ public final class ComputerUseService {
                 app: query, elementIndex: elementIndex, x: x, y: y, clickCount: clickCount,
                 mouseButton: mouseButton, clickMethod: clickMethod, context: context
             )
-        case let .typeText(text):
-            return try typeText(app: query, text: text, context: context)
-        case let .pressKey(key):
-            return try pressKey(app: query, key: key, context: context)
+        case let .typeText(text, keyMethod):
+            return try typeText(app: query, text: text, keyMethod: keyMethod, context: context)
+        case let .pressKey(key, keyMethod):
+            return try pressKey(app: query, key: key, keyMethod: keyMethod, context: context)
         case let .setValue(elementIndex, value):
             return try setValue(app: query, elementIndex: elementIndex, value: value, context: context)
         case let .scroll(direction, elementIndex, pages):
