@@ -222,6 +222,10 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
         If permissions are missing, this also launches the onboarding app.
         --json prints a permission snapshot without launching onboarding (macOS only).
         Read allGranted to determine readiness; missing permissions still exit successfully.
+        source says whose grants were read: agent (the running app), tcc (the app's record in the system
+        permission database) or process (the printing process itself, when the app agent is not used).
+        --json exits non-zero, with a message on stderr and nothing on stdout, when no agent is running
+        and that database cannot be read.
         """
     case "list-apps":
         return """

@@ -80,7 +80,8 @@ public struct PermissionRecordUnreadableError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         "No running Open Computer Use agent, and the system permission database could not be read "
-            + "(reading it needs Full Disk Access), so the permission state is unknown. "
+            + "(it needs Full Disk Access, and can also be missing or locked by another process), "
+            + "so the permission state is unknown. "
             + "Run `open-computer-use doctor` to start the app and check permissions."
     }
 }
@@ -525,6 +526,17 @@ func tccAuthorizationGranted(authValues: [Int32?]) -> Bool {
     authValues.contains(2)
 }
 
+/// Maps a `sqlite3_step` result for the per-client lookup: `true` for a row, `false` when the client has no record
+/// (`SQLITE_DONE`), and `nil` for any error (busy, corrupt, I/O), which means the database could not be read and the
+/// grant must stay unknown instead of reading as not granted.
+func tccStepFoundRow(_ stepResult: Int32) -> Bool? {
+    switch stepResult {
+    case SQLITE_ROW: return true
+    case SQLITE_DONE: return false
+    default: return nil
+    }
+}
+
 func permissionGranted(persisted: Bool?, runtime: Bool) -> Bool {
     (persisted == true) || runtime
 }
@@ -593,13 +605,14 @@ private struct TCCDatabase {
             sqlite3_bind_text(statement, 2, client.identifier, -1, sqliteTransient)
             sqlite3_bind_int(statement, 3, client.type)
 
-            if sqlite3_step(statement) == SQLITE_ROW {
+            let foundRow = tccStepFoundRow(sqlite3_step(statement))
+            if foundRow == true {
                 authValues.append(sqlite3_column_int(statement, 0))
-                sqlite3_finalize(statement)
-                continue
             }
-
             sqlite3_finalize(statement)
+            if foundRow == nil {
+                return nil
+            }
         }
 
         return tccAuthorizationGranted(authValues: authValues)
