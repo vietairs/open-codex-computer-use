@@ -121,7 +121,7 @@ Under Stage Manager, a macOS window that is off stage (shown in the left strip) 
 - A window on another Desktop is captured for the screenshot while the Mac is unlocked.
 - Chrome, Electron and other Chromium-based apps build their page tree only after the first request; `get_app_state` waits up to two seconds for it while the window is visible. Action results do not wait.
 - A Chromium-based window that was already covered, minimized or on another Desktop when first read has no page content; the result says so. Bring the window into view once and call `get_app_state` again; covering it afterwards keeps working.
-- `sky_click` and `sky_key` work on a covered or other-Space window of the latest state.
+- `sky_click` and `sky_key` work on a covered or other-Space window of the latest state, as long as its app is not the frontmost app; in the frontmost app they only target the window that is already focused (and, for `sky_click`, on the current Desktop).
 
 ## Larger Tree Budgets
 
@@ -167,7 +167,7 @@ open-computer-use call get_app_state --args '{"app":"Google Chrome"}'
 open-computer-use call click --args '{"app":"Google Chrome","x":875,"y":375,"click_method":"sky_click"}'
 ```
 
-Run `get_app_state` again after the target window moves, closes, changes Space, becomes hidden, or is minimized. `sky_click` is an explicit private-SPI mode: unavailable symbols, a stale window id, a hidden app, a minimized window, a Stage Manager off-stage window, unsupported button/count, or failed delivery return an error without falling back to another click implementation. A window that is not on screen on the current Space is clicked only while the Mac is unlocked, even with `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`. The visual cursor is drawn at the window's screen position, which may be over the covering window or on the current Space.
+Run `get_app_state` again after the target window moves, closes, changes Space, becomes hidden, or is minimized. `sky_click` is an explicit private-SPI mode: unavailable symbols, a stale window id, a hidden app, a minimized window, a Stage Manager off-stage window, unsupported button/count, or failed delivery return an error without falling back to another click implementation. A window that is not on screen on the current Space is clicked only while the Mac is unlocked, even with `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`. When the target app is frontmost, `sky_click` refuses unless the snapshot's window is already its focused window on the current Desktop; use the default click method there. The visual cursor is drawn at the window's screen position, which may be over the covering window or on the current Space.
 
 Use `global` only after explicitly enabling the process-level safety gate:
 
