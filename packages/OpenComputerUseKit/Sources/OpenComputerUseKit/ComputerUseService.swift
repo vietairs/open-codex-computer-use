@@ -813,7 +813,9 @@ public final class ComputerUseService {
         compact: Bool = false
     ) throws -> ToolCallResult {
         snapshotResult(
-            for: try refreshSnapshot(for: query, textLimit: textLimit, treeLimits: treeLimits),
+            for: try refreshSnapshot(
+                for: query, textLimit: textLimit, treeLimits: treeLimits, waitsForLazyWebContent: true
+            ),
             style: compact ? .compactActionable : .fullState
         )
     }
@@ -1570,7 +1572,8 @@ public final class ComputerUseService {
             elements: elements,
             windowContentIsEmpty: pinned.windowContentIsEmpty,
             isOffStage: pinned.isOffStage,
-            screenshotNote: pinned.screenshotNote
+            screenshotNote: pinned.screenshotNote,
+            hiddenWebContentNote: pinned.hiddenWebContentNote
         )
     }
 
@@ -1725,7 +1728,8 @@ public final class ComputerUseService {
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
-        capture: SnapshotCapturePolicy = .always
+        capture: SnapshotCapturePolicy = .always,
+        waitsForLazyWebContent: Bool = false
     ) throws -> AppSnapshot {
         let app = try appResolver(query)
         let snapshot = try SnapshotBuilder.build(
@@ -1735,7 +1739,8 @@ public final class ComputerUseService {
             recoveryPolicy: recoveryPolicy,
             capture: capture,
             imageConfig: { [self] in effectiveImageConfig },
-            keepAlive: SnapshotKeepAlive(keeper: windowKeepAlive, owner: backgroundStateOwner)
+            keepAlive: SnapshotKeepAlive(keeper: windowKeepAlive, owner: backgroundStateOwner),
+            waitsForLazyWebContent: waitsForLazyWebContent
         )
 
         storeSnapshot(snapshot, query: query, app: app)

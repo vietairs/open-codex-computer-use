@@ -140,6 +140,8 @@ public struct AppSnapshot {
     /// Why a captured screenshot was left out under the user's image settings. Nil when the image was delivered
     /// or never captured; coordinate input is refused while it is set, because there is no image to read x/y from.
     var screenshotNote: String? = nil
+    /// Set when a Chromium-family window is hidden from its app, so its web content is missing from the tree.
+    var hiddenWebContentNote: String? = nil
 
     public var renderedText: String {
         renderedText(style: .fullState)
@@ -154,6 +156,9 @@ public struct AppSnapshot {
         lines.append("Window: \(quoted(displayTitle)), App: \(app.name).")
         if isOffStage {
             lines.append(offStageWindowNote)
+        }
+        if let hiddenWebContentNote {
+            lines.append(hiddenWebContentNote)
         }
         if style == .compactActionable {
             lines.append(contentsOf: compactActionableLines())
@@ -429,7 +434,8 @@ enum SnapshotBuilder {
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
         capture: SnapshotCapturePolicy = .always,
         imageConfig: @escaping () -> ImageCaptureConfig = { .current },
-        keepAlive: SnapshotKeepAlive? = nil
+        keepAlive: SnapshotKeepAlive? = nil,
+        waitsForLazyWebContent: Bool = false
     ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
@@ -441,7 +447,9 @@ enum SnapshotBuilder {
         }
 
         let appElement = AXUIElementCreateApplication(app.pid)
-        enableBestEffortAccessibilityModes(appElement)
+        // Chrome answers AXManualAccessibility as unsupported, so the shipped frameworks are the second signal.
+        let lazyWeb = enableBestEffortAccessibilityModes(appElement)
+            || LazyWebEngineDetector.shared.appHasLazyWebAccessibility(bundleURL: app.runningApplication.bundleURL)
         let systemWide = AXUIElementCreateSystemWide()
         var focusedApplication = frontmostApplication(systemWide: systemWide)
         var focusedWindow = initialWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
@@ -504,7 +512,9 @@ enum SnapshotBuilder {
             treeLimits: treeLimits,
             capture: capture,
             imageConfig: imageConfig,
-            keepAlive: keepAlive
+            keepAlive: keepAlive,
+            lazyWeb: lazyWeb,
+            waitsForLazyWebContent: waitsForLazyWebContent
         )
     }
 
@@ -566,7 +576,9 @@ enum SnapshotBuilder {
         treeLimits: AccessibilityTreeLimits,
         capture: SnapshotCapturePolicy,
         imageConfig: () -> ImageCaptureConfig,
-        keepAlive: SnapshotKeepAlive?
+        keepAlive: SnapshotKeepAlive?,
+        lazyWeb: Bool,
+        waitsForLazyWebContent: Bool
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let captureTiming = windowImageCaptureTiming(
@@ -587,7 +599,42 @@ enum SnapshotBuilder {
 
         // Pin the window's visible state (WindowServer occlusion notifications off) so covering it or switching to
         // another Space later does not make its app hide the content.
-        _ = keepWindowVisible(keepAlive: keepAlive, windowCapture: windowCapture, rootElement: rootElement, pid: app.pid)
+        let visibleNow = keepWindowVisible(
+            keepAlive: keepAlive, windowCapture: windowCapture, rootElement: rootElement, pid: app.pid
+        )
+
+        // A Chromium-family app builds its web tree lazily and drops it while hidden. Wait for it briefly while the
+        // window is visible; when it is hidden, say so instead of waiting. Runs before the emptiness and focus
+        // checks below so they read the final walk.
+        var hiddenWebContentNote: String?
+        switch lazyWebRewalkDecision(
+            lazyWeb: lazyWeb,
+            hasWebArea: renderer.hasWebArea,
+            visibleNow: visibleNow,
+            waitAllowed: waitsForLazyWebContent,
+            exhausted: LazyWebExhaustedWindows.shared.contains(windowCapture.windowID)
+        ) {
+        case .none:
+            break
+        case .hiddenNote:
+            hiddenWebContentNote = OpenComputerUseKit.hiddenWebContentNote(
+                keepAliveAvailable: keepAlive?.keeper.isAvailable ?? false
+            )
+        case .rewalk:
+            let limits = LazyWebWaitLimits.standard
+            let appeared = waitForLazyWebArea(
+                limits: limits,
+                now: { ProcessInfo.processInfo.systemUptime },
+                sleep: { Thread.sleep(forTimeInterval: $0) },
+                probe: { deadline in liveWindowContainsWebArea(rootElement, limits: limits, deadline: deadline) }
+            )
+            if appeared {
+                renderer = TreeRenderer(context: context)
+                renderer.render(rootElement)
+            } else {
+                LazyWebExhaustedWindows.shared.insert(windowCapture.windowID)
+            }
+        }
 
         let windowContentIsEmpty = !windowHasContentElements(renderer.records.values, windowRoot: rootElement)
 
@@ -633,7 +680,8 @@ enum SnapshotBuilder {
             elements: renderer.records,
             windowContentIsEmpty: windowContentIsEmpty,
             isOffStage: windowCapture.isOffStage,
-            screenshotNote: screenshot.note
+            screenshotNote: screenshot.note,
+            hiddenWebContentNote: hiddenWebContentNote
         )
     }
 
@@ -764,12 +812,15 @@ enum SnapshotBuilder {
     }
 }
 
-private func enableBestEffortAccessibilityModes(_ appElement: AXUIElement) {
+/// Returns true when the app accepts `AXManualAccessibility`, which marks an engine that builds its (web)
+/// accessibility tree lazily on request. Native AppKit apps report the attribute as unsupported.
+private func enableBestEffortAccessibilityModes(_ appElement: AXUIElement) -> Bool {
     // Chromium/Electron apps may withhold parts of their AX tree until manual
     // accessibility is enabled. These private attributes are best-effort and
     // harmlessly fail on apps that do not support them.
-    _ = AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+    let manual = AXUIElementSetAttributeValue(appElement, "AXManualAccessibility" as CFString, kCFBooleanTrue)
     _ = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
+    return manual == .success
 }
 
 /// The settings to read for a window capture, or nil when no image is taken now. `resolve` runs only when one is, so
@@ -1150,6 +1201,8 @@ struct IndexedLineBuffer {
 
 struct TreeRenderer {
     let context: RenderContext
+    /// True once the walk rendered an `AXWebArea`.
+    var hasWebArea = false
     var nextIndex = 0
     var buffer = IndexedLineBuffer()
     var records: [Int: ElementRecord] = [:]
@@ -1187,6 +1240,9 @@ struct TreeRenderer {
         // One round trip for the attributes every node reads; nil falls back to single reads.
         let prefetch = AXAttributePrefetch.fetch(root)
         let role = stringValue(of: root, attribute: kAXRoleAttribute, prefetch: prefetch) ?? "AXUnknown"
+        if role == axWebAreaRole {
+            hasWebArea = true
+        }
         let subrole = stringValue(of: root, attribute: kAXSubroleAttribute, prefetch: prefetch)
         let baseRoleText = roleDescription(of: root, role: role, subrole: subrole, prefetch: prefetch)
         let label = stringValue(of: root, attribute: kAXDescriptionAttribute, prefetch: prefetch)
