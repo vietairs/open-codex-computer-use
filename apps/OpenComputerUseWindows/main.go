@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-var version = "0.3.11-vietairs.1"
+var version = "0.3.12-vietairs.1"
 
 var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
 
