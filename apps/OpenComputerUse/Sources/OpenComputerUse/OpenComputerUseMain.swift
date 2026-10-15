@@ -48,10 +48,10 @@ enum OpenComputerUseMain {
             } else {
                 try LocalChannelRouter().run { server.handle(line: $0) }
             }
-        case .doctor:
+        case let .doctor(json):
             let permissions = PermissionDiagnostics.current()
-            print(permissions.summary)
-            if !permissions.missingPermissions.isEmpty {
+            print(try json ? permissions.jsonText(source: .process) : permissions.summary)
+            if shouldPresentPermissionOnboarding(json: json, missingPermissions: permissions.missingPermissions) {
                 PermissionOnboardingApp.launch()
             }
         case .listApps:

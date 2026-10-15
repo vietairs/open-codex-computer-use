@@ -64,9 +64,54 @@ public enum SystemPermissionKind: String, CaseIterable, Sendable {
     }
 }
 
+/// Where a permission snapshot was read from, so a host can tell whose grants it describes.
+public enum PermissionSnapshotSource: String, Sendable {
+    /// The running shared app agent, which is `Open Computer Use.app` itself.
+    case agent
+    /// The per-app record in the system TCC database, read without any running agent.
+    case tcc
+    /// The process that printed it (no app agent in play: proxy disabled or no app bundle).
+    case process
+}
+
+/// The system TCC database could not be read, so the app's grants are unknown.
+public struct PermissionRecordUnreadableError: LocalizedError, Equatable {
+    public init() {}
+
+    public var errorDescription: String? {
+        "No running Open Computer Use agent, and the system permission database could not be read "
+            + "(reading it needs Full Disk Access), so the permission state is unknown. "
+            + "Run `open-computer-use doctor` to start the app and check permissions."
+    }
+}
+
 public struct PermissionDiagnostics: Sendable {
     public let accessibilityTrusted: Bool
     public let screenCaptureGranted: Bool
+
+    /// Reads only the persisted TCC record for the Open Computer Use app bundle, never the calling
+    /// process's own grants. Throws when the database cannot be read instead of guessing.
+    public static func fromAppTCCRecord() throws -> PermissionDiagnostics {
+        let persisted = TCCAuthorizationStore.current
+        return try diagnostics(
+            persistedAccessibility: persisted.accessibility,
+            persistedScreenRecording: persisted.screenRecording
+        )
+    }
+
+    /// Pure core of `fromAppTCCRecord`: a `nil` record means the database was unreadable.
+    static func diagnostics(
+        persistedAccessibility: Bool?,
+        persistedScreenRecording: Bool?
+    ) throws -> PermissionDiagnostics {
+        guard let persistedAccessibility, let persistedScreenRecording else {
+            throw PermissionRecordUnreadableError()
+        }
+        return PermissionDiagnostics(
+            accessibilityTrusted: persistedAccessibility,
+            screenCaptureGranted: persistedScreenRecording
+        )
+    }
 
     public static func current() -> PermissionDiagnostics {
         let persisted = TCCAuthorizationStore.current
@@ -87,6 +132,21 @@ public struct PermissionDiagnostics: Sendable {
 
     public var summary: String {
         "Permissions: accessibility=\(accessibilityTrusted ? "granted" : "missing"), screenRecording=\(screenCaptureGranted ? "granted" : "missing")"
+    }
+
+    /// A read-only snapshot for host integrations; does not request permissions. `source` says
+    /// whose grants these are.
+    public func jsonText(source: PermissionSnapshotSource) throws -> String {
+        let payload: [String: Any] = [
+            "platform": "macos",
+            "source": source.rawValue,
+            "accessibilityTrusted": accessibilityTrusted,
+            "screenCaptureGranted": screenCaptureGranted,
+            "allGranted": allGranted,
+            "missingPermissions": missingPermissions.map(\.rawValue),
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        return String(decoding: data, as: UTF8.self)
     }
 
     public var missingPermissions: [SystemPermissionKind] {

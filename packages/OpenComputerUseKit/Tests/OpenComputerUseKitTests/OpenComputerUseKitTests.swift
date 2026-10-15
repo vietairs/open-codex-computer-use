@@ -27,6 +27,69 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["--version"]), .version)
     }
 
+    func testDoctorJSONContract() throws {
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor"]), .doctor())
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor", "--json"]), .doctor(json: true))
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor", "--help"]), .help(command: "doctor"))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["doctor", "--json", "--json"]))
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["doctor", "--unknown"])) { error in
+            let message = (error as? OpenComputerUseCLIError)?.message
+            XCTAssertEqual(message, "doctor accepts only the --json option")
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["mcp", "--x"])) { error in
+            XCTAssertEqual((error as? OpenComputerUseCLIError)?.message, "mcp does not accept any arguments")
+        }
+        XCTAssertTrue(shouldUseMacOSAppAgentProxy(
+            command: .doctor(json: true), proxyDisabled: false,
+            appBundleAvailable: true, runningFromLaunchServicesAppInstance: false
+        ))
+    }
+
+    func testPermissionSnapshotNeverConnectsOrLaunchesTheAgent() {
+        XCTAssertEqual(macOSAppAgentConnectionPolicy(for: .doctor(json: true)), .readOnlySnapshot)
+        for command in [
+            OpenComputerUseCLICommand.doctor(), .mcp, .listApps, .snapshot(app: "TextEdit"),
+            .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil)),
+        ] {
+            XCTAssertEqual(macOSAppAgentConnectionPolicy(for: command), .connectOrLaunch)
+        }
+    }
+
+    func testOnboardingOnlyOpensForTextDoctorWithMissingPermissions() {
+        XCTAssertTrue(shouldPresentPermissionOnboarding(json: false, missingPermissions: [.accessibility]))
+        XCTAssertTrue(shouldPresentPermissionOnboarding(json: false, missingPermissions: [.accessibility, .screenRecording]))
+        XCTAssertFalse(shouldPresentPermissionOnboarding(json: false, missingPermissions: []))
+        XCTAssertFalse(shouldPresentPermissionOnboarding(json: true, missingPermissions: [.accessibility, .screenRecording]))
+        XCTAssertFalse(shouldPresentPermissionOnboarding(json: true, missingPermissions: []))
+    }
+
+    func testPermissionSnapshotJSONTextIsExact() throws {
+        let diagnostics = PermissionDiagnostics(accessibilityTrusted: true, screenCaptureGranted: false)
+        XCTAssertEqual(
+            try diagnostics.jsonText(source: .tcc),
+            #"{"accessibilityTrusted":true,"allGranted":false,"missingPermissions":["screenRecording"],"platform":"macos","screenCaptureGranted":false,"source":"tcc"}"#
+        )
+        XCTAssertEqual(
+            try PermissionDiagnostics(accessibilityTrusted: true, screenCaptureGranted: true).jsonText(source: .agent),
+            #"{"accessibilityTrusted":true,"allGranted":true,"missingPermissions":[],"platform":"macos","screenCaptureGranted":true,"source":"agent"}"#
+        )
+        XCTAssertEqual(
+            try PermissionDiagnostics(accessibilityTrusted: false, screenCaptureGranted: false).jsonText(source: .process),
+            #"{"accessibilityTrusted":false,"allGranted":false,"missingPermissions":["accessibility","screenRecording"],"platform":"macos","screenCaptureGranted":false,"source":"process"}"#
+        )
+    }
+
+    func testPermissionSnapshotTCCRecordIsNeverGuessed() throws {
+        let granted = try PermissionDiagnostics.diagnostics(persistedAccessibility: true, persistedScreenRecording: false)
+        XCTAssertTrue(granted.accessibilityTrusted)
+        XCTAssertFalse(granted.screenCaptureGranted)
+        XCTAssertThrowsError(try PermissionDiagnostics.diagnostics(persistedAccessibility: nil, persistedScreenRecording: true)) {
+            XCTAssertEqual($0 as? PermissionRecordUnreadableError, PermissionRecordUnreadableError())
+        }
+        XCTAssertThrowsError(try PermissionDiagnostics.diagnostics(persistedAccessibility: true, persistedScreenRecording: nil))
+        XCTAssertThrowsError(try PermissionDiagnostics.diagnostics(persistedAccessibility: nil, persistedScreenRecording: nil))
+    }
+
     func testCLIRecognizesCommandSpecificHelp() throws {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["help", "snapshot"]), .help(command: "snapshot"))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["snapshot", "--help"]), .help(command: "snapshot"))
@@ -369,7 +432,7 @@ final class OpenComputerUseKitTests: XCTestCase {
     func testMacOSAppAgentProxyDecisionRoutesAutomationCommandsThroughAppBundle() {
         for command in [
             OpenComputerUseCLICommand.mcp,
-            .doctor,
+            .doctor(),
             .listApps,
             .snapshot(app: "TextEdit"),
             .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil)),
@@ -435,13 +498,13 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testMacOSAppAgentProxyDecisionHonorsDisableAndMissingBundle() {
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: true,
             appBundleAvailable: true,
             runningFromLaunchServicesAppInstance: false
         ))
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: false,
             appBundleAvailable: false,
             runningFromLaunchServicesAppInstance: false

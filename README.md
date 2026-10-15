@@ -151,6 +151,9 @@ open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
 
+# macOS: print a permission JSON snapshot without opening onboarding
+open-computer-use doctor --json
+
 # Run local validation from a source checkout
 make smoke
 OPEN_COMPUTER_USE_STRESS_LOOPS=20 make stress
@@ -168,6 +171,8 @@ node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=hermes
 open-computer-use -h
 ocu -h
 ```
+
+`doctor --json` (macOS only) prints `platform`, `source`, `accessibilityTrusted`, `screenCaptureGranted`, `allGranted`, and `missingPermissions` as one JSON object with real booleans. Missing permissions still exit with code 0; hosts should check `allGranted` and query again after authorization. The snapshot uses the existing system API/TCC diagnostics and does not prove an operation succeeded; some permission changes may still require a process restart. It is read-only and never starts, replaces, or terminates the shared app agent. `source` says whose grants were read: `agent` when the already-running, current agent answered (the grants of `Open Computer Use.app`); `tcc` when no current agent is running and only the app's persisted record in the system TCC database was read (never the grants of the terminal or host that launched the CLI). Reading that database needs Full Disk Access; if it cannot be read, the command exits non-zero with a message on stderr and prints nothing on stdout, because the state is unknown. Run plain `open-computer-use doctor` to start the app and check permissions. `process` appears only when the agent proxy is disabled or no app bundle is installed, and then describes the printing process itself. Linux and Windows reject the flag.
 
 ## Cursor Motion
 
