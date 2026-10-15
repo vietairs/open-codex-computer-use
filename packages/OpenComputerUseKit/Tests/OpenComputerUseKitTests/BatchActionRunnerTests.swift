@@ -391,6 +391,16 @@ final class BatchActionRunnerTests: XCTestCase {
         XCTAssertFalse(context.includeScreenshot)
     }
 
+    func testBatchStepSkipsTheReadBackSettleAndSingleActionKeepsIt() {
+        let batchStep = ActionContext.batchStep(pinned: makePinnedSnapshot(focusedElement: nil))
+        let single = ActionContext.single(includeScreenshot: false)
+
+        XCTAssertEqual(readBackSettleInterval(postActionSettleInterval, context: batchStep), 0)
+        XCTAssertEqual(readBackSettleInterval(0.1, context: batchStep), 0)
+        XCTAssertEqual(readBackSettleInterval(postActionSettleInterval, context: single), postActionSettleInterval, accuracy: 1e-9)
+        XCTAssertEqual(readBackSettleInterval(0.1, context: single), 0.1, accuracy: 1e-9)
+    }
+
     // MARK: - Live geometry (never the pinned values)
 
     func testBatchGeometryUsesLiveWindowBoundsAndLiveFrame() throws {

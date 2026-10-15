@@ -300,6 +300,12 @@ struct ReturnedScreenshotFrame: Equatable {
 /// Settle time after an action before its result is read, and between steps of a perform_actions batch.
 let postActionSettleInterval: TimeInterval = 0.15
 
+/// How long an action waits for the app to redraw before its own result is read. A batch step reads nothing: the
+/// batch waits once between steps and once before its final state, so a step never adds a wait of its own.
+func readBackSettleInterval(_ interval: TimeInterval, context: ActionContext) -> TimeInterval {
+    context.isBatchStep ? 0 : interval
+}
+
 let screenshotFrameMismatchMessage =
     "x/y coordinates refer to a screenshot of a different window or window size. Call get_app_state, or repeat the action with include_screenshot=true, and read coordinates from the new screenshot."
 
@@ -871,7 +877,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
             }
 
-            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            pauseBeforeReadBack(postActionSettleInterval, context: context)
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
             return try finishAction(query: query, context: context)
         }
@@ -902,7 +908,8 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: !context.isBatchStep
+                        includeNearbyHitTesting: !context.isBatchStep,
+                        context: context
                     )) {
                         try performNonAXClickFallback(
                             at: targetPoint,
@@ -918,7 +925,8 @@ public final class ComputerUseService {
                         snapshot: snapshot,
                         button: button,
                         clickCount: clickCount,
-                        includeNearbyHitTesting: !context.isBatchStep
+                        includeNearbyHitTesting: !context.isBatchStep,
+                        context: context
                     ) else {
                         throw ComputerUseError.message(
                             "click_method 'accessibility' could not click element_index=\(elementIndex)"
@@ -976,7 +984,8 @@ public final class ComputerUseService {
                             snapshot: snapshot,
                             button: button,
                             clickCount: clickCount,
-                            includeNearbyHitTesting: false
+                            includeNearbyHitTesting: false,
+                            context: context
                         ) {
                             handled = true
                             break
@@ -1053,7 +1062,7 @@ public final class ComputerUseService {
             throw ComputerUseError.message("AXUIElementPerformAction failed with \(result.rawValue)")
         }
 
-        Thread.sleep(forTimeInterval: postActionSettleInterval)
+        pauseBeforeReadBack(postActionSettleInterval, context: context)
         return try finishAction(query: query, context: context)
     }
 
@@ -1081,7 +1090,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("fixture scroll requires an identifier-backed element")
             }
             try FixtureBridge.post(FixtureCommand(kind: "scroll", identifier: identifier, direction: normalized, pages: pages))
-            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            pauseBeforeReadBack(postActionSettleInterval, context: context)
             return try finishAction(query: query, context: context)
         }
 
@@ -1138,7 +1147,7 @@ public final class ComputerUseService {
         let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
-            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            pauseBeforeReadBack(postActionSettleInterval, context: context)
             return try finishAction(query: query, context: context)
         }
 
@@ -1157,7 +1166,7 @@ public final class ComputerUseService {
             postKeys: { try InputSimulation.typeText(text, pid: snapshot.app.pid) }
         )
         if route == .setFocusedValue {
-            Thread.sleep(forTimeInterval: 0.1)
+            pauseBeforeReadBack(0.1, context: context)
         }
         return try finishAction(query: query, context: context)
     }
@@ -1170,7 +1179,7 @@ public final class ComputerUseService {
         let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
         if snapshot.mode == .fixture {
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
-            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            pauseBeforeReadBack(postActionSettleInterval, context: context)
             return try finishAction(query: query, context: context)
         }
 
@@ -1196,7 +1205,7 @@ public final class ComputerUseService {
             let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
             moveVisualCursor(to: cursorTarget)
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
-            Thread.sleep(forTimeInterval: postActionSettleInterval)
+            pauseBeforeReadBack(postActionSettleInterval, context: context)
             settleVisualCursor(at: cursorTarget)
             return try finishAction(query: query, context: context)
         }
@@ -1218,7 +1227,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.message("AXUIElementSetAttributeValue failed with \(result.rawValue)")
             }
 
-            Thread.sleep(forTimeInterval: 0.1)
+            pauseBeforeReadBack(0.1, context: context)
         } catch {
             settleVisualCursor(at: cursorTarget)
             throw error
@@ -1286,6 +1295,9 @@ public final class ComputerUseService {
                 _ = try performBatchStep(step, query: query, context: context)
             }
         )
+
+        // Steps do not wait for a redraw themselves; the one wait before the final state covers the last step.
+        Thread.sleep(forTimeInterval: postActionSettleInterval)
 
         do {
             try checkLock()
@@ -1458,6 +1470,14 @@ public final class ComputerUseService {
             return false
         }
         return (raw as? Bool) == true
+    }
+
+    /// Waits for the app to redraw before an action's result is read; a batch step skips it (see `readBackSettleInterval`).
+    private func pauseBeforeReadBack(_ interval: TimeInterval, context: ActionContext) {
+        let wait = readBackSettleInterval(interval, context: context)
+        if wait > 0 {
+            Thread.sleep(forTimeInterval: wait)
+        }
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {
@@ -1671,7 +1691,8 @@ public final class ComputerUseService {
         snapshot: AppSnapshot,
         button: MouseButtonKind,
         clickCount: Int,
-        includeNearbyHitTesting: Bool
+        includeNearbyHitTesting: Bool,
+        context: ActionContext
     ) throws -> Bool {
         let preferContainingWebRowAXClick = shouldPreferContainingWebRowAXClick(record, in: snapshot)
         debugClickDecision("record=\(clickDebugDescription(record)) preferContainingWebRowAXClick=\(preferContainingWebRowAXClick)")
@@ -1679,21 +1700,21 @@ public final class ComputerUseService {
         if preferContainingWebRowAXClick,
            try performContainingWebRowClick(for: record, snapshot: snapshot, button: button, clickCount: clickCount)
         {
-            Thread.sleep(forTimeInterval: 0.15)
+            pauseBeforeReadBack(0.15, context: context)
             return true
         }
 
         if !preferContainingWebRowAXClick {
             if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
                 debugClickDecision("handled by preferred target \(clickDebugDescription(record))")
-                Thread.sleep(forTimeInterval: 0.15)
+                pauseBeforeReadBack(0.15, context: context)
                 return true
             }
 
             for candidate in descendantClickCandidates(for: record, snapshot: snapshot) {
                 if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
                     debugClickDecision("handled by descendant \(clickDebugDescription(candidate))")
-                    Thread.sleep(forTimeInterval: 0.15)
+                    pauseBeforeReadBack(0.15, context: context)
                     return true
                 }
             }
@@ -1708,7 +1729,7 @@ public final class ComputerUseService {
                        try performPreferredClick(on: hitRecord, button: button, clickCount: clickCount)
                     {
                         debugClickDecision("handled by hit record \(clickDebugDescription(hitRecord))")
-                        Thread.sleep(forTimeInterval: 0.15)
+                        pauseBeforeReadBack(0.15, context: context)
                         return true
                     }
 
@@ -1723,7 +1744,7 @@ public final class ComputerUseService {
                         ) {
                             if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
                                 debugClickDecision("handled by hit descendant \(clickDebugDescription(candidate))")
-                                Thread.sleep(forTimeInterval: 0.15)
+                                pauseBeforeReadBack(0.15, context: context)
                                 return true
                             }
                         }
