@@ -14,6 +14,11 @@ Usage: ./scripts/package-github-release-assets.sh [--version X.Y.Z] [--output-di
 Packages already-built Open Computer Use runtimes and the repository skill as
 direct-download GitHub Release assets. Run scripts/release-package.sh when the
 native runtimes have not been built yet.
+
+--output-dir is resolved against the repository root when relative, must stay
+inside the repository (never inside .git, the app bundle or the runtimes), and
+is only wiped when it is empty or was created by an earlier run of this script
+(it holds the .ocu-release-assets marker file).
 EOF
 }
 
@@ -47,6 +52,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Marker file written into every output directory this script creates; a
+# non-empty directory without it is never wiped.
+output_marker=".ocu-release-assets"
+
+# Normalize the requested path: collapse repeated slashes, drop leading './'
+# and trailing slashes, then anchor relative paths at the repository root.
+while [[ "${output_dir}" == *//* ]]; do
+  output_dir="${output_dir//\/\//\/}"
+done
+while [[ "${output_dir}" == ./?* ]]; do
+  output_dir="${output_dir#./}"
+done
+while [[ "${output_dir}" == ?*/ ]]; do
+  output_dir="${output_dir%/}"
+done
 if [[ "${output_dir}" != /* ]]; then
   output_dir="${repo_root}/${output_dir}"
 fi
@@ -99,8 +119,10 @@ codesign --verify --deep --strict "${app_path}"
 
 # The output directory is wiped before packaging, so refuse anything that is not
 # a strict subdirectory of the repository, anything containing parent-directory
-# segments, and anything that is, or contains, a build input (the dist directory,
-# the app bundle or the native runtimes).
+# segments, anything that is, contains or lies inside a build input (the app
+# bundle, the native runtimes or the staged skill), anything that is, contains or
+# lies inside the git directory, and any existing non-empty directory that this
+# script did not create (no marker file).
 path_is_within() {
   local child="$1"
   local parent="$2"
@@ -121,20 +143,62 @@ if ! path_is_within "${output_dir%/}" "${repo_root}"; then
   refuse_output_dir "path must be a subdirectory of ${repo_root}"
 fi
 
-mkdir -p "${output_dir}"
-canonical_output_dir="$(cd "${output_dir}" && pwd -P)"
+# Resolve symlinks through the nearest existing ancestor before anything is
+# created, so a link inside the repository cannot redirect the output elsewhere.
+missing_suffix=""
+existing_ancestor="${output_dir}"
+while [[ ! -e "${existing_ancestor}" ]]; do
+  if [[ -L "${existing_ancestor}" ]]; then
+    refuse_output_dir "${existing_ancestor} is a dangling symlink"
+  fi
+  missing_suffix="/$(basename "${existing_ancestor}")${missing_suffix}"
+  existing_ancestor="$(dirname "${existing_ancestor}")"
+done
+if [[ ! -d "${existing_ancestor}" ]]; then
+  refuse_output_dir "${existing_ancestor} exists and is not a directory"
+fi
+canonical_output_dir="$(cd "${existing_ancestor}" && pwd -P)${missing_suffix}"
 if ! path_is_within "${canonical_output_dir}" "${canonical_repo_root}"; then
   refuse_output_dir "resolves outside the repository"
 fi
-for build_input in "${dist_dir}" "${app_path}" "${linux_arm64}" "${linux_amd64}" "${windows_arm64}" "${windows_amd64}"; do
+
+# Refuse the git directory and anything inside it.
+canonical_git_dir="${canonical_repo_root}/.git"
+if [[ "${canonical_output_dir}" == "${canonical_git_dir}" ]] || path_is_within "${canonical_output_dir}" "${canonical_git_dir}"; then
+  refuse_output_dir "it is, or lies inside, the git directory"
+fi
+
+# The dist directory itself may hold the output (the default lives under it), so
+# it is only refused when it is, or lies inside, the output directory.
+canonical_dist_dir="$(cd "${dist_dir}" && pwd -P)"
+if [[ "${canonical_output_dir}" == "${canonical_dist_dir}" ]] || path_is_within "${canonical_dist_dir}" "${canonical_output_dir}"; then
+  refuse_output_dir "it is, or contains, the build directory ${dist_dir}"
+fi
+for build_input in "${app_path}" "${linux_arm64}" "${linux_amd64}" "${windows_arm64}" "${windows_amd64}" "${dist_dir}/skills"; do
   canonical_input="$(cd "$(dirname "${build_input}")" && pwd -P)/$(basename "${build_input}")"
-  if [[ "${canonical_output_dir}" == "${canonical_input}" ]] || path_is_within "${canonical_input}" "${canonical_output_dir}"; then
-    refuse_output_dir "it is, or contains, the build input ${build_input}"
+  if [[ "${canonical_output_dir}" == "${canonical_input}" ]] ||
+    path_is_within "${canonical_input}" "${canonical_output_dir}" ||
+    path_is_within "${canonical_output_dir}" "${canonical_input}"; then
+    refuse_output_dir "it is, contains or lies inside the build input ${build_input}"
   fi
 done
 
+# Only wipe a directory that is empty or that an earlier run created.
+if [[ -e "${canonical_output_dir}" ]]; then
+  if [[ ! -d "${canonical_output_dir}" ]]; then
+    refuse_output_dir "it exists and is not a directory"
+  fi
+  if [[ -n "$(ls -A "${canonical_output_dir}")" && ! -f "${canonical_output_dir}/${output_marker}" ]]; then
+    refuse_output_dir "it is not empty and was not created by this script (no ${output_marker} marker file)"
+  fi
+fi
+
+# From here on use the resolved path, so a symlink swapped in later cannot
+# redirect the wipe.
+output_dir="${canonical_output_dir}"
 rm -rf "${output_dir}"
 mkdir -p "${output_dir}"
+printf '%s\n' "Created by scripts/package-github-release-assets.sh; this directory is wiped on the next run." > "${output_dir}/${output_marker}"
 
 app_archive="${output_dir}/Open-Computer-Use-${version}-macOS-universal.app.zip"
 ditto -c -k --sequesterRsrc --keepParent "${app_path}" "${app_archive}"
@@ -159,7 +223,7 @@ package_unix_cli() {
   work_dirs+=("${work_dir}")
   cp "${source_path}" "${work_dir}/open-computer-use"
   chmod +x "${work_dir}/open-computer-use"
-  tar --no-xattrs --no-mac-metadata -czf "${archive_path}" -C "${work_dir}" open-computer-use
+  tar --no-xattrs --no-acls --no-fflags --no-mac-metadata -czf "${archive_path}" -C "${work_dir}" open-computer-use
 }
 
 package_windows_cli() {
@@ -218,7 +282,7 @@ done
     > SHA256SUMS
 )
 
-node - "${output_dir}" "${version}" "${repo_root}" <<'NODE'
+node - "${output_dir}" "${version}" "${repo_root}" "${output_marker}" <<'NODE'
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
@@ -226,8 +290,9 @@ const path = require("path");
 const outputDir = process.argv[2];
 const version = process.argv[3];
 const repoRoot = process.argv[4];
+const marker = process.argv[5];
 const files = fs.readdirSync(outputDir)
-  .filter((name) => name !== "release-assets-manifest.json")
+  .filter((name) => name !== "release-assets-manifest.json" && name !== marker)
   .sort();
 
 const artifacts = files.map((name) => {

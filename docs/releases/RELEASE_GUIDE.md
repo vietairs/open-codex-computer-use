@@ -95,7 +95,11 @@ node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/package-github-release-assets.sh --version 0.1.14
 ```
 
-The last command only re-packages: it needs an already built and signed `dist/Open Computer Use.app` plus the Linux / Windows binaries under `dist/`, and it refuses an `--output-dir` that is not a subdirectory of the repository or that contains those build inputs. `./scripts/release-package.sh` builds the inputs and already runs it, so a full release package run needs no separate call. `release-package.sh` fails on an unsigned local build (`OPEN_COMPUTER_USE_CODESIGN_MODE=none`) because the packaging step verifies the app signature; use ad-hoc or identity signing for a local run.
+The last command only re-packages: it needs an already built and signed `dist/Open Computer Use.app` plus the Linux / Windows binaries under `dist/`. `./scripts/release-package.sh` builds the inputs and already runs it, so a full release package run needs no separate call.
+
+`--output-dir` is wiped before packaging, so the script guards it. A relative path resolves against the repository root (a leading `./` is accepted). The path must stay inside the repository after symlinks are resolved, must not be, contain or lie inside the git directory, the app bundle, the native runtimes or `dist/skills`, and must not contain `.` or `..` segments. An existing directory is wiped only when it is empty or holds the `.ocu-release-assets` marker file that an earlier run wrote; any other non-empty directory (for example `docs`) is refused with its contents untouched. The marker is excluded from `SHA256SUMS` and `release-assets-manifest.json`.
+
+Release builds refuse ad-hoc or unsigned signing before packaging: `enforce_release_signing_policy` in `scripts/build-open-computer-use-app.sh` stops the build unless `OPEN_COMPUTER_USE_ALLOW_ADHOC_RELEASE=1` is set (the release workflow sets it explicitly when no signing secrets are configured). For a local run, either sign with a real identity or export that override for ad-hoc signing. A fully unsigned local build (`OPEN_COMPUTER_USE_CODESIGN_MODE=none`) still fails because the packaging step verifies the app signature.
 
 `SHA256SUMS` lists only the Open Computer Use direct-download assets; it does not cover `CursorMotion-<version>.dmg`.
 
@@ -158,7 +162,7 @@ Minimum requirements:
 
 ## Gatekeeper note for direct downloads
 
-A macOS app zip downloaded in a browser carries the quarantine attribute. When the release is ad-hoc signed or not notarized (this fork's CI has no signing or notary secrets, so its app zip is both), Gatekeeper blocks the first launch. Tell users to either:
+A macOS app zip downloaded in a browser carries the quarantine attribute. When the release is ad-hoc signed or not notarized (the CI app zip is both unless the signing and notary secrets are configured), Gatekeeper blocks the first launch. Tell users to either:
 
 - open System Settings > Privacy & Security and choose Open Anyway for `Open Computer Use.app` after the first blocked launch, or
 - clear the attribute before launching: `xattr -dr com.apple.quarantine "/Applications/Open Computer Use.app"`.
