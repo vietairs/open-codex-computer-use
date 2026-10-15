@@ -185,10 +185,14 @@ open-computer-use call press_key --args '{"app":"Google Chrome","key":"cmd+a","k
 ```
 
 - `type_text` with `sky_key` keeps the text-field focus check of `auto`: the focus line of the latest state must name a text field. The text is always sent as key events, never as an accessibility value write.
-- `sky_key` fails closed, sending nothing, when the screen is locked or its lock state is unknown (even with `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`), when the app is hidden (`cmd+h`), when the window id is stale, when the window is a Stage Manager off-stage window, when the window does not become the app's key window (for example a minimized window or one behind a sheet), and when private symbols are missing.
+- Call `get_app_state` for the app first: `sky_key` needs the window of a state you received in this session and fails otherwise, alone or as a `perform_actions` step.
+- `sky_key` fails closed, sending nothing, when the screen is locked or its lock state is unknown (even with `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`), when the app is hidden (`cmd+h`), when the window id is stale, when the window is minimized, when the window is a Stage Manager off-stage window, when the window does not become the app's key window (for example because a separate dialog window of the app holds key status), and when private symbols are missing.
+- A sheet attached to the window is part of that window, so `sky_key` cannot tell it apart: keys sent while a sheet is open go to the sheet. Check the latest state for an open sheet before typing.
 - A command chord fails without pressing anything when more than one enabled menu item matches it, or when the menu bar cannot be read within its time and size budget. Items of the Apple menu and of the application menu's submenus (Services) are never pressed. A chord with no matching menu item is sent as key events.
 - A menu item runs exactly what the user's own keypress would run, so `cmd+q` quits the target app and `cmd+w` closes its key window.
+- If a menu item did not confirm its press in time, the result succeeds with a note that the command may have run: call `get_app_state` and check before pressing the key again.
 - If the result carries a note that the background key-window state could not be released, the keys were delivered: do not send them again.
+- Inside `perform_actions`, these notes appear on the step's own line (`Step 2 press_key key=cmd+s: ok. Note: ...`).
 
 Windows and Linux return an unsupported error for `sky_key`.
 

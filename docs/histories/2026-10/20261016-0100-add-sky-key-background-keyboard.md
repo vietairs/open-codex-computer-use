@@ -14,6 +14,17 @@ Port the upstream `key_method=sky_key` background keyboard into the fork, adapte
 - Unit tests for the records, the menu walk, the lock rule, parsing, schema, batch policy and fixture refusal, a source-level check that both methods share one lock, and an opt-in live test (`OPEN_COMPUTER_USE_RUN_SKY_KEY_LIVE_TEST=1`).
 - Docs: usage keyboard section, `ARCHITECTURE.md`, `SECURITY.md`, `RELIABILITY.md`, a new keyboard reference note, the references index, the yabai section of `THIRD_PARTY_NOTICES.md` and a feature-release row.
 
+## Review follow-up
+
+- A menu-item `AXPress` that returns `kAXErrorCannotComplete` is reported as success with a note that the command may have run, instead of an error that would invite a duplicate press.
+- A single `type_text` / `press_key` with `sky_key`, and a `perform_actions` batch with a `sky_key` step, fail when no state was received for the app in this session, instead of building one with the default recovery that can unhide a hidden app.
+- Minimized target windows are refused before any record is posted. The docs no longer claim that keys never reach a sheet: an attached sheet is part of its window in accessibility, so the key-window confirmation cannot see it.
+- Windows and Linux reject an explicit empty or blank `key_method`, as macOS does.
+- The unavailable error for `sky_key` names the keyboard symbols instead of click symbols.
+- `perform_actions` shows a `sky_key` note (unconfirmed menu press, failed release) on that step's line.
+- The delivery sequence reaches SkyLight through a small `SyntheticFocusControlling` protocol, so the release of the target on every error path and the release-warning path are unit tested with a fake.
+- The keyboard reference documents that the `type_text` focus gate reads app-wide focus, not focus inside the window `sky_key` makes key.
+
 ## Design notes
 
 - The lock rule ignores `OPEN_COMPUTER_USE_ALLOW_LOCKED`: nobody has verified what synthetic activation and key-window records do while the login window owns the screen.

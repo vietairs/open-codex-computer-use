@@ -138,10 +138,10 @@ final class KeyMethodTests: XCTestCase {
         let image = ToolResultContentItem.pngImage(Data([0x89, 0x50]))
         let result = ToolCallResult(content: [.text("state"), image])
 
-        let unchanged = appendingSkyKeyReleaseWarning(to: result, delivery: SkyKeyboardDelivery(releaseWarning: nil))
+        let unchanged = appendingSkyKeyDeliveryNotes(to: result, delivery: SkyKeyboardDelivery(releaseWarning: nil))
         XCTAssertEqual(unchanged.content.count, 2)
 
-        let warned = appendingSkyKeyReleaseWarning(
+        let warned = appendingSkyKeyDeliveryNotes(
             to: result, delivery: SkyKeyboardDelivery(releaseWarning: "OSStatus -600")
         )
         XCTAssertFalse(warned.isError, "the keys were delivered, so the action must not read as failed")
@@ -149,5 +149,44 @@ final class KeyMethodTests: XCTestCase {
         let note = warned.content[1].dictionary["text"] as? String ?? ""
         XCTAssertTrue(note.contains("delivered the keys"), note)
         XCTAssertTrue(note.contains("Do not send the keys again"), note)
+    }
+
+    func testOutcomeNoteComesBeforeTheReleaseWarningAndStaysSuccess() {
+        let result = ToolCallResult(content: [.text("state"), .pngImage(Data([0x89]))])
+        let annotated = appendingSkyKeyDeliveryNotes(
+            to: result, delivery: SkyKeyboardDelivery(releaseWarning: "OSStatus -600", outcomeNote: "Note: may have run")
+        )
+
+        XCTAssertFalse(annotated.isError)
+        XCTAssertEqual(annotated.content.map { $0.dictionary["type"] as? String }, ["text", "text", "text", "image"])
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, "Note: may have run")
+        XCTAssertTrue((annotated.content[2].dictionary["text"] as? String ?? "").contains("Do not send the keys again"))
+    }
+
+    // MARK: - Received state
+
+    /// Without a received state the call would have to build one, and the default build can unhide a hidden app.
+    func testSingleSkyKeyActionWithoutReceivedStateFailsBeforeResolvingTheApp() {
+        let dispatcher = makeDispatcher()
+        let app = "NoSuchApp-sky-key-state-test"
+        for (tool, extra) in [("type_text", ["text": "x"]), ("press_key", ["key": "a"])] {
+            var arguments: [String: Any] = ["app": app, "key_method": "sky_key"]
+            arguments.merge(extra) { _, new in new }
+            let result = dispatcher.callToolAsResult(name: tool, arguments: arguments)
+
+            XCTAssertTrue(result.isError, tool)
+            let text = result.primaryText ?? ""
+            XCTAssertTrue(text.contains(skyKeyMissingReceivedStateMessage(app: app)), "\(tool): \(text)")
+            XCTAssertFalse(text.contains("appNotFound"), "\(tool): \(text)")
+        }
+    }
+
+    func testSingleAutoKeyActionWithoutReceivedStateStillResolvesTheApp() {
+        let result = makeDispatcher().callToolAsResult(
+            name: "press_key", arguments: ["app": "NoSuchApp-sky-key-state-test", "key": "a"]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertFalse((result.primaryText ?? "").contains("sky_key"), result.primaryText ?? "")
     }
 }

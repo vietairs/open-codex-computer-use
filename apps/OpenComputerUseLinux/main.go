@@ -1145,10 +1145,9 @@ func parseKeyMethodArgument(args map[string]any) (string, error) {
 }
 
 func parseKeyMethod(value string) (string, error) {
+	// An explicit empty or blank value is refused like any unknown value, as on macOS; only an absent key_method
+	// means auto.
 	normalized := strings.ToLower(strings.TrimSpace(value))
-	if normalized == "" {
-		return "auto", nil
-	}
 	for _, candidate := range keyMethodValues {
 		if normalized == candidate {
 			return normalized, nil

@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 import XCTest
@@ -16,6 +17,45 @@ private struct MenuNode: Equatable {
     let name: String
     var matches = false
     var children: [MenuNode] = []
+}
+
+/// Records the synthetic-focus calls `deliver` makes, in order, and fails the ones a test asks it to.
+private final class FakeSyntheticFocus: SyntheticFocusControlling {
+    var keyboardCapability = SkyLightSPICapability(missingSymbols: [], feature: "keyboard")
+    var beginError: Error?
+    var makeKeyError: Error?
+    var endError: Error?
+    private(set) var calls: [String] = []
+    private(set) var beginWindowIDs: [CGWindowID] = []
+
+    func beginSyntheticTargetFocus(
+        targetPID: pid_t,
+        targetWindowID: CGWindowID,
+        methodLabel: String
+    ) throws -> SkyLightSyntheticFocusContext {
+        calls.append("begin")
+        beginWindowIDs.append(targetWindowID)
+        if let beginError {
+            throw beginError
+        }
+        return SkyLightSyntheticFocusContext(
+            deactivateTarget: SkyLightActivationCommand(psn: [0, 0, 0, 0, 0, 0, 0, 1], windowID: targetWindowID, focused: false)
+        )
+    }
+
+    func makeSyntheticTargetWindowKey(_ context: SkyLightSyntheticFocusContext) throws {
+        calls.append("makeKey")
+        if let makeKeyError {
+            throw makeKeyError
+        }
+    }
+
+    func endSyntheticTargetFocus(_ context: SkyLightSyntheticFocusContext, methodLabel: String) throws {
+        calls.append("end")
+        if let endError {
+            throw endError
+        }
+    }
 }
 
 final class SkyKeyboardSimulationTests: XCTestCase {
@@ -213,6 +253,234 @@ final class SkyKeyboardSimulationTests: XCTestCase {
         XCTAssertThrowsError(try SkyKeyboardDispatcher.typeText(target: target, text: "x", sessionState: provider)) { error in
             XCTAssertFalse(ComputerUseError.isLockRefusal(error), "\(error)")
         }
+    }
+
+    // MARK: - Keyboard capability text
+
+    func testKeyboardCapabilityNamesTheKeyboardPath() {
+        XCTAssertEqual(SkyLightSPI.shared.keyboardCapability.feature, "keyboard")
+        XCTAssertEqual(SkyLightSPI.shared.keyboardCapability.missingSymbols, SkyLightSPI.shared.capability.missingSymbols)
+    }
+
+    func testUnavailableErrorNamesKeyMethodSkyKeyAndTheKeyboardSymbols() {
+        let focus = FakeSyntheticFocus()
+        focus.keyboardCapability = SkyLightSPICapability(missingSymbols: ["SLPSPostEventRecordTo"], feature: "keyboard")
+        var bodyRuns = 0
+
+        XCTAssertThrowsError(try deliver(focus: focus) { bodyRuns += 1; return nil }) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "key_method 'sky_key' is unavailable: missing private keyboard symbols: SLPSPostEventRecordTo"
+            )
+        }
+        XCTAssertEqual(focus.calls, [])
+        XCTAssertEqual(bodyRuns, 0)
+    }
+
+    // MARK: - Menu press outcome
+
+    func testMenuPressSuccessHasNoNote() throws {
+        XCTAssertNil(try skyMenuPressNote(result: .success, key: "cmd+a"))
+    }
+
+    /// A timed-out press may have run the command, so it is a success with a note, never an error that invites a retry.
+    func testMenuPressTimeoutIsSuccessWithAMayHaveRunNote() throws {
+        let note = try XCTUnwrap(skyMenuPressNote(result: .cannotComplete, key: "cmd+delete"))
+        XCTAssertTrue(note.contains("may have run"), note)
+        XCTAssertTrue(note.contains("get_app_state"), note)
+        XCTAssertTrue(note.contains("'cmd+delete'"), note)
+        XCTAssertTrue(note.contains("\(AXError.cannotComplete.rawValue)"), note)
+    }
+
+    func testMenuPressFailureIsAnError() {
+        for result in [AXError.actionUnsupported, .invalidUIElement, .failure] {
+            XCTAssertThrowsError(try skyMenuPressNote(result: result, key: "cmd+a")) { error in
+                XCTAssertEqual(
+                    (error as? ComputerUseError)?.errorDescription,
+                    "sky_key could not press the menu item for 'cmd+a' (AXError \(result.rawValue))"
+                )
+            }
+        }
+    }
+
+    // MARK: - Minimized window
+
+    func testMinimizedCheckMatchesOnlyTheTargetWindow() {
+        let windows: [(id: CGWindowID?, minimized: Bool)] = [(7, true), (42, false), (nil, true)]
+        func check(_ windows: [(id: CGWindowID?, minimized: Bool)], _ windowID: CGWindowID) -> Bool {
+            skyKeyWindowIsMinimized(windows: windows, windowID: windowID, windowIDOf: \.id, isMinimized: \.minimized)
+        }
+
+        XCTAssertTrue(check(windows, 7))
+        XCTAssertFalse(check(windows, 42))
+        XCTAssertFalse(check(windows, 99), "a window that is not listed is left to the key-window confirmation")
+        XCTAssertFalse(check([], 7))
+    }
+
+    // MARK: - Delivery sequence
+
+    private static let deliveryTarget = SkyKeyboardTarget(windowID: 42, pid: 4_242)
+
+    private func deliver(
+        focus: FakeSyntheticFocus,
+        frontmostPID: pid_t? = 1,
+        focusedWindowID: @escaping (pid_t) -> CGWindowID? = { _ in 42 },
+        validate: @escaping (SkyKeyboardTarget) throws -> Void = { _ in },
+        _ body: () throws -> String?
+    ) throws -> SkyKeyboardDelivery {
+        try SkyKeyboardDispatcher.deliver(
+            to: Self.deliveryTarget,
+            focus: focus,
+            sessionState: FixedSessionProvider(snapshot: Self.unlocked),
+            probes: SkyKeyboardDeliveryProbes(
+                validate: validate,
+                frontmostPID: { frontmostPID },
+                focusedWindowID: focusedWindowID
+            ),
+            body
+        )
+    }
+
+    func testBackgroundDeliveryMakesKeySendsOnceAndReleases() throws {
+        let focus = FakeSyntheticFocus()
+        var bodyRuns = 0
+
+        let delivery = try deliver(focus: focus) {
+            bodyRuns += 1
+            return nil
+        }
+
+        XCTAssertEqual(delivery, SkyKeyboardDelivery(releaseWarning: nil, outcomeNote: nil))
+        XCTAssertEqual(focus.calls, ["begin", "makeKey", "end"])
+        XCTAssertEqual(focus.beginWindowIDs, [42])
+        XCTAssertEqual(bodyRuns, 1)
+    }
+
+    func testBodyNoteIsReturnedWithTheDelivery() throws {
+        let delivery = try deliver(focus: FakeSyntheticFocus()) { "Note: may have run" }
+        XCTAssertEqual(delivery.outcomeNote, "Note: may have run")
+        XCTAssertNil(delivery.releaseWarning)
+    }
+
+    func testFailedBeginSendsNothingAndHasNothingToRelease() {
+        let focus = FakeSyntheticFocus()
+        focus.beginError = ComputerUseError.message("begin failed")
+        var bodyRuns = 0
+
+        XCTAssertThrowsError(try deliver(focus: focus) { bodyRuns += 1; return nil }) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, "begin failed")
+        }
+        XCTAssertEqual(focus.calls, ["begin"])
+        XCTAssertEqual(bodyRuns, 0)
+    }
+
+    func testFailedMakeKeyReleasesTheTargetOnceAndSendsNothing() {
+        let focus = FakeSyntheticFocus()
+        focus.makeKeyError = ComputerUseError.message("make key failed")
+        var bodyRuns = 0
+
+        XCTAssertThrowsError(try deliver(focus: focus) { bodyRuns += 1; return nil }) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, "make key failed")
+        }
+        XCTAssertEqual(focus.calls, ["begin", "makeKey", "end"])
+        XCTAssertEqual(bodyRuns, 0)
+    }
+
+    func testUnconfirmedKeyWindowReleasesTheTargetOnceAndSendsNothing() {
+        let focus = FakeSyntheticFocus()
+        var bodyRuns = 0
+
+        XCTAssertThrowsError(
+            try deliver(focus: focus, focusedWindowID: { _ in 7 }) { bodyRuns += 1; return nil }
+        ) { error in
+            guard case let .stateUnavailable(message)? = error as? ComputerUseError else {
+                return XCTFail("\(error)")
+            }
+            XCTAssertTrue(message.contains("could not make the snapshot's window the key window"), message)
+        }
+        XCTAssertEqual(focus.calls, ["begin", "makeKey", "end"])
+        XCTAssertEqual(bodyRuns, 0)
+    }
+
+    func testFailedBodyReleasesTheTargetOnceAndRethrows() {
+        let focus = FakeSyntheticFocus()
+
+        XCTAssertThrowsError(try deliver(focus: focus) { throw ComputerUseError.message("keys failed") }) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, "keys failed")
+        }
+        XCTAssertEqual(focus.calls, ["begin", "makeKey", "end"])
+    }
+
+    func testFailedReleaseOfAFailedSequenceKeepsTheOriginalError() {
+        let focus = FakeSyntheticFocus()
+        focus.makeKeyError = ComputerUseError.message("make key failed")
+        focus.endError = ComputerUseError.message("end failed")
+
+        XCTAssertThrowsError(try deliver(focus: focus) { nil }) { error in
+            XCTAssertEqual((error as? ComputerUseError)?.errorDescription, "make key failed")
+        }
+        XCTAssertEqual(focus.calls, ["begin", "makeKey", "end"])
+    }
+
+    /// The keys were delivered, so a failed release must be a warning on a successful delivery, never a thrown error
+    /// that would invite a resend.
+    func testFailedReleaseAfterDeliveryIsAWarningNotAnError() throws {
+        let focus = FakeSyntheticFocus()
+        focus.endError = ComputerUseError.message("OSStatus -600")
+        var bodyRuns = 0
+
+        let delivery = try deliver(focus: focus) {
+            bodyRuns += 1
+            return "Note: may have run"
+        }
+
+        XCTAssertEqual(delivery.releaseWarning, "OSStatus -600")
+        XCTAssertEqual(delivery.outcomeNote, "Note: may have run")
+        XCTAssertEqual(focus.calls, ["begin", "makeKey", "end"])
+        XCTAssertEqual(bodyRuns, 1)
+    }
+
+    func testFrontmostTargetWithKeyWindowSendsWithoutAnySyntheticFocus() throws {
+        let focus = FakeSyntheticFocus()
+        var bodyRuns = 0
+
+        let delivery = try deliver(focus: focus, frontmostPID: Self.deliveryTarget.pid) {
+            bodyRuns += 1
+            return nil
+        }
+
+        XCTAssertEqual(delivery, SkyKeyboardDelivery(releaseWarning: nil))
+        XCTAssertEqual(focus.calls, [])
+        XCTAssertEqual(bodyRuns, 1)
+    }
+
+    /// Making a window key in the frontmost app would change the user's own key window, so it is refused instead.
+    func testFrontmostTargetWhoseWindowIsNotKeyIsRefusedWithoutAnySyntheticFocus() {
+        let focus = FakeSyntheticFocus()
+        var bodyRuns = 0
+
+        XCTAssertThrowsError(
+            try deliver(focus: focus, frontmostPID: Self.deliveryTarget.pid, focusedWindowID: { _ in 7 }) {
+                bodyRuns += 1
+                return nil
+            }
+        )
+        XCTAssertEqual(focus.calls, [])
+        XCTAssertEqual(bodyRuns, 0)
+    }
+
+    func testFailedValidationPostsNoRecord() {
+        let focus = FakeSyntheticFocus()
+        var bodyRuns = 0
+
+        XCTAssertThrowsError(
+            try deliver(focus: focus, validate: { _ in throw ComputerUseError.stateUnavailable("minimized") }) {
+                bodyRuns += 1
+                return nil
+            }
+        )
+        XCTAssertEqual(focus.calls, [])
+        XCTAssertEqual(bodyRuns, 0)
     }
 
     // MARK: - Release failure and source invariants

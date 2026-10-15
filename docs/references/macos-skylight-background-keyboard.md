@@ -13,15 +13,22 @@ This note records how `key_method=sky_key` works, what was verified on real hard
 
 1. Refuse when the screen is locked or its lock state is unknown. `OPEN_COMPUTER_USE_ALLOW_LOCKED` does not change this.
 2. Take the synthetic-focus lock shared with `sky_click`, so no other session's focus records interleave.
-3. Validate the target: the app is not hidden, and the snapshot's window id still exists and belongs to the same PID (`CGWindowListCopyWindowInfo(.optionAll)`, so a covered or other-Space window is accepted).
+3. Validate the target: the app is not hidden, the snapshot's window id still exists and belongs to the same PID (`CGWindowListCopyWindowInfo(.optionAll)`, so a covered or other-Space window is accepted), and the app's AX window with that id does not report `AXMinimized`. All of this runs before any record is posted. The snapshot itself must be one the caller received in this session: `sky_key` never builds a missing one, because the default build can unhide a hidden app.
 4. If the target app is already frontmost, require that the snapshot's window is its key window and send the keys; nothing else changes.
 5. Otherwise reuse `sky_click`'s target-only synthetic-active record (`[0x08]=0x0D`, `[0x8a]=0x01`), sent only to the target PSN, never to the real foreground app.
 6. Post yabai's `window_manager_make_key_window` record pair to the target PSN: `[0x04]=0xF8`, `[0x3a]=0x10`, `[0x20..0x30)=0xFF`, the window id little-endian at `0x3c..0x3f`, and `[0x08]` first `0x01`, then `0x02`. The target app makes that window its key window internally; the WindowServer frontmost app, z-order and Space do not change.
 7. Wait a fixed 10 ms, then poll the target app's `AXFocusedWindow` (for at most 250 ms) until it maps to the snapshot's window id. If it never does, release the target and fail without sending anything.
-8. Send the keys through the existing public `CGEvent.postToPid` path (`InputSimulation.typeText` / `pressKey`). A one-character chord with `cmd` instead presses the target's menu item whose `AXMenuItemCmdChar` and `AXMenuItemCmdModifiers` match, through `AXPress`.
-9. Wait a fixed 10 ms and post the deactivate record (`[0x8a]=0x02`) to undo the synthetic state; the Chrome page blurs.
+8. Send the keys through the existing public `CGEvent.postToPid` path (`InputSimulation.typeText` / `pressKey`). A one-character chord with `cmd` instead presses the target's menu item whose `AXMenuItemCmdChar` and `AXMenuItemCmdModifiers` match, through `AXPress`. When that press returns `kAXErrorCannotComplete` (the app did not answer within the 0.5 s messaging timeout, as happens when the command opens a modal dialog), the command may have run, so the call succeeds with a note telling the caller to read the state before pressing again instead of failing and inviting a duplicate.
+9. Wait a fixed 10 ms and post the deactivate record (`[0x8a]=0x02`) to undo the synthetic state; the Chrome page blurs. If that fails after the keys were sent, the call still succeeds, with a note not to send the keys again; inside `perform_actions` the note is on that step's line.
+
+Once step 5 has posted the activation record, every later failure posts the deactivate record before the error is returned. The delivery sequence reaches SkyLight through the `SyntheticFocusControlling` protocol, so these error paths are unit tested with a fake instead of real records.
 
 The settle times are constants in code. They are not read from the environment, because a peer's per-call environment is applied to the shared agent process and a huge value would stall every session.
+
+## What the key-window confirmation cannot see
+
+- **Focus inside the window.** The `type_text` text-focus gate reads the app's focused element (`AXFocusedUIElement`, from the snapshot or live), which is app-wide and is not tied to the snapshot's window. When the app's focus sits in a different window from the one `sky_key` makes key, for example because the snapshot fell back to the first window while the focused window is minimized, the gate can pass on a text field in that other window while the keys go to the first responder of the snapshot's window. In a web app, single-character keys there can act as page shortcuts. `auto` does not have this mismatch, because its keys go to the app's own key window, the one the gate checked. Call `get_app_state` right before typing and check that its window is the one holding the focused text field.
+- **Sheets.** An attached sheet is an `AXSheet` child of its parent window, and the app's `AXFocusedWindow` stays the parent while the sheet is open, so the confirmation passes and keys go to the sheet. A separate dialog window is detected, because it becomes the app's focused window. Neither case has been verified live.
 
 ## Menu-bar chords
 
@@ -62,4 +69,4 @@ The fork-specific additions (the lock rule, the shared lock, the `AXFocusedWindo
 
 ## Compatibility checks
 
-`sky_key` uses the same five private symbols as `sky_click` and fails closed when any is missing. After a macOS update, re-run `OPEN_COMPUTER_USE_RUN_SKY_KEY_LIVE_TEST=1 swift test --filter SkyKeyboardLiveTests` from Terminal.app with Accessibility granted to the test runner.
+`sky_key` uses the same five private symbols as `sky_click` and fails closed when any is missing; its error names `key_method 'sky_key'` and the missing keyboard symbols. After a macOS update, re-run `OPEN_COMPUTER_USE_RUN_SKY_KEY_LIVE_TEST=1 swift test --filter SkyKeyboardLiveTests` from Terminal.app with Accessibility granted to the test runner.

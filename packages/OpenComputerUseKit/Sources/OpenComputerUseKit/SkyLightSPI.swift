@@ -131,6 +131,12 @@ final class SkyLightSPI: @unchecked Sendable {
 
     let capability: SkyLightSPICapability
 
+    /// The same symbol check as `capability`, worded for `sky_key`, so its unavailable error is about the keyboard
+    /// path rather than clicks.
+    var keyboardCapability: SkyLightSPICapability {
+        SkyLightSPICapability(missingSymbols: capability.missingSymbols, feature: "keyboard")
+    }
+
     private init() {
         let handle = dlopen(Self.frameworkPath, RTLD_LAZY | RTLD_GLOBAL)
         let appServicesHandle = dlopen(Self.applicationServicesPath, RTLD_LAZY | RTLD_GLOBAL)
@@ -249,9 +255,8 @@ final class SkyLightSPI: @unchecked Sendable {
     }
 
     private func unavailableError(methodLabel: String) -> ComputerUseError {
-        ComputerUseError.message(
-            "\(methodLabel) is unavailable: \(capability.unavailableReason)"
-        )
+        let reason = methodLabel == skyKeyMethodLabel ? keyboardCapability.unavailableReason : capability.unavailableReason
+        return ComputerUseError.message("\(methodLabel) is unavailable: \(reason)")
     }
 
     private func opaquePointer(for event: CGEvent) -> UnsafeMutableRawPointer {
@@ -287,3 +292,22 @@ final class SkyLightSPI: @unchecked Sendable {
         return unsafeBitCast(pointer, to: T.self)
     }
 }
+
+/// The synthetic-focus calls `SkyKeyboardDispatcher` makes. `SkyLightSPI` is the only production conformer; the
+/// protocol exists so the begin, make-key and end order, and the release of the target on every error path, can be
+/// unit tested without posting real records.
+protocol SyntheticFocusControlling {
+    var keyboardCapability: SkyLightSPICapability { get }
+
+    func beginSyntheticTargetFocus(
+        targetPID: pid_t,
+        targetWindowID: CGWindowID,
+        methodLabel: String
+    ) throws -> SkyLightSyntheticFocusContext
+
+    func makeSyntheticTargetWindowKey(_ context: SkyLightSyntheticFocusContext) throws
+
+    func endSyntheticTargetFocus(_ context: SkyLightSyntheticFocusContext, methodLabel: String) throws
+}
+
+extension SkyLightSPI: SyntheticFocusControlling {}

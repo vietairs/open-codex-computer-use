@@ -18,8 +18,8 @@ final class SkyKeyboardLiveTests: XCTestCase {
             throw XCTSkip("Set OPEN_COMPUTER_USE_RUN_SKY_KEY_LIVE_TEST=1 to run the isolated Chrome live test")
         }
         let spi = SkyLightSPI.shared
-        guard spi.capability.isAvailable else {
-            throw XCTSkip("SkyLight SPI unavailable: \(spi.capability.unavailableReason)")
+        guard spi.keyboardCapability.isAvailable else {
+            throw XCTSkip("SkyLight SPI unavailable: \(spi.keyboardCapability.unavailableReason)")
         }
 
         let chromeURL = URL(fileURLWithPath: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
@@ -146,7 +146,7 @@ final class SkyKeyboardLiveTests: XCTestCase {
         let cursorBefore = CGEvent(source: nil)?.location
         let target = SkyKeyboardTarget(windowID: coveredWindow.id, pid: coveredWindow.pid)
 
-        let firstDelivery = try SkyKeyboardDispatcher.typeText(target: target, text: "hello", spi: spi)
+        let firstDelivery = try SkyKeyboardDispatcher.typeText(target: target, text: "hello", focus: spi)
         XCTAssertNil(firstDelivery.releaseWarning, "sky_key must release the target's synthetic key state")
         let typedWindow = try waitForWindow(pid: readyWindow.pid, nameContaining: "ocu-sky-key-value-hello|")
         XCTAssertTrue(
@@ -154,13 +154,13 @@ final class SkyKeyboardLiveTests: XCTestCase {
             "sky_key typing must land in the covered Chrome input exactly once"
         )
 
-        try SkyKeyboardDispatcher.pressKey(target: target, key: "backspace", spi: spi)
-        try SkyKeyboardDispatcher.pressKey(target: target, key: "shift+a", spi: spi)
+        try SkyKeyboardDispatcher.pressKey(target: target, key: "backspace", focus: spi)
+        try SkyKeyboardDispatcher.pressKey(target: target, key: "shift+a", focus: spi)
         _ = try waitForWindow(pid: readyWindow.pid, nameContaining: "ocu-sky-key-value-hellA|")
 
         // Menu-bar key equivalents go through the target's Edit menu.
-        try SkyKeyboardDispatcher.pressKey(target: target, key: "cmd+a", spi: spi)
-        try SkyKeyboardDispatcher.typeText(target: target, text: "Ok!", spi: spi)
+        try SkyKeyboardDispatcher.pressKey(target: target, key: "cmd+a", focus: spi)
+        try SkyKeyboardDispatcher.typeText(target: target, text: "Ok!", focus: spi)
         let editedWindow = try waitForWindow(pid: readyWindow.pid, nameContaining: "ocu-sky-key-value-Ok!|")
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         let finalWindow = try XCTUnwrap(windows().first(where: { $0.id == editedWindow.id }))

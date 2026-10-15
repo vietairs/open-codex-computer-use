@@ -191,16 +191,31 @@ func skyKeyTarget(windowID: CGWindowID?, isOffStage: Bool, pid: pid_t) throws ->
     return SkyKeyboardTarget(windowID: windowID, pid: pid)
 }
 
-/// Adds the release warning of a `sky_key` delivery to an action result, before any image. The action itself
-/// succeeded, so the result keeps its error flag.
-func appendingSkyKeyReleaseWarning(to result: ToolCallResult, delivery: SkyKeyboardDelivery) -> ToolCallResult {
-    guard let warning = delivery.releaseWarning else {
+/// Refusal text when a single `sky_key` action finds no state received for the app in this session. Building one
+/// on demand could unhide a hidden app (the default recovery activates it), a visible change `sky_key` must never
+/// make. Batches refuse the same way through `BatchActionRunner.missingReceivedStateMessage`.
+func skyKeyMissingReceivedStateMessage(app: String) -> String {
+    "key_method 'sky_key' needs the state you received, and none is cached for this app in this session; call get_app_state for \(app) first"
+}
+
+/// Adds the notes of a `sky_key` delivery (an unconfirmed outcome, then a release warning) to an action result,
+/// before any image. The action itself was sent, so the result keeps its error flag.
+func appendingSkyKeyDeliveryNotes(to result: ToolCallResult, delivery: SkyKeyboardDelivery) -> ToolCallResult {
+    let notes = [delivery.outcomeNote, delivery.releaseWarning.map(skyKeyReleaseWarningNote)].compactMap { $0 }
+    guard !notes.isEmpty else {
         return result
     }
     var content = result.content
     let insertIndex = content.firstIndex { $0.dictionary["type"] as? String == "image" } ?? content.endIndex
-    content.insert(.text(skyKeyReleaseWarningNote(warning)), at: insertIndex)
+    content.insert(contentsOf: notes.map(ToolResultContentItem.text), at: insertIndex)
     return ToolCallResult(content: content, isError: result.isError)
+}
+
+/// The text a batch step's result carries, which only `sky_key` notes produce: a batch step observes no state.
+/// Nil when the step returned no text.
+func batchStepNote(from result: ToolCallResult) -> String? {
+    let texts = result.content.compactMap { $0.dictionary["type"] as? String == "text" ? $0.dictionary["text"] as? String : nil }
+    return texts.isEmpty ? nil : texts.joined(separator: " ")
 }
 
 struct VisualCursorScreenMapping: Equatable {
@@ -1239,7 +1254,7 @@ public final class ComputerUseService {
     }
 
     func typeText(app query: String, text: String, keyMethod: KeyMethod = .auto, context: ActionContext) throws -> ToolCallResult {
-        let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
+        let snapshot = try keyActionSnapshot(for: query, keyMethod: keyMethod, context: context)
         if snapshot.mode == .fixture {
             try requireAutoKeyMethodForFixture(keyMethod)
             try FixtureBridge.post(FixtureCommand(kind: "type_text", identifier: "fixture-input", value: text))
@@ -1265,7 +1280,7 @@ public final class ComputerUseService {
                 throw ComputerUseError.message(typeTextNeedsTextFocusMessage(appName: snapshot.app.name))
             }
             let delivery = try InputSimulation.typeTextWithSkyLight(text, windowID: target.windowID, pid: target.pid)
-            return appendingSkyKeyReleaseWarning(
+            return appendingSkyKeyDeliveryNotes(
                 to: try finishAction(
                     query: query, context: context, recoveryPolicy: keyActionSnapshotRecoveryPolicy(for: keyMethod)
                 ),
@@ -1296,7 +1311,7 @@ public final class ComputerUseService {
     }
 
     func pressKey(app query: String, key: String, keyMethod: KeyMethod = .auto, context: ActionContext) throws -> ToolCallResult {
-        let snapshot = try context.pinnedSnapshot ?? currentSnapshot(for: query)
+        let snapshot = try keyActionSnapshot(for: query, keyMethod: keyMethod, context: context)
         if snapshot.mode == .fixture {
             try requireAutoKeyMethodForFixture(keyMethod)
             try FixtureBridge.post(FixtureCommand(kind: "press_key", identifier: "fixture-key-capture", value: key))
@@ -1309,7 +1324,7 @@ public final class ComputerUseService {
                 windowID: snapshot.targetWindowID, isOffStage: snapshot.isOffStage, pid: snapshot.app.pid
             )
             let delivery = try InputSimulation.pressKeyWithSkyLight(key, windowID: target.windowID, pid: target.pid)
-            return appendingSkyKeyReleaseWarning(
+            return appendingSkyKeyDeliveryNotes(
                 to: try finishAction(
                     query: query, context: context, recoveryPolicy: keyActionSnapshotRecoveryPolicy(for: keyMethod)
                 ),
@@ -1434,7 +1449,8 @@ public final class ComputerUseService {
                 }
             },
             perform: { _, step in
-                _ = try performBatchStep(step, query: query, context: context)
+                // Only a sky_key note survives a batch step; it says the keys were sent, so the caller must see it.
+                batchStepNote(from: try performBatchStep(step, query: query, context: context))
             }
         )
 
@@ -1624,6 +1640,18 @@ public final class ComputerUseService {
             return
         }
         sleepHandler(interval)
+    }
+
+    /// The snapshot a `type_text` or `press_key` acts on: the batch's pinned one, else the cached one. `sky_key` never
+    /// builds a missing one, because the default build can unhide a hidden app.
+    private func keyActionSnapshot(for query: String, keyMethod: KeyMethod, context: ActionContext) throws -> AppSnapshot {
+        if let pinned = context.pinnedSnapshot {
+            return pinned
+        }
+        if keyMethod == .skyKey, snapshotsByApp[query.lowercased()] == nil {
+            throw ComputerUseError.invalidArguments(skyKeyMissingReceivedStateMessage(app: query))
+        }
+        return try currentSnapshot(for: query)
     }
 
     private func currentSnapshot(for query: String) throws -> AppSnapshot {

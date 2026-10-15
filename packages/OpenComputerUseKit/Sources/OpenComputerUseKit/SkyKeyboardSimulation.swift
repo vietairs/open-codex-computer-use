@@ -11,13 +11,66 @@ struct SkyKeyboardTarget: Equatable {
 /// What a finished `sky_key` delivery reports. The keys were delivered; `releaseWarning` is set when the target's
 /// synthetic key-window state could not be released afterwards. That is not an action failure: reporting it as one
 /// would invite a retry that types the text or presses the key a second time.
+/// `outcomeNote` is set when the action was sent but its effect is unconfirmed, such as a menu item whose press
+/// timed out; it is reported with the successful result for the same reason.
 struct SkyKeyboardDelivery: Equatable {
     let releaseWarning: String?
+    var outcomeNote: String? = nil
 }
 
 func skyKeyReleaseWarningNote(_ reason: String) -> String {
     "Note: sky_key delivered the keys, but could not release the target app's background key-window state (\(reason)). "
         + "Do not send the keys again. The app may behave as if it were active until it is next activated or deactivated."
+}
+
+/// What the `AXPress` result of a matched menu item means for the caller: nil when the press succeeded, a note when
+/// its outcome is unknown, and an error when nothing ran.
+///
+/// `.cannotComplete` means the app did not answer within the messaging timeout. A menu command that opens a modal
+/// dialog or keeps the app's main thread busy returns it even though the command ran, so it is reported as success
+/// with a note: an error would invite a retry that runs the command a second time.
+func skyMenuPressNote(result: AXError, key: String) throws -> String? {
+    switch result {
+    case .success:
+        return nil
+    case .cannotComplete:
+        return "Note: sky_key pressed the menu item for '\(key)', but the app did not confirm it in time "
+            + "(AXError \(result.rawValue)). The command may have run. Call get_app_state and check the app's state "
+            + "before pressing '\(key)' again."
+    default:
+        throw ComputerUseError.message(
+            "sky_key could not press the menu item for '\(key)' (AXError \(result.rawValue))"
+        )
+    }
+}
+
+/// Pure. Whether the AX window with `windowID` reports itself minimized. A window that is not among `windows` reads
+/// as not minimized; the key-window confirmation still refuses a window that does not become key.
+func skyKeyWindowIsMinimized<Window>(
+    windows: [Window],
+    windowID: CGWindowID,
+    windowIDOf: (Window) -> CGWindowID?,
+    isMinimized: (Window) -> Bool
+) -> Bool {
+    windows.contains { windowIDOf($0) == windowID && isMinimized($0) }
+}
+
+/// The live reads `SkyKeyboardDispatcher.deliver` makes around the synthetic-focus calls. Production always uses
+/// `.live`; unit tests replace them to drive each path of the delivery sequence.
+struct SkyKeyboardDeliveryProbes {
+    /// Throws when the target must not receive keys: hidden app, missing or foreign window, minimized window.
+    var validate: (SkyKeyboardTarget) throws -> Void
+    var frontmostPID: () -> pid_t?
+    /// The window id the app's `AXFocusedWindow` maps to, or nil when it cannot be read.
+    var focusedWindowID: (pid_t) -> CGWindowID?
+
+    static var live: SkyKeyboardDeliveryProbes {
+        SkyKeyboardDeliveryProbes(
+            validate: SkyKeyboardDispatcher.validate(target:),
+            frontmostPID: { NSWorkspace.shared.frontmostApplication?.processIdentifier },
+            focusedWindowID: SkyKeyboardDispatcher.focusedWindowID(pid:)
+        )
+    }
 }
 
 /// `sky_key` refuses whenever the screen is locked or its lock state is unknown. `OPEN_COMPUTER_USE_ALLOW_LOCKED`
@@ -189,11 +242,12 @@ enum SkyKeyboardDispatcher {
     static func typeText(
         target: SkyKeyboardTarget,
         text: String,
-        spi: SkyLightSPI = .shared,
+        focus: SyntheticFocusControlling = SkyLightSPI.shared,
         sessionState: MacSessionStateProvider = SystemMacSessionStateProvider()
     ) throws -> SkyKeyboardDelivery {
-        try deliver(to: target, spi: spi, sessionState: sessionState) {
+        try deliver(to: target, focus: focus, sessionState: sessionState) {
             try InputSimulation.typeText(text, pid: target.pid)
+            return nil
         }
     }
 
@@ -201,24 +255,22 @@ enum SkyKeyboardDispatcher {
     static func pressKey(
         target: SkyKeyboardTarget,
         key: String,
-        spi: SkyLightSPI = .shared,
+        focus: SyntheticFocusControlling = SkyLightSPI.shared,
         sessionState: MacSessionStateProvider = SystemMacSessionStateProvider()
     ) throws -> SkyKeyboardDelivery {
         // Reject a bad key spec before touching the target's focus state.
         let parsed = try KeyPressParser.parse(key)
         let equivalent = skyMenuKeyEquivalent(for: parsed)
-        return try deliver(to: target, spi: spi, sessionState: sessionState) {
+        return try deliver(to: target, focus: focus, sessionState: sessionState) {
             if let equivalent {
                 switch menuItem(matching: equivalent, pid: target.pid) {
                 case let .match(item):
-                    let result = AXUIElementPerformAction(item, kAXPressAction as CFString)
-                    guard result == .success else {
-                        throw ComputerUseError.message(
-                            "sky_key could not press the menu item for '\(key)' (AXError \(result.rawValue))"
-                        )
-                    }
+                    let note = try skyMenuPressNote(
+                        result: AXUIElementPerformAction(item, kAXPressAction as CFString),
+                        key: key
+                    )
                     Thread.sleep(forTimeInterval: menuPressSettle)
-                    return
+                    return note
                 case .ambiguous:
                     throw ComputerUseError.message(
                         "sky_key found more than one enabled menu item for '\(key)' in the target app and pressed none of them."
@@ -233,14 +285,19 @@ enum SkyKeyboardDispatcher {
             }
 
             try InputSimulation.pressKey(key, pid: target.pid)
+            return nil
         }
     }
 
-    private static func deliver(
+    /// The delivery sequence around `body`, which sends the keys and returns a note when their effect is
+    /// unconfirmed. Every throw after the target became synthetic-active releases it again before rethrowing; a
+    /// failed release after a successful `body` is a warning, not an error, because the keys were already delivered.
+    static func deliver(
         to target: SkyKeyboardTarget,
-        spi: SkyLightSPI,
+        focus: SyntheticFocusControlling,
         sessionState: MacSessionStateProvider,
-        _ body: () throws -> Void
+        probes: SkyKeyboardDeliveryProbes = .live,
+        _ body: () throws -> String?
     ) throws -> SkyKeyboardDelivery {
         SkyLightSPI.syntheticFocusLock.lock()
         defer {
@@ -250,49 +307,53 @@ enum SkyKeyboardDispatcher {
         // Read under the lock, right before acting: waiting for another session's sequence can take a while.
         try requireUnlockedForSkyKey(sessionState.currentSnapshot())
 
-        guard spi.capability.isAvailable else {
+        let capability = focus.keyboardCapability
+        guard capability.isAvailable else {
             throw ComputerUseError.message(
-                "\(skyKeyMethodLabel) is unavailable: \(spi.capability.unavailableReason)"
+                "\(skyKeyMethodLabel) is unavailable: \(capability.unavailableReason)"
             )
         }
 
-        try validate(target: target)
+        try probes.validate(target)
 
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier == target.pid {
+        if probes.frontmostPID() == target.pid {
             // Making a window key here would change the user's own key window, so the snapshot's window must
             // already be key.
-            try requireTargetWindowIsKey(target, timeout: 0)
-            try body()
-            return SkyKeyboardDelivery(releaseWarning: nil)
+            try requireTargetWindowIsKey(target, timeout: 0, focusedWindowID: probes.focusedWindowID)
+            let note = try body()
+            return SkyKeyboardDelivery(releaseWarning: nil, outcomeNote: note)
         }
 
-        let focusContext = try spi.beginSyntheticTargetFocus(
+        let focusContext = try focus.beginSyntheticTargetFocus(
             targetPID: target.pid,
             targetWindowID: target.windowID,
             methodLabel: skyKeyMethodLabel
         )
+        let note: String?
         do {
-            try spi.makeSyntheticTargetWindowKey(focusContext)
+            try focus.makeSyntheticTargetWindowKey(focusContext)
             Thread.sleep(forTimeInterval: keyWindowSettle)
-            try requireTargetWindowIsKey(target, timeout: keyWindowConfirmTimeout)
-            try body()
+            try requireTargetWindowIsKey(
+                target, timeout: keyWindowConfirmTimeout, focusedWindowID: probes.focusedWindowID
+            )
+            note = try body()
             Thread.sleep(forTimeInterval: releaseSettle)
         } catch {
-            try? spi.endSyntheticTargetFocus(focusContext, methodLabel: skyKeyMethodLabel)
+            try? focus.endSyntheticTargetFocus(focusContext, methodLabel: skyKeyMethodLabel)
             throw error
         }
 
         do {
-            try spi.endSyntheticTargetFocus(focusContext, methodLabel: skyKeyMethodLabel)
+            try focus.endSyntheticTargetFocus(focusContext, methodLabel: skyKeyMethodLabel)
         } catch {
             let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             fputs("[open-computer-use] sky_key delivered the keys but could not release pid \(target.pid): \(reason)\n", stderr)
-            return SkyKeyboardDelivery(releaseWarning: reason)
+            return SkyKeyboardDelivery(releaseWarning: reason, outcomeNote: note)
         }
-        return SkyKeyboardDelivery(releaseWarning: nil)
+        return SkyKeyboardDelivery(releaseWarning: nil, outcomeNote: note)
     }
 
-    private static func validate(target: SkyKeyboardTarget) throws {
+    static func validate(target: SkyKeyboardTarget) throws {
         // A hidden app never makes its windows key, so keys would be silently dropped. Fail closed instead of
         // unhiding on the user's behalf.
         if NSRunningApplication(processIdentifier: target.pid)?.isHidden == true {
@@ -316,28 +377,53 @@ enum SkyKeyboardDispatcher {
                 "sky_key target window no longer exists or is no longer owned by the target app. Run get_app_state again."
             )
         }
+
+        // Checked before any record is posted: nobody has verified whether the activation or key-window records
+        // would restore a minimized window, which would be a visible change.
+        let windows = (copyValue(AXUIElementCreateApplication(target.pid), kAXWindowsAttribute) as? [AnyObject] ?? [])
+            .compactMap { accessibilityElement($0) }
+        let isMinimized = skyKeyWindowIsMinimized(
+            windows: windows,
+            windowID: target.windowID,
+            windowIDOf: accessibilityWindowID(of:),
+            isMinimized: { window in
+                AXUIElementSetMessagingTimeout(window, accessibilityMessagingTimeout)
+                return accessibilityWindowIsMinimized(window)
+            }
+        )
+        if isMinimized {
+            throw ComputerUseError.stateUnavailable(
+                "sky_key target window is minimized, so it sent no keys. Restore the window first; sky_key does not change window visibility."
+            )
+        }
     }
 
-    /// Fails closed unless the target app's focused window is the snapshot's window. A window that cannot become
-    /// key (a minimized window, one behind a modal sheet) would otherwise send the keys to whichever window of the
-    /// app is key, such as another document or a login sheet.
-    private static func requireTargetWindowIsKey(_ target: SkyKeyboardTarget, timeout: TimeInterval) throws {
+    /// Fails closed unless the target app's focused window is the snapshot's window. A window that does not become
+    /// key, for example because a separate dialog window of the same app holds key status, would otherwise send the
+    /// keys to whichever window of the app is key, such as another document or that dialog. A sheet attached to the
+    /// snapshot's window is part of that window in accessibility, so this check does not see it: keys sent while a
+    /// sheet is open go to the sheet.
+    private static func requireTargetWindowIsKey(
+        _ target: SkyKeyboardTarget,
+        timeout: TimeInterval,
+        focusedWindowID: (pid_t) -> CGWindowID?
+    ) throws {
         let deadline = ProcessInfo.processInfo.systemUptime + timeout
         while true {
-            if focusedWindowID(pid: target.pid) == target.windowID {
+            if focusedWindowID(target.pid) == target.windowID {
                 return
             }
             guard ProcessInfo.processInfo.systemUptime < deadline else {
                 throw ComputerUseError.stateUnavailable(
                     "sky_key could not make the snapshot's window the key window of the target app, so it sent no keys. "
-                        + "The window may be minimized or blocked by a sheet or dialog. Run get_app_state again."
+                        + "Another window of the app, such as a dialog, may hold key status. Run get_app_state again."
                 )
             }
             Thread.sleep(forTimeInterval: keyWindowPollInterval)
         }
     }
 
-    private static func focusedWindowID(pid: pid_t) -> CGWindowID? {
+    static func focusedWindowID(pid: pid_t) -> CGWindowID? {
         let application = AXUIElementCreateApplication(pid)
         guard let window = accessibilityElement(copyValue(application, kAXFocusedWindowAttribute)) else {
             return nil

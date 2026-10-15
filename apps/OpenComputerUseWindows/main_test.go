@@ -535,14 +535,16 @@ func TestWindowsKeyMethodSchemaAndUnsupportedSkyKey(t *testing.T) {
 		}
 	}
 
-	for input, want := range map[string]string{"": "auto", " AUTO ": "auto", " SKY_KEY ": "sky_key"} {
+	for input, want := range map[string]string{" AUTO ": "auto", " SKY_KEY ": "sky_key"} {
 		got, err := parseKeyMethod(input)
 		if err != nil || got != want {
 			t.Fatalf("parseKeyMethod(%q) = %q, %v", input, got, err)
 		}
 	}
-	if _, err := parseKeyMethod("global"); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, sky_key") {
-		t.Fatalf("parseKeyMethod(global) error = %v", err)
+	for _, input := range []string{"global", "", "   "} {
+		if _, err := parseKeyMethod(input); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, sky_key") {
+			t.Fatalf("parseKeyMethod(%q) error = %v", input, err)
+		}
 	}
 
 	service := newService()
@@ -570,8 +572,12 @@ func TestWindowsKeyMethodRejectsNonStringAndUnknownValues(t *testing.T) {
 			}
 		}
 	}
-	result := newService().callTool("type_text", map[string]any{"app": "Text Editor", "text": "x", "key_method": "fast"})
-	if !result.IsError || !strings.Contains(result.Content[0].Text, "Invalid key_method") {
-		t.Fatalf("unknown key_method result = %#v", result)
+	for _, value := range []string{"fast", "", "  "} {
+		for _, tool := range []string{"type_text", "press_key"} {
+			result := newService().callTool(tool, map[string]any{"app": "Text Editor", "text": "x", "key": "a", "key_method": value})
+			if !result.IsError || !strings.Contains(result.Content[0].Text, "Invalid key_method") {
+				t.Fatalf("%s key_method %q result = %#v", tool, value, result)
+			}
+		}
 	}
 }
