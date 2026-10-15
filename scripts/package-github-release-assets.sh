@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && /bin/pwd -P)"
 dist_dir="${repo_root}/dist"
 output_dir="${dist_dir}/release/github"
 requested_version=""
@@ -15,10 +15,11 @@ Packages already-built Open Computer Use runtimes and the repository skill as
 direct-download GitHub Release assets. Run scripts/release-package.sh when the
 native runtimes have not been built yet.
 
---output-dir is resolved against the repository root when relative, must stay
-inside the repository (never inside .git, the app bundle or the runtimes), and
-is only wiped when it is empty or was created by an earlier run of this script
-(it holds the .ocu-release-assets marker file).
+--output-dir is resolved against the repository root when relative and, after
+symlinks are resolved, must be a directory inside dist/release (the default
+dist/release/github included); anything else is refused. It is only wiped when it
+is empty or was created by an earlier run of this script (it holds the
+.ocu-release-assets marker file).
 EOF
 }
 
@@ -117,34 +118,24 @@ if [[ " ${app_archs} " != *" arm64 "* || " ${app_archs} " != *" x86_64 "* ]]; th
 fi
 codesign --verify --deep --strict "${app_path}"
 
-# The output directory is wiped before packaging, so refuse anything that is not
-# a strict subdirectory of the repository, anything containing parent-directory
-# segments, anything that is, contains or lies inside a build input (the app
-# bundle, the native runtimes or the staged skill), anything that is, contains or
-# lies inside the git directory, and any existing non-empty directory that this
-# script did not create (no marker file).
-path_is_within() {
-  local child="$1"
-  local parent="$2"
-  [[ "${child}" == "${parent}"/* ]]
-}
-
+# The output directory is wiped before packaging, so it is confined by an
+# allowlist: after symlinks are resolved it must lie strictly inside
+# <repository>/dist/release, which excludes the git directory, the app bundle,
+# the native runtimes and the staged skill by construction. An existing
+# non-empty directory is only wiped when this script created it (marker file).
 refuse_output_dir() {
   echo "Refusing --output-dir ${output_dir}: $1" >&2
   exit 1
 }
 
-canonical_repo_root="$(cd "${repo_root}" && pwd -P)"
-
 case "/${output_dir}/" in
   */../*|*/./*) refuse_output_dir "path must not contain . or .. segments" ;;
 esac
-if ! path_is_within "${output_dir%/}" "${repo_root}"; then
-  refuse_output_dir "path must be a subdirectory of ${repo_root}"
-fi
 
 # Resolve symlinks through the nearest existing ancestor before anything is
 # created, so a link inside the repository cannot redirect the output elsewhere.
+# /bin/pwd reports the case stored on disk, which the shell builtin does not on
+# a case-insensitive filesystem.
 missing_suffix=""
 existing_ancestor="${output_dir}"
 while [[ ! -e "${existing_ancestor}" ]]; do
@@ -157,38 +148,24 @@ done
 if [[ ! -d "${existing_ancestor}" ]]; then
   refuse_output_dir "${existing_ancestor} exists and is not a directory"
 fi
-canonical_output_dir="$(cd "${existing_ancestor}" && pwd -P)${missing_suffix}"
-if ! path_is_within "${canonical_output_dir}" "${canonical_repo_root}"; then
-  refuse_output_dir "resolves outside the repository"
+resolved_ancestor="$(cd "${existing_ancestor}" && /bin/pwd -P)" ||
+  refuse_output_dir "cannot resolve ${existing_ancestor}"
+canonical_output_dir="${resolved_ancestor}${missing_suffix}"
+
+release_root="${repo_root}/dist/release"
+if [[ "${canonical_output_dir}" != "${release_root}"/?* ]]; then
+  refuse_output_dir "it must resolve to a directory inside ${release_root}"
 fi
 
-# Refuse the git directory and anything inside it.
-canonical_git_dir="${canonical_repo_root}/.git"
-if [[ "${canonical_output_dir}" == "${canonical_git_dir}" ]] || path_is_within "${canonical_output_dir}" "${canonical_git_dir}"; then
-  refuse_output_dir "it is, or lies inside, the git directory"
-fi
-
-# The dist directory itself may hold the output (the default lives under it), so
-# it is only refused when it is, or lies inside, the output directory.
-canonical_dist_dir="$(cd "${dist_dir}" && pwd -P)"
-if [[ "${canonical_output_dir}" == "${canonical_dist_dir}" ]] || path_is_within "${canonical_dist_dir}" "${canonical_output_dir}"; then
-  refuse_output_dir "it is, or contains, the build directory ${dist_dir}"
-fi
-for build_input in "${app_path}" "${linux_arm64}" "${linux_amd64}" "${windows_arm64}" "${windows_amd64}" "${dist_dir}/skills"; do
-  canonical_input="$(cd "$(dirname "${build_input}")" && pwd -P)/$(basename "${build_input}")"
-  if [[ "${canonical_output_dir}" == "${canonical_input}" ]] ||
-    path_is_within "${canonical_input}" "${canonical_output_dir}" ||
-    path_is_within "${canonical_output_dir}" "${canonical_input}"; then
-    refuse_output_dir "it is, contains or lies inside the build input ${build_input}"
-  fi
-done
-
-# Only wipe a directory that is empty or that an earlier run created.
+# Only wipe a directory that is empty or that an earlier run created. A listing
+# failure (for example an unreadable directory) refuses instead of reading as empty.
 if [[ -e "${canonical_output_dir}" ]]; then
   if [[ ! -d "${canonical_output_dir}" ]]; then
     refuse_output_dir "it exists and is not a directory"
   fi
-  if [[ -n "$(ls -A "${canonical_output_dir}")" && ! -f "${canonical_output_dir}/${output_marker}" ]]; then
+  existing_entries="$(ls -A -- "${canonical_output_dir}")" ||
+    refuse_output_dir "it cannot be listed"
+  if [[ -n "${existing_entries}" && ! -f "${canonical_output_dir}/${output_marker}" ]]; then
     refuse_output_dir "it is not empty and was not created by this script (no ${output_marker} marker file)"
   fi
 fi
