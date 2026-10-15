@@ -64,4 +64,7 @@ archives. One publish job gated on every build job avoids a half-populated Relea
   `.Git/refs/tags`, `docs`, `Dist`, a differently cased app bundle path, `dist/linux/...`, `dist/windows/...`, a
   long-s spelling of the build directory, symlinks into `.git`, `docs`, outside the repository and the runtimes, and
   an unreadable directory is refused with contents intact. `./dist/release/x`, `dist/release/a/b` and the default
-  location work, and a second run into the same marked directory succeeds.
+  location work, and a second run into the same marked directory succeeds. Control characters (newlines included)
+  in `--output-dir` are refused and symlinked components are resolved before the allowlist check, so a crafted
+  newline argument through a symlink into `.git` and a planted directory with a trailing newline are both refused
+  with `.git/refs/tags` untouched; a symlinked `dist` or `dist/release` is refused as well.

@@ -128,6 +128,9 @@ refuse_output_dir() {
   exit 1
 }
 
+if [[ "${output_dir}" == *[[:cntrl:]]* ]]; then
+  refuse_output_dir "path must not contain control characters"
+fi
 case "/${output_dir}/" in
   */../*|*/./*) refuse_output_dir "path must not contain . or .. segments" ;;
 esac
@@ -142,18 +145,20 @@ while [[ ! -e "${existing_ancestor}" ]]; do
   if [[ -L "${existing_ancestor}" ]]; then
     refuse_output_dir "${existing_ancestor} is a dangling symlink"
   fi
-  missing_suffix="/$(basename "${existing_ancestor}")${missing_suffix}"
-  existing_ancestor="$(dirname "${existing_ancestor}")"
+  missing_suffix="/${existing_ancestor##*/}${missing_suffix}"
+  existing_ancestor="${existing_ancestor%/*}"
+  existing_ancestor="${existing_ancestor:-/}"
 done
 if [[ ! -d "${existing_ancestor}" ]]; then
   refuse_output_dir "${existing_ancestor} exists and is not a directory"
 fi
-resolved_ancestor="$(cd "${existing_ancestor}" && /bin/pwd -P)" ||
+resolved_ancestor="$(cd "${existing_ancestor}" && /bin/pwd -P && echo .)" ||
   refuse_output_dir "cannot resolve ${existing_ancestor}"
+resolved_ancestor="${resolved_ancestor%$'\n.'}"
 canonical_output_dir="${resolved_ancestor}${missing_suffix}"
 
 release_root="${repo_root}/dist/release"
-if [[ "${canonical_output_dir}" != "${release_root}"/?* ]]; then
+if [[ "${canonical_output_dir}" == *[[:cntrl:]]* || "${canonical_output_dir}" != "${release_root}"/?* ]]; then
   refuse_output_dir "it must resolve to a directory inside ${release_root}"
 fi
 
