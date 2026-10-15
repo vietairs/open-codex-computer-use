@@ -293,7 +293,8 @@ enum MacOSAppAgentProxy {
 
     /// `forwardingImageSettings` attaches the caller's screenshot settings (environment over config file over
     /// defaults), resolved and validated here in the calling host's own process. The config file path itself never
-    /// travels: the agent applies the values to this call and opens no file a caller names.
+    /// travels: the agent applies the values to this call and opens no screenshot config file a caller names (a proxied
+    /// `call --args-file` / `--calls-file` path is still read by the agent).
     private static func proxiedEnvironment(forwardingImageSettings: Bool) -> [String: String] {
         // The lock-screen opt-in is deliberately excluded from the per-call channel — it is fixed
         // at agent launch (see connectOrLaunchAgent) so a per-call client cannot forge it. The

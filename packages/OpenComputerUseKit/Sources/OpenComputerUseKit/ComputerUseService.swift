@@ -689,12 +689,21 @@ public final class ComputerUseService {
         try withImageConfig(ImageCaptureConfig.forwarded(environment: environment), body)
     }
 
+    /// Resolves the app a snapshot refresh targets. Tests replace it to observe or stop a refresh before any app
+    /// is looked up or touched.
+    private let appResolver: (String) throws -> RunningAppDescriptor
+
     public init() {
         sleepHandler = { Thread.sleep(forTimeInterval: $0) }
+        appResolver = { try AppDiscovery.resolve($0) }
     }
 
-    init(sleepHandler: @escaping OpenComputerUseSleepHandler) {
+    init(
+        sleepHandler: @escaping OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) },
+        appResolver: @escaping (String) throws -> RunningAppDescriptor = { try AppDiscovery.resolve($0) }
+    ) {
         self.sleepHandler = sleepHandler
+        self.appResolver = appResolver
     }
 
     public func listApps() -> ToolCallResult {
@@ -1561,7 +1570,7 @@ public final class ComputerUseService {
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
         capture: SnapshotCapturePolicy = .always
     ) throws -> AppSnapshot {
-        let app = try AppDiscovery.resolve(query)
+        let app = try appResolver(query)
         let snapshot = try SnapshotBuilder.build(
             for: app,
             textLimit: textLimit,

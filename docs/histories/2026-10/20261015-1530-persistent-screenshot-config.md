@@ -15,12 +15,12 @@ adapted to the fork's current code.
 - Screenshot encoding moved to `ScreenshotEncoding.swift`. The long-edge cap now applies even when it is far below the
   byte-cap floor (previously a cap that needed a scale under 0.25 skipped resizing). The fork's 900 KB result byte cap
   is kept for both formats. A screenshot omitted by the settings sets `AppSnapshot.screenshotNote`; `get_app_state`
-  adds the reason as text and coordinate `click` / `drag` are refused until one is delivered.
+  adds the reason as text and coordinate `click` / `drag` are refused while the newest snapshot carries the note.
 - `AppSnapshot.screenshotPNGData` became `screenshotData` (PNG or JPEG); a deprecated PNG-only accessor remains. Image
   content items choose the MIME type from the bytes.
 - App agent: the proxy, in the calling host's process, reads and validates the config and forwards only the validated
-  `OPEN_COMPUTER_USE_IMAGE_*` values, and only with calls that can take a screenshot. The agent never opens a path a
-  caller names (`OPEN_COMPUTER_USE_CONFIG_FILE` is dropped by `sanitizePeerEnvironment`), applies the values to the one
+  `OPEN_COMPUTER_USE_IMAGE_*` values, and only with calls that can take a screenshot. The agent never opens a config path a
+  caller names (`OPEN_COMPUTER_USE_CONFIG_FILE` is dropped by `sanitizePeerEnvironment`; a proxied `call --args-file` / `--calls-file` path is still read by the agent), applies the values to the one
   call through `ComputerUseService.withForwardedImageSettings`, ignores its own launch environment for them, and does
   not write them to its process environment. A call whose only per-call values are screenshot settings therefore takes
   no process-wide lock, as before the feature. The lock-screen and scripting opt-ins are untouched; `docs/SECURITY.md`

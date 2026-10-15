@@ -311,6 +311,46 @@ final class ImageCaptureConfigTests: XCTestCase {
         XCTAssertEqual(service.effectiveImageConfig, outside)
     }
 
+    /// The settings the agent applies come from the dispatcher: it must wrap the call in the forwarded settings, so a
+    /// relayed host gets its own values instead of the agent's launch environment or config file.
+    func testDispatcherAppliesTheForwardedSettingsToTheCallAndOnlyToIt() {
+        struct StopBeforeAnyApp: Error {}
+        struct Unlocked: MacSessionStateProvider {
+            func currentSnapshot() -> MacSessionSnapshot {
+                MacSessionSnapshot(isLocked: false, isUnknown: false, rawKeysSeen: ["CGSSessionScreenIsLocked"])
+            }
+        }
+        var seenDuringCall: [ImageCaptureConfig] = []
+        var service: ComputerUseService!
+        service = ComputerUseService(appResolver: { _ in
+            seenDuringCall.append(service.effectiveImageConfig)
+            throw StopBeforeAnyApp()
+        })
+        let dispatcher = ComputerUseToolDispatcher(service: service, guard: MacSessionGuard(provider: Unlocked()))
+        let processSettings = ImageCaptureConfig.current
+        XCTAssertNotEqual(processSettings.maxDimension, 777)
+
+        XCTAssertThrowsError(
+            try dispatcher.callTool(
+                name: "get_app_state",
+                arguments: ["app": "Anything"],
+                environment: [
+                    "OPEN_COMPUTER_USE_IMAGE_MAX_DIMENSION": "777",
+                    "OPEN_COMPUTER_USE_IMAGE_FORMAT": "jpg",
+                ]
+            )
+        )
+        XCTAssertEqual(seenDuringCall.count, 1)
+        XCTAssertEqual(seenDuringCall.first?.maxDimension, 777)
+        XCTAssertEqual(seenDuringCall.first?.format, .jpg)
+
+        // A call that carries no per-call environment uses the process's own settings, and the previous call's
+        // values did not stay behind.
+        XCTAssertThrowsError(try dispatcher.callTool(name: "get_app_state", arguments: ["app": "Anything"]))
+        XCTAssertEqual(seenDuringCall.count, 2)
+        XCTAssertEqual(seenDuringCall.last, processSettings)
+    }
+
     func testOnlyScreenshotTakingRequestsCarryTheSettings() {
         func line(_ tool: String) -> String {
             #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"\#(tool)","arguments":{}}}"#

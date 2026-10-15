@@ -8,7 +8,7 @@ import Darwin
 /// lock-screen or safety setting, and nothing read from it is executed.
 ///
 /// The config file is read only by the process that owns the calling host: the CLI, an in-process server, or
-/// the proxy that relays to the app agent. The agent never opens a path a caller names; it receives the
+/// the proxy that relays to the app agent. The agent never opens a config path a caller names; it receives the
 /// proxy's validated `OPEN_COMPUTER_USE_IMAGE_*` values with each call and applies them to that call alone.
 public enum OCUConfiguration {
     /// The per-call settings the proxy forwards to the app agent.

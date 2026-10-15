@@ -62,8 +62,8 @@ public enum MacSessionLockPolicy: String, Sendable {
     /// lock-screen opt-in is fixed at agent launch, because honoring a forged one would let any
     /// same-uid process drive apps while the Mac is locked. The scripting opt-in is read only by
     /// the relay from its own launch environment and never crosses the socket. The config file
-    /// path is resolved and read by the calling process, so the agent never opens a path a peer
-    /// names; the validated screenshot settings travel instead.
+    /// path is resolved and read by the calling process, so the agent never opens a config path a
+    /// peer names; the validated screenshot settings travel instead.
     public static func sanitizePeerEnvironment(_ environment: [String: String]) -> [String: String] {
         environment.filter { key, _ in
             key.hasPrefix("OPEN_COMPUTER_USE_")
