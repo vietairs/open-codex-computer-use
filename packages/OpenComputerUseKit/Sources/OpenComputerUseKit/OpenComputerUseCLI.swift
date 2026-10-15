@@ -85,6 +85,36 @@ public func openComputerUseCLIMayCaptureScreenshot(arguments: [String]) -> Bool 
     }
 }
 
+/// Rewrites a `call --args-file` / `--calls-file` command into its inline `--args` / `--calls` form by reading the file
+/// in the calling process. The proxy uses it so the app agent, whose working directory and file access differ from the
+/// caller's, never opens a path the caller names. Anything else, including a command that does not parse, is returned
+/// unchanged so the agent reports the same error the CLI would.
+public func inliningOpenComputerUseCallFiles(arguments: [String]) throws -> [String] {
+    guard let command = try? parseOpenComputerUseCLI(arguments: arguments), case let .call(invocation) = command else {
+        return arguments
+    }
+
+    switch invocation {
+    case let .single(toolName, _, argumentsFile?):
+        return ["call", toolName, "--args", try readOpenComputerUseCallFile(argumentsFile)]
+    case let .sequence(_, callsFile?, interCallDelay):
+        return ["call", "--calls", try readOpenComputerUseCallFile(callsFile), "--sleep", "\(interCallDelay)"]
+    default:
+        return arguments
+    }
+}
+
+private func readOpenComputerUseCallFile(_ path: String) throws -> String {
+    do {
+        return try String(contentsOfFile: path, encoding: .utf8)
+    } catch {
+        throw OpenComputerUseCLIError(
+            message: "Unable to read JSON file \(path): \(error.localizedDescription)",
+            helpCommand: "call"
+        )
+    }
+}
+
 public struct OpenComputerUseCLIError: LocalizedError, Equatable {
     public let message: String
     public let helpCommand: String?
