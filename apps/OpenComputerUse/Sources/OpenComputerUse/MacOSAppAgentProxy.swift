@@ -33,6 +33,9 @@ enum MacOSAppAgentProxy {
     @MainActor
     static func runProxy(command: OpenComputerUseCLICommand, arguments: [String]) throws -> Int32 {
         let socketPath = defaultSocketPath()
+        // A fresh start (a new host session or CLI call) is an explicit request for computer use,
+        // so it lifts an earlier menu Quit before launching the agent.
+        AppAgentQuitMarker.clear(forSocketPath: socketPath)
         let client = try connectOrLaunchAgent(socketPath: socketPath)
 
         switch command {
@@ -121,6 +124,16 @@ enum MacOSAppAgentProxy {
         throw OpenComputerUseCLIError(message: "Timed out waiting for Open Computer Use.app agent to start.")
     }
 
+    /// Reconnects after an agent loss. A user Quit from the status menu keeps computer use stopped
+    /// (no relaunch); a crash leaves no marker and relaunches, with the lock-screen opt-in off.
+    @MainActor
+    private static func reconnectAgent(socketPath: String) throws -> AppAgentSocketClient {
+        if AppAgentQuitMarker.exists(forSocketPath: socketPath) {
+            throw AppAgentQuitByUser()
+        }
+        return try connectOrLaunchAgent(socketPath: socketPath, allowLockedOptIn: false)
+    }
+
     /// Relays MCP lines to the shared app agent for the life of the host connection. When the agent
     /// dies mid-request the host gets an error reply for that request and the proxy stays up: the next
     /// line reconnects (relaunching the agent if needed), so one agent crash does not close every
@@ -136,8 +149,12 @@ enum MacOSAppAgentProxy {
             if client == nil {
                 if expectsReply {
                     do {
-                        // A relaunch must not inherit the lock-screen opt-in: fail closed after a crash.
-                        client = try connectOrLaunchAgent(socketPath: socketPath, allowLockedOptIn: false)
+                        client = try reconnectAgent(socketPath: socketPath)
+                    } catch is AppAgentQuitByUser {
+                        return AppAgentLossResponse.response(
+                            forRequestLine: line,
+                            message: AppAgentLossResponse.quitMessage
+                        )
                     } catch {
                         let reason = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
                         return AppAgentLossResponse.response(
@@ -166,7 +183,15 @@ enum MacOSAppAgentProxy {
                     return nil
                 }
                 // The write failed, so the agent never saw this line and one resend cannot duplicate it.
-                guard let fresh = try? connectOrLaunchAgent(socketPath: socketPath, allowLockedOptIn: false) else {
+                let fresh: AppAgentSocketClient
+                do {
+                    fresh = try reconnectAgent(socketPath: socketPath)
+                } catch is AppAgentQuitByUser {
+                    return AppAgentLossResponse.response(
+                        forRequestLine: line,
+                        message: AppAgentLossResponse.quitMessage
+                    )
+                } catch {
                     return AppAgentLossResponse.response(
                         forRequestLine: line,
                         message: AppAgentLossResponse.notDeliveredMessage
@@ -263,8 +288,8 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         menu.copyDiagnosticsAction = { [weak self] in
             self?.copyDiagnosticsToClipboard()
         }
-        menu.quitAction = {
-            NSApp.terminate(nil)
+        menu.quitAction = { [weak self] in
+            self?.quitFromMenu()
         }
         menu.install()
         statusMenu = menu
@@ -296,6 +321,14 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         ControlActivityStore.shared.unregisterConnection(connectionID)
         statusMenu?.uninstall()
         listener?.stop()
+    }
+
+    /// The status-menu Quit: record that the user stopped computer use so a proxy does not relaunch
+    /// this agent behind their back. Restart Agent and the `terminate` request (bundle eviction)
+    /// deliberately skip this, because both expect a relaunch.
+    private func quitFromMenu() {
+        AppAgentQuitMarker.write(forSocketPath: socketPath)
+        NSApp.terminate(nil)
     }
 
     private func restartAgent() {
@@ -606,6 +639,9 @@ private enum AppAgentEnvironment {
 private struct AppAgentConnectionLost: LocalizedError {
     var errorDescription: String? { "Open Computer Use.app agent closed the connection." }
 }
+
+/// The user quit Open Computer Use from its status menu, so the proxy must not relaunch the agent.
+private struct AppAgentQuitByUser: Error {}
 
 /// The request could not be written because the agent was already gone, so the agent never saw it.
 /// Unlike `AppAgentConnectionLost`, the call provably did not run and may be sent again.

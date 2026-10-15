@@ -15,6 +15,11 @@ public enum AppAgentLossResponse {
     public static let notDeliveredMessage =
         "The Open Computer Use app agent was not reachable. The call was NOT sent, so it did not take effect; try again."
 
+    /// The text a caller reads when the user quit Open Computer Use from its status menu. The proxy
+    /// does not relaunch the agent until the host starts a new session.
+    public static let quitMessage =
+        "Open Computer Use was quit from its menu; restart your MCP host/session to start it again."
+
     /// Whether `requestLine` carries a non-null id, i.e. the host waits for an answer. A line
     /// without one is a notification and is never answered.
     public static func expectsReply(requestLine: String) -> Bool {
