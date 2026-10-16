@@ -4,7 +4,7 @@ import Foundation
 import XCTest
 @testable import OpenComputerUseKit
 
-/// Opt-in live regression: a Chrome window on another Desktop can be snapshotted (tree and screenshot), clicked with
+/// Opt-in live regression: a Chrome window on another Desktop can be snapshotted (tree and screenshot), refused by
 /// `sky_click` and typed into with `sky_key` from the Desktop the user is on, without switching Spaces or activating
 /// Chrome.
 ///
@@ -32,7 +32,7 @@ final class CrossSpaceLiveTests: XCTestCase {
     /// How long the test waits for the user to switch Desktops.
     private static let desktopSwitchTimeout: TimeInterval = 60
 
-    func testWindowOnAnotherSpaceIsReadableClickableAndTypable() throws {
+    func testWindowOnAnotherSpaceIsReadableAndTypable() throws {
         guard ProcessInfo.processInfo.environment["OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST"] == "1" else {
             throw XCTSkip("Set OPEN_COMPUTER_USE_RUN_CROSS_SPACE_LIVE_TEST=1 to run the cross-Space live test")
         }
@@ -165,25 +165,33 @@ final class CrossSpaceLiveTests: XCTestCase {
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid, "the snapshot must not activate Chrome")
 
         let windowPoint = CGPoint(x: parked.bounds.width / 2, y: parked.bounds.height - 60)
-        try SkyClickDispatcher.click(
-            target: SkyClickTarget(
-                screenPoint: CGPoint(x: parked.bounds.minX + windowPoint.x, y: parked.bounds.minY + windowPoint.y),
-                windowPoint: windowPoint,
-                windowBounds: parked.bounds,
-                windowID: window.id,
-                pid: window.pid
-            ),
-            clickCount: 1,
-            spi: spi
-        )
-        _ = try LiveWindowTestSupport.waitForWindow(pid: window.pid, nameContaining: "clicks=1", onScreenOnly: false)
+        // Accessibility does not list windows of another Desktop, so their minimized state cannot be confirmed and
+        // sky_click fails closed instead of guessing.
+        XCTAssertThrowsError(
+            try SkyClickDispatcher.click(
+                target: SkyClickTarget(
+                    screenPoint: CGPoint(x: parked.bounds.minX + windowPoint.x, y: parked.bounds.minY + windowPoint.y),
+                    windowPoint: windowPoint,
+                    windowBounds: parked.bounds,
+                    windowID: window.id,
+                    pid: window.pid
+                ),
+                clickCount: 1,
+                spi: spi
+            )
+        ) { error in
+            XCTAssertTrue(
+                "\(error)".contains("could not confirm that it is not minimized"),
+                "sky_click must refuse a window it cannot confirm is not minimized, got \(error)"
+            )
+        }
 
         let target = SkyKeyboardTarget(windowID: window.id, pid: window.pid)
         try SkyKeyboardDispatcher.typeText(target: target, text: "s2")
         try SkyKeyboardDispatcher.pressKey(target: target, key: "cmd+a")
         try SkyKeyboardDispatcher.typeText(target: target, text: "Ok")
         let typed = try LiveWindowTestSupport.waitForWindow(pid: window.pid, nameContaining: "ocu-space-Ok|", onScreenOnly: false)
-        XCTAssertTrue(typed.name.hasPrefix("ocu-space-Ok|clicks=1|"), "sky_key must type and select-all on the window, got \(typed.name)")
+        XCTAssertTrue(typed.name.hasPrefix("ocu-space-Ok|clicks=0|"), "sky_key must type and select-all on the window, got \(typed.name)")
 
         XCTAssertEqual(activeSpace(connection), homeSpace, "actions must not switch Spaces")
         XCTAssertNotEqual(NSWorkspace.shared.frontmostApplication?.processIdentifier, window.pid, "actions must not activate Chrome")

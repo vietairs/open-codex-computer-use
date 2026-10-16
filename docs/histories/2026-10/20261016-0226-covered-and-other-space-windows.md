@@ -20,7 +20,7 @@ Port upstream's covered and other-Space window support into the fork, adapted to
 
 A code review of the branch found gaps between the code and its own docs. Changes:
 
-- Capture is Space-aware. Windows on another Desktop also report `kCGWindowIsOnscreen`, so an on-screen window is captured under the lock-screen opt-in only when it is positively on the current Space; on another Space, or when the Space cannot be read, it needs a strictly unlocked session. ScreenCaptureKit lists every window only while strictly unlocked. `CrossSpaceLiveTests` now records the on-screen flag of the parked window.
+- Capture is Space-aware. Windows on another Desktop may report `kCGWindowIsOnscreen`, so an on-screen window is captured under the lock-screen opt-in only when it is positively on the current Space; on another Space, or when the Space cannot be read, it needs a strictly unlocked session. ScreenCaptureKit lists every window only while strictly unlocked. `CrossSpaceLiveTests` now records the on-screen flag of the parked window.
 - `sky_click` refuses a window reported off screen unless accessibility positively reads it as not minimized (the minimized read is now tri-state), and, when the target app is frontmost, refuses unless the snapshot's window is already the app's focused window on the current Space. Its checks run through `SkyClickValidationProbes`, so unit tests drive each refusal with an injected session state.
 - `decide_next_action` and the one-shot CLI `snapshot` and `call` commands pin nothing, so `decide_next_action` keeps `readOnlyHint`.
 - Screen lock: the observer is registered with `.deliverImmediately`, and a background lock-state check every two seconds while a pin exists covers the plain stdio server, whose main run loop never runs.
