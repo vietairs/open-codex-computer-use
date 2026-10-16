@@ -113,6 +113,16 @@ On macOS, action results are text-only by default; add `include_screenshot: true
 
 Under Stage Manager, a macOS window that is off stage (shown in the left strip) has no screenshot: `get_app_state` and action results return the full accessibility tree plus a note saying so, `element_index` actions still work, and x/y `click` / `drag` fail with an error. The server never switches stages or activates the app to fix this; bring the window on stage yourself if you need a screenshot or coordinates.
 
+## Covered and Other-Space Windows (macOS)
+
+`get_app_state` can read a window that the user covers with another window or that sits on another Space (Desktop):
+
+- When a state is read while the window is visible to its app (on screen, on the current Space, not minimized, app not hidden, Mac unlocked), the window stays visible to its app for the rest of the session: Chrome, Electron and Safari keep the page rendered and its content in the tree after the user covers the window or switches Desktop. Nothing is activated, raised or moved; the window is released when the session ends.
+- A window on another Desktop is captured for the screenshot while the Mac is unlocked.
+- Chrome, Electron and other Chromium-based apps build their page tree only after the first request; `get_app_state` waits up to three seconds for it while the window is visible. Action results do not wait.
+- A Chromium-based window that was already covered, minimized or on another Desktop when first read has no page content; the result says so. Bring the window into view once and call `get_app_state` again; covering it afterwards keeps working.
+- `sky_click` and `sky_key` work on a covered or other-Space window of the latest state, as long as its app is not the frontmost app; in the frontmost app they only target the window that is already focused (and, for `sky_click`, on the current Desktop).
+
 ## Larger Tree Budgets
 
 Accessibility tree rendering defaults to 1200 nodes and 64 levels on macOS, Linux, and Windows. This keeps normal snapshots bounded while preserving most interactive UI.
@@ -141,7 +151,7 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 
 - `accessibility`: only invoke the element's accessibility action and require `element_index`.
 - `app_post`: bypass accessibility and post a mouse event directly to the target app/window without moving the system pointer. Supported on macOS and Windows.
-- `sky_click`: use the macOS private SkyLight background-window path with target-only synthetic focus and a Chromium primer click. It supports left single/double click on a current, on-screen window in the same Space and does not move the system pointer, deactivate the foreground app, change its key/first-responder state, or raise the target window. Its action-result snapshot refresh is read-only. Supported on macOS only.
+- `sky_click`: use the macOS private SkyLight background-window path with target-only synthetic focus and a Chromium primer click. It supports left single/double click on the window of the latest state, also when that window is covered or on another Space, and does not move the system pointer, deactivate the foreground app, change its key/first-responder state, or raise the target window. Its action-result snapshot refresh is read-only. Supported on macOS only.
 - `global`: bypass accessibility and use the desktop's global pointer path. Supported on macOS and Linux, and requires `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` because it may move the real pointer or change foreground focus.
 
 Use `app_post` for an exact blank-area or overlay click that must not be redirected to an accessibility descendant:
@@ -150,14 +160,14 @@ Use `app_post` for an exact blank-area or overlay click that must not be redirec
 open-computer-use call click --args '{"app":"Google Chrome","x":875,"y":375,"click_method":"app_post"}'
 ```
 
-Use `sky_click` when Chromium ignores `app_post` and the current target window is covered by another window:
+Use `sky_click` when Chromium ignores `app_post` and the target window is covered by another window or on another Space:
 
 ```sh
 open-computer-use call get_app_state --args '{"app":"Google Chrome"}'
 open-computer-use call click --args '{"app":"Google Chrome","x":875,"y":375,"click_method":"sky_click"}'
 ```
 
-Run `get_app_state` again after the target window moves, closes, changes Space, becomes hidden, or is minimized. `sky_click` is an explicit private-SPI mode: unavailable symbols, a stale window id, unsupported button/count, or failed delivery return an error without falling back to another click implementation.
+Run `get_app_state` again after the target window moves, closes, changes Space, becomes hidden, or is minimized. `sky_click` is an explicit private-SPI mode: unavailable symbols, a stale window id, a hidden app, a minimized window, a Stage Manager off-stage window, unsupported button/count, or failed delivery return an error without falling back to another click implementation. A window that is not on screen on the current Space is clicked only while the Mac is unlocked, even with `OPEN_COMPUTER_USE_ALLOW_LOCKED=1`. When the target app is frontmost, `sky_click` refuses unless the snapshot's window is already its focused window on the current Desktop; use the default click method there. The visual cursor is drawn at the window's screen position, which may be over the covering window or on the current Space.
 
 Use `global` only after explicitly enabling the process-level safety gate:
 

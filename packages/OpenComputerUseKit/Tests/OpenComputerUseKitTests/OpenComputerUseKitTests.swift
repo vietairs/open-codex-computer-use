@@ -737,10 +737,9 @@ final class OpenComputerUseKitTests: XCTestCase {
             tools["click"]?.annotations["destructiveHint"] as? Bool,
             false
         )
-        XCTAssertEqual(
-            tools["get_app_state"]?.annotations["readOnlyHint"] as? Bool,
-            true
-        )
+        // get_app_state pins the window's visible state on macOS, a write on another app's window.
+        XCTAssertNil(tools["get_app_state"]?.annotations["readOnlyHint"])
+        XCTAssertEqual(tools["get_app_state"]?.annotations["destructiveHint"] as? Bool, false)
         XCTAssertEqual(
             tools["click"]?.inputSchema["additionalProperties"] as? Bool,
             false
@@ -2280,7 +2279,7 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
-    func testSkyClickWindowValidationRequiresMatchingOnScreenOwner() {
+    func testSkyClickWindowValidationRequiresMatchingOwnerOnAnySpace() {
         let matching: [String: Any] = [
             kCGWindowNumber as String: NSNumber(value: UInt32(321)),
             kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
@@ -2296,11 +2295,19 @@ final class OpenComputerUseKitTests: XCTestCase {
             skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1235)
         )
 
+        // Covered and other-Space windows are valid targets; the owner check is what matters.
         var offScreen = matching
         offScreen[kCGWindowIsOnscreen as String] = NSNumber(value: false)
-        XCTAssertFalse(
+        XCTAssertTrue(
             skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234)
         )
+    }
+
+    func testSkyClickNeedsAStrictUnlockOffTheCurrentSpace() {
+        XCTAssertFalse(skyClickRequiresStrictUnlock(isOnscreen: true, isOnCurrentSpace: true))
+        XCTAssertTrue(skyClickRequiresStrictUnlock(isOnscreen: true, isOnCurrentSpace: false))
+        XCTAssertTrue(skyClickRequiresStrictUnlock(isOnscreen: true, isOnCurrentSpace: nil), "an unreadable Space fails closed")
+        XCTAssertTrue(skyClickRequiresStrictUnlock(isOnscreen: false, isOnCurrentSpace: true))
     }
 
     func testSkyLightCapabilityReportsMissingSymbols() {

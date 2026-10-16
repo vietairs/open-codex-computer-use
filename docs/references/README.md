@@ -25,3 +25,5 @@ Don't dump large chunks of vendor docs in here verbatim. This should be curated,
   - Sources for the `click_method=sky_click` write-up and open-source implementation, the pinned source version, the Chromium primer event sequence, scope not adopted, and macOS private-SPI compatibility checks.
 - `macos-skylight-background-keyboard.md`
   - How `key_method=sky_key` types into a covered Chromium / Electron window: the key-window record pair, the accessibility key-window confirmation, the bounded menu-bar walk for command chords, the live findings, the approaches ruled out, and compatibility checks.
+- `macos-window-visibility-and-spaces.md`
+  - Why covered and other-Space Chromium / Electron / WebKit windows lose their web tree (WindowServer occlusion, not the Space), how the `get_app_state` keep-alive pins a window's visible state and restores it, other-Space and hardware window capture, the Chromium lazy web tree wait, `sky_click` / `sky_key` on such windows, and the macOS version gate.

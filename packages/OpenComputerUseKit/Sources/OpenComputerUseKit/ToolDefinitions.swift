@@ -73,7 +73,7 @@ public enum ToolDefinitions {
         ToolDefinition(
             name: "get_app_state",
             description: "Start an app use session if needed, then get the state of the app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
-            annotations: readOnlyAnnotations(),
+            annotations: appStateAnnotations(),
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
@@ -268,6 +268,16 @@ private func objectSchema(properties: [String: Any], required: [String]) -> [Str
 private func defaultAnnotations() -> [String: Any] {
     [
         "destructiveHint": false,
+        "openWorldHint": false,
+    ]
+}
+
+/// `get_app_state` reads the app, but on macOS it also pins the snapshot window's visible state for the session (see
+/// `WindowOcclusionKeepAlive`), a WindowServer write on another app's window, so it does not claim `readOnlyHint`.
+private func appStateAnnotations() -> [String: Any] {
+    [
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false,
     ]
 }

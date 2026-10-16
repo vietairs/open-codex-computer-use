@@ -91,7 +91,8 @@ func mergeElementSearchHits(
             elements: cached.elements.merging(hitsByIndex, uniquingKeysWith: { _, hit in hit }),
             windowContentIsEmpty: cached.windowContentIsEmpty,
             isOffStage: cached.isOffStage,
-            screenshotNote: cached.screenshotNote
+            screenshotNote: cached.screenshotNote,
+            hiddenWebContentNote: cached.hiddenWebContentNote
         )
     }
 

@@ -46,6 +46,7 @@ enum OpenComputerUseMain {
                     try MCPAppRuntime.run(server: server)
                 }
             } else {
+                defer { server.endSession() }
                 try LocalChannelRouter().run { server.handle(line: $0) }
             }
         case let .doctor(json):
@@ -58,7 +59,7 @@ enum OpenComputerUseMain {
             let service = ComputerUseService()
             print(service.listApps().primaryText ?? "")
         case let .snapshot(app, textLimit, treeLimits):
-            let service = ComputerUseService()
+            let service = ComputerUseService(keepsSnapshotWindowsVisible: false)
             print(try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits).primaryText ?? "")
         case let .call(invocation):
             if VisualCursorSupport.isEnabled {

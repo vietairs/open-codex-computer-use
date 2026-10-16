@@ -44,17 +44,6 @@ func skyMenuPressNote(result: AXError, key: String) throws -> String? {
     }
 }
 
-/// Pure. Whether the AX window with `windowID` reports itself minimized. A window that is not among `windows` reads
-/// as not minimized; the key-window confirmation still refuses a window that does not become key.
-func skyKeyWindowIsMinimized<Window>(
-    windows: [Window],
-    windowID: CGWindowID,
-    windowIDOf: (Window) -> CGWindowID?,
-    isMinimized: (Window) -> Bool
-) -> Bool {
-    windows.contains { windowIDOf($0) == windowID && isMinimized($0) }
-}
-
 /// The live reads `SkyKeyboardDispatcher.deliver` makes around the synthetic-focus calls. Production always uses
 /// `.live`; unit tests replace them to drive each path of the delivery sequence.
 struct SkyKeyboardDeliveryProbes {
@@ -73,17 +62,10 @@ struct SkyKeyboardDeliveryProbes {
     }
 }
 
-/// `sky_key` refuses whenever the screen is locked or its lock state is unknown. `OPEN_COMPUTER_USE_ALLOW_LOCKED`
-/// does not change this: the opt-in covers accessibility and pid-posted input only, and nobody has verified what
-/// synthetic activation and key-window records do while the login window owns the screen.
+/// `sky_key` refuses whenever the screen is locked or its lock state is unknown, whatever
+/// `OPEN_COMPUTER_USE_ALLOW_LOCKED` says (see `requireStrictlyUnlocked`).
 func requireUnlockedForSkyKey(_ snapshot: MacSessionSnapshot) throws {
-    guard snapshot.isLocked || snapshot.isUnknown else {
-        return
-    }
-    throw ComputerUseError.stateUnavailable(
-        "key_method 'sky_key' cannot run while macOS is locked or its lock state is unknown, even when "
-            + "\(MacSessionLockPolicy.environmentKey) is set. Unlock the Mac and retry."
-    )
+    try requireStrictlyUnlocked(snapshot, subject: skyKeyMethodLabel)
 }
 
 /// A command chord expressed the way AppKit menus advertise their key equivalents: `AXMenuItemCmdChar` plus the
@@ -196,25 +178,15 @@ func skyFindMenuItem<Element>(
     return .match(found)
 }
 
-/// Owner check for keyboard targets. Unlike `sky_click`, the window does not need to be on-screen: keyboard
-/// delivery is process-addressed, so a window on another Space is a valid target as long as it still exists and
-/// belongs to the snapshot's process.
+/// Owner check for keyboard targets. The window does not need to be on-screen: keyboard delivery is
+/// process-addressed, so a window on another Space is a valid target as long as it still exists and belongs to the
+/// snapshot's process.
 func skyKeyWindowMatchesTarget(
     windowInfo: [[String: Any]],
     windowID: CGWindowID,
     pid: pid_t
 ) -> Bool {
-    windowInfo.contains { info in
-        guard
-            let number = info[kCGWindowNumber as String] as? NSNumber,
-            number.uint32Value == windowID,
-            let ownerPID = info[kCGWindowOwnerPID as String] as? NSNumber
-        else {
-            return false
-        }
-
-        return ownerPID.int32Value == pid
-    }
+    skyLightTargetWindowEntry(windowInfo: windowInfo, windowID: windowID, pid: pid) != nil
 }
 
 /// `sky_key`: deliver keyboard input to a background window without changing the real foreground app.
@@ -354,48 +326,7 @@ enum SkyKeyboardDispatcher {
     }
 
     static func validate(target: SkyKeyboardTarget) throws {
-        // A hidden app never makes its windows key, so keys would be silently dropped. Fail closed instead of
-        // unhiding on the user's behalf.
-        if NSRunningApplication(processIdentifier: target.pid)?.isHidden == true {
-            throw ComputerUseError.stateUnavailable(
-                "sky_key target app is hidden. Unhide it first; sky_key does not change window visibility."
-            )
-        }
-
-        // `.optionAll`, not `.optionIncludingWindow`: the latter omits windows that are off-screen (hidden app,
-        // minimized, or on another Space).
-        let windowInfo = CGWindowListCopyWindowInfo(
-            [.optionAll],
-            kCGNullWindowID
-        ) as? [[String: Any]] ?? []
-        guard skyKeyWindowMatchesTarget(
-            windowInfo: windowInfo,
-            windowID: target.windowID,
-            pid: target.pid
-        ) else {
-            throw ComputerUseError.stateUnavailable(
-                "sky_key target window no longer exists or is no longer owned by the target app. Run get_app_state again."
-            )
-        }
-
-        // Checked before any record is posted: nobody has verified whether the activation or key-window records
-        // would restore a minimized window, which would be a visible change.
-        let windows = (copyValue(AXUIElementCreateApplication(target.pid), kAXWindowsAttribute) as? [AnyObject] ?? [])
-            .compactMap { accessibilityElement($0) }
-        let isMinimized = skyKeyWindowIsMinimized(
-            windows: windows,
-            windowID: target.windowID,
-            windowIDOf: accessibilityWindowID(of:),
-            isMinimized: { window in
-                AXUIElementSetMessagingTimeout(window, accessibilityMessagingTimeout)
-                return accessibilityWindowIsMinimized(window)
-            }
-        )
-        if isMinimized {
-            throw ComputerUseError.stateUnavailable(
-                "sky_key target window is minimized, so it sent no keys. Restore the window first; sky_key does not change window visibility."
-            )
-        }
+        try validateSkyLightTargetWindow(windowID: target.windowID, pid: target.pid, methodName: "sky_key")
     }
 
     /// Fails closed unless the target app's focused window is the snapshot's window. A window that does not become
@@ -467,21 +398,11 @@ enum SkyKeyboardDispatcher {
         (copyValue(element, kAXChildrenAttribute) as? [AnyObject] ?? []).compactMap { accessibilityElement($0) }
     }
 
-    /// The value as an `AXUIElement`, or nil when the target app returned anything else. The CF type is checked
-    /// first, because the value comes from another process and a wrong type must not crash the shared agent.
     private static func accessibilityElement(_ value: CFTypeRef?) -> AXUIElement? {
-        guard let value, CFGetTypeID(value) == AXUIElementGetTypeID() else {
-            return nil
-        }
-        return unsafeDowncast(value, to: AXUIElement.self)
+        skyLightAccessibilityElement(value)
     }
 
     private static func copyValue(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {
-        AXUIElementSetMessagingTimeout(element, accessibilityMessagingTimeout)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &value) == .success else {
-            return nil
-        }
-        return value
+        skyLightCopyValue(element, attribute)
     }
 }

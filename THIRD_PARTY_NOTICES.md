@@ -32,7 +32,7 @@ SOFTWARE.
 
 ## yabai
 
-The macOS focus-without-raise event-record pattern is derived from yabai:
+The macOS focus-without-raise event-record pattern, and the declarations of the SkyLight Space and hardware window capture calls (`SLSCopySpacesForWindows`, `SLSCopyManagedDisplaySpaces`, `SLSHWCaptureWindowList`), are derived from yabai:
 
 - Project: https://github.com/asmvik/yabai
 - Source revision: `dd845723416f5fe92af49fad5ebab00369e07edd`

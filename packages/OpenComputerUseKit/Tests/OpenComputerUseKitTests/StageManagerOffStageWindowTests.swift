@@ -59,8 +59,8 @@ final class StageManagerOffStageWindowTests: XCTestCase {
 
     func testOffStageWindowIsNeverCapturedWhateverThePolicy() {
         for policy in [SnapshotCapturePolicy.always, .whenTreeEmpty, .never] {
-            XCTAssertEqual(windowImageCaptureTiming(policy: policy, isOnscreen: true, isOffStage: true), .skip)
-            XCTAssertEqual(windowImageCaptureTiming(policy: policy, isOnscreen: false, isOffStage: true), .skip)
+            XCTAssertEqual(windowImageCaptureTiming(policy: policy, isCapturable: true, isOffStage: true), .skip)
+            XCTAssertEqual(windowImageCaptureTiming(policy: policy, isCapturable: false, isOffStage: true), .skip)
         }
     }
 

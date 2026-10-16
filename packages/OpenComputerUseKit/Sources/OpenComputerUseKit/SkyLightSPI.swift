@@ -93,8 +93,9 @@ struct SkyLightSPICapability: Equatable, Sendable {
 ///
 /// The declarations, event-field recipe and key-window records are derived
 /// from the MIT-licensed Cua Driver and yabai implementations. Keep all
-/// undocumented ABI in this file so a future macOS compatibility change has
-/// one review boundary.
+/// undocumented input ABI in this file, and the WindowServer state and capture
+/// calls in `SkyLightWindowServerSPI.swift`, so a future macOS compatibility
+/// change has two small review boundaries.
 final class SkyLightSPI: @unchecked Sendable {
     static let shared = SkyLightSPI()
 
