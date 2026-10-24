@@ -16,10 +16,10 @@ On macOS versions earlier than 14.0, npm installation may succeed but the bundle
 
 ## Install The CLI
 
-Use npm:
+Use pnpm:
 
 ```sh
-npm install -g @vietairs/open-computer-use
+pnpm add -g @vietairs/open-computer-use
 ```
 
 Verify:
@@ -35,7 +35,7 @@ Supported npm packages expose `ocu` as the short alias. If it is unavailable, us
 If the package is already installed and the user asks to update it:
 
 ```sh
-npm install -g @vietairs/open-computer-use@latest
+pnpm add -g @vietairs/open-computer-use@latest
 ```
 
 ## macOS Permissions
@@ -89,21 +89,21 @@ For any other MCP client, add a stdio server manually:
 Install the skill for Codex:
 
 ```sh
-npx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
-npx skills ls -g -a codex | rg 'open-computer-use'
+pnpm dlx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
+pnpm dlx skills ls -g -a codex | rg 'open-computer-use'
 ```
 
 Install the skill for Claude Code:
 
 ```sh
-npx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+pnpm dlx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
 ```
 
 Update an existing global skill install:
 
 ```sh
-npx skills update open-computer-use -g -y
-npx skills upgrade open-computer-use -g -y
+pnpm dlx skills update open-computer-use -g -y
+pnpm dlx skills upgrade open-computer-use -g -y
 ```
 
 ## Verification

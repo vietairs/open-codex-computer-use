@@ -54,11 +54,12 @@ For unattended agents (Claude Code, Codex) that must keep working while the scre
 ## Quick Start
 
 ```bash
-npm i -g @vietairs/open-computer-use
+pnpm add -g @vietairs/open-computer-use
 ```
 
 The package also exposes `ocu` as the short CLI alias. To update later, run
-`npm i -g @vietairs/open-computer-use@latest`.
+`pnpm add -g @vietairs/open-computer-use@latest`. The package is published on npm, so
+`npm i -g @vietairs/open-computer-use` works too.
 
 > [!IMPORTANT]
 > The macOS runtime requires macOS 14.0 or later.
@@ -97,20 +98,20 @@ Install the skill directly:
 
 ```bash
 # Install for Codex
-npx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
-npx skills ls -g -a codex | rg 'open-computer-use'
+pnpm dlx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
+pnpm dlx skills ls -g -a codex | rg 'open-computer-use'
 ```
 
 Install for Claude Code:
 
 ```bash
-npx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+pnpm dlx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
 ```
 
 Update an existing global install, including the Codex install created above:
 
 ```bash
-npx skills update open-computer-use -g -y
+pnpm dlx skills update open-computer-use -g -y
 ```
 
 You can also manually download and install the

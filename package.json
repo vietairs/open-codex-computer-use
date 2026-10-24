@@ -1,6 +1,7 @@
 {
   "name": "open-computer-use-repo-tools",
   "private": true,
+  "packageManager": "pnpm@11.17.0",
   "type": "module",
   "scripts": {
     "npm:build": "node ./scripts/npm/build-packages.mjs",

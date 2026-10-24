@@ -379,7 +379,7 @@ function resolveNativeExecutable() {
     fail(\`Missing bundled native runtime for \${platformKey} at \${executablePath}.
 
 Reinstall with:
-  npm install -g ${packageName}\`);
+  pnpm add -g ${packageName}\`);
   }
 
   return executablePath;
@@ -479,7 +479,7 @@ Global command aliases:
 ## Install
 
 \`\`\`bash
-npm install -g ${packageName}
+pnpm add -g ${packageName}
 \`\`\`
 
 The root launcher resolves the current \`process.platform\` / \`process.arch\` pair and runs the matching bundled native runtime.

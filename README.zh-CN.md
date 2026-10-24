@@ -44,11 +44,12 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 ## Quick Start
 
 ```bash
-npm i -g @vietairs/open-computer-use
+pnpm add -g @vietairs/open-computer-use
 ```
 
 该包安装后也会同时提供短命令 `ocu`。之后如需更新，运行
-`npm i -g @vietairs/open-computer-use@latest`。
+`pnpm add -g @vietairs/open-computer-use@latest`。该包发布在 npm,
+也可使用 `npm i -g @vietairs/open-computer-use` 安装。
 
 > [!IMPORTANT]
 > macOS 运行环境要求 macOS 14.0 或更高版本。
@@ -87,19 +88,19 @@ ocu install-codex-mcp
 
 ```bash
 # 安装到 Codex
-npx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
-npx skills ls -g -a codex | rg 'open-computer-use'
+pnpm dlx skills add vietairs/open-codex-computer-use -g -a codex --skill open-computer-use -y
+pnpm dlx skills ls -g -a codex | rg 'open-computer-use'
 ```
 
 安装到 Claude Code
 ```
-npx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+pnpm dlx skills add vietairs/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
 ```
 
 更新已有的全局安装，包括上面安装到 Codex 的那份：
 
 ```bash
-npx skills update open-computer-use -g -y
+pnpm dlx skills update open-computer-use -g -y
 ```
 
 也可以手动下载 [`open-computer-use` skill](./skills/open-computer-use) 安装

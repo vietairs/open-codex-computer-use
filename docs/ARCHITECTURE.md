@@ -203,7 +203,7 @@ Three new modules were added, coordinated uniformly by `ComputerUseToolDispatche
 - permission onboarding end-to-end regression: `./scripts/run-permission-onboarding-e2e.sh` (requires the current macOS to have already granted Accessibility and Screen Recording to the `open-computer-use` under test; by default the app-agent proxy is disabled to test the current CLI's runtime state — the CLI under test can be specified with `OPEN_COMPUTER_USE_E2E_CLI=/path/to/open-computer-use`, or the default proxy behavior can be explicitly overridden with `OPEN_COMPUTER_USE_E2E_DISABLE_APP_AGENT_PROXY=0`)
 - npm staging: `node ./scripts/npm/build-packages.mjs`
 - release tgz: `./scripts/release-package.sh`
-- skill packaging: `npm run package:skill`
+- skill packaging: `pnpm run package:skill`
 - Windows runtime unit tests: `(cd apps/OpenComputerUseWindows && go test ./...)`
 - Windows exe build: `./scripts/build-open-computer-use-windows.sh --arch arm64`
 - Linux runtime unit tests: `(cd apps/OpenComputerUseLinux && go test ./...)`
